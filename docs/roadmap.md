@@ -80,11 +80,11 @@ device-transport MessagePassing forward/reverse VJP binding 已完成；这不�
 
 ### C0/P0 — hosted reproducibility and release
 
-本地已使用校验 SHA256 的官方 LLVM/MLIR 22.1.8 SDK 完成 clean build、53/53 lit、200 个
+本地已使用校验 SHA256 的官方 LLVM/MLIR 22.1.8 SDK 完成 clean build、53/53 lit、206 个
 Python tests、strict docs、manylinux_2_38 wheel audit、无 Torch smoke 和 sdist→wheel rebuild。
-workflow 同样执行这些门槛，并覆盖 CPython 3.10–3.12 的 Linux/macOS wheel。仍不能由本机替代的
-是首次受信 hosted run、PyPI trusted-publishing environment，以及由维护者确认 repository URL
-和 maintainer metadata。
+hosted compiler run `31793915112` 的 clean-build 与独立 Torch compatibility jobs 均已通过。
+仍不能由本机替代的是完整 CPython 3.10–3.12 Linux/macOS release matrix、PyPI
+trusted-publishing environment，以及由维护者确认 repository URL 和 maintainer metadata。
 
 ### B0/B1/B2 — vendor plugins
 
@@ -97,8 +97,8 @@ ABI/conformance 已就绪，但厂商 toolchain 与真机不是当前工作区�
 - 当前 N=131072/degree-tail{8,64,256} 的 power-law 已覆盖 i32/i64、local/random、hot/cold
   八个正式 gate；random 使用 chunked worklist，local 使用 reusable-output native CSR，
   `prepared_auto` 的 CI low 为 1.255–2.015。结论仍不外推其他 N 与 tail 分布；
-- general strides/layouts、multi-output vector projection、vector SpMM 和 nonlinear/fused
-  message family；
+- general strides/layouts、multi-output vector projection、ragged vector SpMM 和
+  nonlinear/fused message family；fixed-degree F16/F64 vector TTIR 已登记；
 - exact kNN 已关闭 N=8192/D3/k32 build+weighted-consume bucket：动态 column snapshot
   重绑 compiler-generated TTIR 且严格 gate 通过；覆盖结论仍不外推更多 N/D/k；
 - FLA/FSA 只作为 examples/benchmarks 中的匹配 workload，不成为 GraphForge core 算子；

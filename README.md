@@ -124,17 +124,21 @@ remain compiler IR, so a sparse UDF does not require a user-written backward.
 These RTX 5070 Ti results use matched sparse semantics and timing boundaries.
 `>1.00×` means GraphForge is faster than the named peer.
 
+![Sparse kernel provider leaderboard](docs/assets/sparse-kernel-comparison.png)
+
 | Sparse workload | Registered case | GraphForge | Matched peer | Result |
 |---|---|---:|---:|---:|
 | Scalar CSR weighted sum, random gather | 131,072 rows, degree 4, FP32 | 0.0183 ms | Triton CSR 0.0222 ms | **1.21×** |
 | Scalar CSR weighted sum, local/hot | 131,072 rows, degree 16, FP32 | 0.0186 ms | `torch.sparse.mm` 0.0310 ms | **1.67×** |
+| Vector CSR SpMM, random/hot | 131,072 rows, degree 16, F=16, i32 | 0.0512 ms | `torch.sparse.mm` 0.2213 ms | **4.32×**, CI-low 4.245 |
+| Vector CSR SpMM, random/cold | same topology, F=64 | 0.2684 ms | `torch.sparse.mm` 0.3495 ms | **1.30×**, CI-low 1.288 |
 | Social power-law CSR | 90% degree 8 / 9% degree 64 / 1% degree 256; i32/i64; local/random; hot/cold | auto row/worklist schedule | fastest registered peer per bucket | **8/8 gates pass**, CI-low 1.255–2.015× |
 | Sparse online-softmax reducer | 131,072 rows, degree 32 | compiler-generated TTIR | hand-written Triton | **1.007×**, CI-low 1.005 |
 | Product-reducer backward | 131,072 rows, degree 16 | compiler-generated zero-safe VJP | hand-written Triton | **1.021×**, CI-low 1.016 |
 
-The scalar CSR rows above are compiler-generated. Registered F=16/F=64 SpMM
-cases currently use an explicit external sparse-library dispatch and are labeled
-as dispatch results; GraphForge does not present them as generated SpMM kernels.
+The scalar rows and the fixed-degree F=16/F=64 rows above are compiler-generated
+TTIR. Ragged vector shapes that have no proven profitable schedule still dispatch
+explicitly to an external sparse library and remain labeled as dispatch results.
 The [benchmark results](docs/benchmark-results.md) separate sparse consume,
 dynamic graph build, build+consume, backward, and cache regimes.
 

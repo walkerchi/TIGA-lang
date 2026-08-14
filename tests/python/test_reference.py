@@ -804,6 +804,16 @@ class ReferenceTest(unittest.TestCase):
             warm_actual, warm_expected, rtol=3e-4, atol=3e-4)
         torch.testing.assert_close(actual, retained_actual)
 
+        prepared = kernel.prepare(
+            graph=graph,
+            src={"x": next_x},
+            dst={"x": next_x},
+            edge={"weight": weight},
+        )
+        torch.testing.assert_close(
+            prepared(), warm_expected, rtol=3e-4, atol=3e-4
+        )
+
         # The prepared sparse view aliases the captured values buffer, so a
         # value-only mutation must be visible without rebuilding topology.
         weight.mul_(0.5)

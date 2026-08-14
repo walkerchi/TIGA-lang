@@ -4,7 +4,7 @@
   "required_case_artifacts": ["roofline.json", "roofline.png", "REPORT.md"],
   "operations": {
     "weighted_aggregation": {
-      "status": "measured-generated-and-library-dispatch",
+      "status": "measured-generated-scalar-vector-and-library-dispatch",
       "cases": [
         "regular_local_cuda_i64_n131072_degree16_f1_16_64",
         "powerlaw_local_cuda_i32_n131072_degree16_f1",
@@ -12,7 +12,7 @@
         "powerlaw_random_cuda_i32_n131072_degree16_f1",
         "powerlaw_random_cuda_i64_n131072_degree16_f1"
       ],
-      "note": "F=1 regular uses compiler-emitted TTIR; F=16/64 use an explicit torch.sparse.mm dispatch. The four registered social-like power-law buckets cover local/random, i32/i64 and hot/cold. Compiler autotune selects register-resident chunked worklists for random gathers and reusable native CSR output for local graphs; public prepared_auto passes all eight gates with CI lows 1.255-2.015. Providers are sampled in rotating interleaved order to remove thermal/order drift.",
+      "note": "Fixed-degree F=1/F=16/F=64 regular CSR uses compiler-emitted TTIR; unsupported ragged vector shapes explicitly dispatch to torch.sparse.mm. The random/i32/N=131072/degree16 vector gate reports F16 hot/cold at 4.322x/3.801x and F64 at 1.966x/1.302x over torch.sparse.mm. The four registered social-like power-law buckets cover local/random, i32/i64 and hot/cold. Compiler autotune selects register-resident chunked worklists for random gathers and reusable native CSR output for local graphs; public prepared_auto passes all eight gates with CI lows 1.255-2.015. Providers are sampled in rotating interleaved order to remove thermal/order drift.",
       "auxiliary": ["kernel_ttir/results.json", "kernel_ttir/runtime.png"]
     },
     "diffusion": {

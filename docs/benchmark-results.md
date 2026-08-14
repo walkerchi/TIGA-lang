@@ -42,14 +42,17 @@ evidence of a broad advantage across shapes.
 |---|---|---|---|
 | Scalar CSR weighted sum | 131,072 rows, random source, degree 4/16/64, FP32 | compiler-generated TTIR | 0.824×/0.899×/0.990× GraphForge-to-Triton latency ratio; GraphForge is faster in each bucket |
 | Regular local CSR | 131,072 rows, degree 16, scalar FP32 | auto-selected generated/native path | 0.0186 ms vs `torch.sparse.mm` 0.0310 ms, **1.67×** |
+| Regular random vector CSR | 131,072 rows, degree 16, F=16, i32, hot/cold | compiler-generated row-neighbor-feature TTIR | **4.322×/3.801×** vs `torch.sparse.mm`; CI low 4.245/3.759 |
+| Regular random vector CSR | same topology, F=64, hot/cold | compiler-generated row-neighbor-feature TTIR | **1.966×/1.302×** vs `torch.sparse.mm`; CI low 1.956/1.288 |
 | Power-law social slice | 90% degree 8, 9% degree 64, 1% degree 256; i32/i64; local/random; hot/cold | degree-bucket/worklist planner | all eight registered gates pass; CI-low range **1.255–2.015×** |
 | Online-softmax reducer | 131,072 rows, degree 32 | compiler schedule, stable tuple state | **1.007×**, CI low 1.005 vs matched hand-written Triton |
 | Product reducer backward | 131,072 rows, degree 16 | zero-safe compiler-generated VJP | **1.021×**, CI low 1.016 vs matched hand-written Triton |
 | Radius distance backward | fixed selected snapshot, N32768/D3/degree≈32 | generated geometry VJP | **1.079×**, CI low 1.073 vs matched hand-written Triton; 4.36× vs Torch autograd |
 
-Vector-width CSR cases that dispatch to an external sparse library are labeled
-as dispatch results, not compiler-generated SpMM. A correctness evaluator is
-never included in a “fastest backend” conclusion.
+Fixed-degree vector CSR uses compiler-generated TTIR in the registered rows
+above. Ragged vector shapes that dispatch to an external sparse library are
+labeled as dispatch results. A correctness evaluator is never included in a
+“fastest backend” conclusion.
 
 ## Dynamic graph boundaries
 

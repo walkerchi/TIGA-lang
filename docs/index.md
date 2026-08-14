@@ -52,7 +52,8 @@ print(program.code("ptx"))
 | Scalar fixed/bounded-ragged CSR sum | compiler-emitted TTIR |
 | Default Euclidean generated radius + distance sum | compiler-emitted TTIR |
 | Dense Cartesian contraction + structured streaming reducer | compiler-emitted tensor-core TTIR |
-| Vector CSR weighted sum | proven dispatch to `torch.sparse.mm` |
+| Fixed-degree vector CSR weighted sum | compiler-emitted row-neighbor-feature TTIR |
+| Unsupported/ragged vector CSR shape | explicit dispatch to `torch.sparse.mm` |
 | Unsupported program/shape | explicit semantic evaluator |
 | Torch-independent Tensor slice | native CPU buffer + symbolic add/mul/sum VJP oracle |
 

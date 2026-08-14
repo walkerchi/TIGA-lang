@@ -114,6 +114,12 @@ GraphForge prepared Tensor TTIR 为 0.0996 ms，torch.compile/Inductor 为 0.114
 native CSR；public `prepared_auto` 的八个 gate 全过，CI low `1.255–2.015`。该矩阵按 provider
 逐样本轮转交错，避免长时间 cold flush 把温度/频率漂移归因给测量顺序。
 
+固定度 vector CSR 也走同一 public API，经 Domain/Iter/Kernel IR 生成
+row-neighbor-feature TTIR。registered random/i32/N=131072/degree16 case 中，F16 的 hot/cold
+speedup 为 `4.322x/3.801x`（CI low `4.245/3.759`），F64 为 `1.966x/1.302x`
+（CI low `1.956/1.288`），baseline 均为 `torch.sparse.mm`。普通 lazy call 与
+`prepared_auto` 分开计时，首次 provider JIT 单列为 `compile_ms`。
+
 ## 3. Roofline definition
 
 每次运行现场测量 hierarchical roofs：
@@ -418,8 +424,9 @@ python3 -m benchmarks.common.plotting \
   --output-dir output/roofline/weighted_aggregation/<case>
 ```
 
-当前每个注册 case 输出 `roofline.png`、`provider_latency.png`、`roofline.json` 和嵌入
-图像/SOTA gate 的 `REPORT.md`。绘图只读取 JSON，不重新运行
+当前每个注册 case 输出 `roofline.png`、厂商榜单式竖向 subplot 的
+`provider_latency.png`、`roofline.json` 和嵌入图像/SOTA gate 的 `REPORT.md`。每个 subplot
+对应一个 kernel/config，method 使用跨图稳定 hue。绘图只读取 JSON，不重新运行
 benchmark；因此报告可以在无 GPU 的机器生成。长期 GraphForge-native GPU visualization
 设计见根目录 `PROJECT.md` 第 11 节，不能与当前 Matplotlib report 混为同一 implementation claim。
 

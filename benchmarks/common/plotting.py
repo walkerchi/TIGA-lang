@@ -37,6 +37,14 @@ PROVIDER_FAMILY_HUES = {
     "scipy": 0.57,
 }
 
+PROVIDER_COLORS = {
+    "graphforge.auto": "#2563eb",
+    "graphforge.prepared_auto": "#059669",
+    "graphforge.reference": "#64748b",
+    "torch.sparse.mm": "#dc2626",
+    "triton.csr": "#7c3aed",
+}
+
 
 def _load(path: Path) -> dict:
     return json.loads(path.read_text())
@@ -66,6 +74,8 @@ def provider_color(provider: str) -> str:
     present in a particular figure. Providers in the same ecosystem retain a
     recognizable hue while a stable name hash changes lightness/saturation.
     """
+    if provider in PROVIDER_COLORS:
+        return PROVIDER_COLORS[provider]
     family = provider.split(".", 1)[0].split("-", 1)[0]
     base_hue = PROVIDER_FAMILY_HUES.get(family)
     digest = hashlib.blake2b(provider.encode("utf-8"), digest_size=8).digest()
@@ -625,42 +635,124 @@ def plot_radius_build_operational_roofline(payload: dict, output: Path):
     _save(fig, output / "roofline")
 
 
-def plot_latency(payload: dict, output: Path):
+def plot_latency(
+    payload: dict,
+    output: Path,
+    *,
+    stem: str = "provider_latency",
+):
+    """Render a vendor-style small-multiple provider leaderboard.
+
+    Each cache/feature bucket is one kernel panel. Provider identity is the
+    hue and is stable across the whole benchmark corpus. Bars report matched
+    throughput speedup over torch.sparse.mm when available, otherwise over the
+    fastest measured non-GraphForge provider. Absolute latency remains on each
+    bar so the normalized view cannot hide the timing scale.
+    """
     results = payload["results"]
     colors = _colors(results)
-    numbers = _provider_numbers(results)
     caches = sorted({item["cache"] for item in results},
                     key=lambda name: (name != "hot", name))
+    features = sorted({int(item.get("features", 1)) for item in results})
+    panels = [
+        (cache, feature, [
+            item for item in results
+            if item["cache"] == cache and int(item.get("features", 1)) == feature
+        ])
+        for cache in caches for feature in features
+    ]
+    panels = [panel for panel in panels if panel[2]]
+    columns = 2 if len(panels) == 4 else min(3, len(panels))
+    rows = math.ceil(len(panels) / columns)
     fig, axes = plt.subplots(
-        1, len(caches), figsize=(6.1 * len(caches), 5.2),
-        squeeze=False, constrained_layout=True)
-    for ax, cache in zip(axes[0], caches):
-        selected = [item for item in results if item["cache"] == cache]
-        grouped = defaultdict(list)
-        for item in selected:
-            grouped[item["provider"]].append(item)
-        for provider, items in sorted(grouped.items()):
-            items.sort(key=lambda item: item["features"])
-            ax.plot(
-                [item["features"] for item in items],
-                [item["milliseconds"] for item in items],
-                linewidth=1.6, color=colors[provider], alpha=0.65)
-            ax.scatter(
-                [item["features"] for item in items],
-                [item["milliseconds"] for item in items],
-                marker=_number_marker(numbers[provider]), s=130,
-                linewidth=1.1, color=colors[provider],
-                label=f"{numbers[provider]} = {provider}", zorder=5)
-        ax.set_yscale("log")
-        ax.grid(True, which="both")
-        ax.set_xlabel("Feature width")
-        ax.set_ylabel("Median latency (ms)")
-        ax.set_title(f"{cache.capitalize()} working set")
-        ax.legend(fontsize=8, framealpha=0.9, title="numeric marker = provider")
+        rows, columns, figsize=(4.2 * columns, 3.8 * rows),
+        squeeze=False, constrained_layout=True, sharey=True)
+    speedups_by_panel = []
+    for _cache, _feature, selected in panels:
+        baseline = next(
+            (item for item in selected
+             if item["provider"] == "torch.sparse.mm"),
+            None,
+        )
+        if baseline is None:
+            peers = [
+                item for item in selected
+                if not item["provider"].startswith("graphforge.")
+            ]
+            baseline = min(
+                peers or selected,
+                key=lambda item: item["milliseconds"],
+            )
+        baseline_ms = float(baseline["milliseconds"])
+        ordered = sorted(
+            selected,
+            key=lambda item: (
+                not item["provider"].startswith("graphforge."),
+                item["provider"],
+            ),
+        )
+        speedups_by_panel.append((baseline["provider"], ordered, [
+            baseline_ms / float(item["milliseconds"]) for item in ordered
+        ]))
+    ymax = max(max(speedups) for _baseline, _items, speedups in speedups_by_panel)
+
+    for panel_index, ((cache, feature, _selected), comparison) in enumerate(
+            zip(panels, speedups_by_panel)):
+        ax = axes.flat[panel_index]
+        baseline_name, ordered, speedups = comparison
+        positions = np.arange(len(ordered))
+        bars = ax.bar(
+            positions,
+            speedups,
+            color=[colors[item["provider"]] for item in ordered],
+            edgecolor="white",
+            linewidth=0.9,
+        )
+        ax.axhline(1.0, color="#475569", linestyle="--", linewidth=1.1)
+        ax.set_xticks(positions, [str(index + 1) for index in positions])
+        ax.set_ylim(0, ymax * 1.22)
+        ax.grid(True, axis="y")
+        ax.set_title(f"F={feature} · {cache}")
+        ax.set_xlabel("method ID")
+        if panel_index % columns == 0:
+            ax.set_ylabel(f"Speedup vs {baseline_name}\n(higher is better)")
+        for bar, speedup, item in zip(bars, speedups, ordered):
+            ax.text(
+                bar.get_x() + bar.get_width() / 2,
+                bar.get_height() + ymax * 0.025,
+                f"{speedup:.2f}×\n{float(item['milliseconds']):.3f} ms",
+                ha="center", va="bottom", fontsize=7,
+            )
+    for ax in axes.flat[len(panels):]:
+        ax.set_visible(False)
+
+    providers = sorted(colors)
+    handles = [
+        Line2D(
+            [0], [0], marker="s", linestyle="", markersize=8,
+            markerfacecolor=colors[provider], markeredgecolor="white",
+            label=f"{index + 1} = {provider}",
+        )
+        for index, provider in enumerate(providers)
+    ]
+    # Panel-local method IDs follow the global provider order after filtering.
+    # Re-label ticks so their numeric IDs remain stable even when an optional
+    # provider is absent from one panel.
+    provider_ids = {
+        provider: index + 1 for index, provider in enumerate(providers)
+    }
+    for panel_index, (_baseline, ordered, _speedups) in enumerate(speedups_by_panel):
+        axes.flat[panel_index].set_xticklabels([
+            str(provider_ids[item["provider"]]) for item in ordered
+        ])
     workload = payload.get("workload", "weighted aggregation").replace("_", " ")
-    fig.suptitle(f"{workload.title()} provider latency", fontsize=14,
-                 fontweight="bold")
-    _save(fig, output / "provider_latency")
+    fig.suptitle(
+        f"{workload} · provider leaderboard",
+        fontsize=14, fontweight="bold")
+    fig.legend(
+        handles=handles, loc="outside lower center", ncol=min(3, len(handles)),
+        fontsize=8, framealpha=0.92, title="method hue is stable across panels")
+    _save(fig, output / stem)
 
 
 def plot_jit(payload: dict, output: Path):

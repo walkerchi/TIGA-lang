@@ -8,7 +8,7 @@ artifact directory:
 output/roofline/<operation>/<case>/
   roofline.json
   roofline.png
-  provider_latency.png
+  provider_latency.png  # vertical kernel subplots; stable method hues
   REPORT.md
 
 output/roofline/<operation>/
@@ -24,6 +24,8 @@ output/roofline/
 Measurements below were collected on the repository's RTX 5070 Ti environment.
 Raw samples and device metadata are stored with each artifact.
 
+![Sparse kernel provider leaderboard](assets/sparse-kernel-comparison.png)
+
 ![Dense attention throughput](assets/dense-attention-performance.svg)
 
 | Workload | Shape | GraphForge | Matched peer | Result |
@@ -36,16 +38,19 @@ Raw samples and device metadata are stored with each artifact.
 | Scalar CSR weighted sum, random source | 131072 rows, degree=16, FP32 | 0.0513 ms | Triton template 0.0571 ms | 0.899× |
 | Scalar CSR weighted sum, random source | 131072 rows, degree=64, FP32 | 0.1869 ms | Triton template 0.1887 ms | 0.990× |
 | Scalar CSR weighted sum, regular local/hot | 131072 rows, degree=16, FP32 | 0.0186 ms | `torch.sparse.mm` 0.0310 ms | 1.67× peer/GraphForge |
+| Vector CSR weighted sum, regular random/hot | 131072 rows, degree=16, F=16, i32 | 0.0512 ms | `torch.sparse.mm` 0.2213 ms | 4.322× peer/GraphForge, CI low 4.245 |
+| Vector CSR weighted sum, regular random/cold | 131072 rows, degree=16, F=64, i32 | 0.2684 ms | `torch.sparse.mm` 0.3495 ms | 1.302× peer/GraphForge, CI low 1.288 |
 | Generated radius distance sum | 3D, target degree=32 | 0.3343 ms | benchmark Triton oracle 0.3383 ms | 1.012× peer/GraphForge |
 
 Dense attention is generated from a user-defined Cartesian message and reducer;
 the core contains no attention kernel. Cold capture + MLIR + provider JIT is
 reported separately from warm execution in the registered artifact.
 
-For weighted aggregation, F=1 is a compiler-generated TTIR path. F=16/64 in
-the registered mixed-width case are explicit `torch.sparse.mm` dispatches; they
-include GraphForge guards/runtime overhead but are not claimed as generated
-SpMM kernels.
+For fixed-degree weighted aggregation, F=1 and the registered F=16/64 cases are
+compiler-generated TTIR paths. The public `prepared_auto` boundary removes
+Python/guard costs from repeated launches while the ordinary lazy call remains
+reported separately. Ragged vector cases without a proven schedule explicitly
+dispatch to `torch.sparse.mm`.
 
 !!! warning "Do not compare unlike operations on one roofline"
 

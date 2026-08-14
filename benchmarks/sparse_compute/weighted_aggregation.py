@@ -227,6 +227,7 @@ def benchmark_case(args, roof: Roof, device: torch.device, features: int,
     gf_kernel = WeightedAggregation()
 
     providers = {}
+    compile_times = {}
 
     def torch_sparse():
         if scalar:
@@ -249,14 +250,23 @@ def benchmark_case(args, roof: Roof, device: torch.device, features: int,
         dst={"x": x},
         edge={"weight": edge_weight},
     )
-    if scalar and device.type == "cuda":
+    if device.type == "cuda":
         # Public hot-loop API: ordinary lazy-JIT validates/compiles once, then
         # prepare freezes the already-proven topology and field ABI. This is
-        # the matched boundary when the selected provider is the same native
-        # sparse library as the external baseline.
-        providers["graphforge.prepared_auto"] = gf_kernel.prepare(
+        # the matched executable boundary for scalar and vector fields alike.
+        # Report first-call wall time separately from steady-state latency so
+        # users can judge the JIT amortization point.
+        compile_started = time.perf_counter_ns()
+        prepared_auto = gf_kernel.prepare(
             graph=graph, src={"x": x}, dst={"x": x},
             edge={"weight": edge_weight})
+        synchronize(device)
+        compile_times["graphforge.auto"] = (
+            time.perf_counter_ns() - compile_started) / 1e6
+        compile_times["graphforge.prepared_auto"] = compile_times[
+            "graphforge.auto"
+        ]
+        providers["graphforge.prepared_auto"] = prepared_auto
     if not args.skip_reference:
         providers["graphforge.reference"] = lambda: gf_kernel.reference(
             graph=graph,
@@ -277,7 +287,6 @@ def benchmark_case(args, roof: Roof, device: torch.device, features: int,
         providers["triton.csr"] = triton_csr
 
     skipped = []
-    compile_times = {}
     if scalar and device.type == "cuda" and args.topology == "powerlaw":
         try:
             candidate = chunked_tail_candidate(
