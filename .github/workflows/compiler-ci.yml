@@ -108,9 +108,8 @@ jobs:
           "$RUNNER_TEMP/test-venv/bin/pip" install \
             pytest numpy pillow
           "$RUNNER_TEMP/test-venv/bin/pip" install --no-deps wheelhouse/*.whl
-          cd "$RUNNER_TEMP"
-          PYTHONPATH="$GITHUB_WORKSPACE" \
-            "$RUNNER_TEMP/test-venv/bin/python" -m pytest -q \
+          cd "$GITHUB_WORKSPACE"
+          "$RUNNER_TEMP/test-venv/bin/python" -m pytest -q \
               "$GITHUB_WORKSPACE/tests/python/test_large_graph_suite.py" \
               "$GITHUB_WORKSPACE/tests/python/test_output_layout.py" \
               "$GITHUB_WORKSPACE/tests/python/test_perf_protocol.py" \
@@ -151,6 +150,5 @@ jobs:
         shell: bash
         run: |
           set -euxo pipefail
-          cd "$RUNNER_TEMP"
-          PYTHONPATH="$GITHUB_WORKSPACE" \
-            python -m pytest -q "$GITHUB_WORKSPACE/tests/python"
+          cd "$GITHUB_WORKSPACE"
+          python -m pytest -q "$GITHUB_WORKSPACE/tests/python"
