@@ -94,6 +94,8 @@ def main() -> None:
     result["gate"] = "PASS" if result["correct"] and medians["total"] > 0 else "FAIL"
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
+    from benchmarks.common.diagnostic_plotting import plot_json
+    plot_json(args.output)
     (args.output.parent / "REPORT.md").write_text(
         "# Two-rank MPI halo exchange\n\n"
         f"Provider: `{result['transport']}` ({result['mpi_library']}).  "

@@ -277,7 +277,7 @@ Torch sparse Laplacian 的 `row_weight` 在计时前预计算；这是 frozen CS
    ragged/dynamic 两套 guarded skeleton。
 
 `output/irregular/`、`output/skewed_i32/`、`output/skewed_i64/` 是旧矩阵快照，不再承担当前
-发布 gate。当前正式 evidence 只来自 `output/roofline/MANIFEST.json` 登记 case；未重新登记的
+发布 gate。当前正式 evidence 只来自 `benchmarks/evidence_manifest.json` 登记 case；未重新登记的
 i32、宽 feature 和 cold 组合不外推。Domain/Iter/Kernel/Task→TTIR 已是当前执行主链。
 
 2026-08-13 的 compiler-generated scalar diffusion fixed-degree 2/4/8/16/32/64 hot-cache bucket
@@ -422,3 +422,22 @@ python3 -m benchmarks.common.plotting \
 图像/SOTA gate 的 `REPORT.md`。绘图只读取 JSON，不重新运行
 benchmark；因此报告可以在无 GPU 的机器生成。长期 GraphForge-native GPU visualization
 设计见根目录 `PROJECT.md` 第 11 节，不能与当前 Matplotlib report 混为同一 implementation claim。
+
+面向人的跨 case 视图由正式 manifest 生成：
+
+```bash
+python -m benchmarks.common.plot_collections
+python -m benchmarks.common.plot_diagnostics
+python -m benchmarks.common.plot_cases
+```
+
+`output/roofline/<operation>/summary.png` 在同一张图片内按数学条件分面；只有
+topology/locality/dtype/periodic 等条件相同、仅输入规模变化的点才会连线。provider
+颜色由完整方法名稳定映射，在所有图片中保持一致。数字 marker `1/2/3...` 标识方法；
+当测量点重合时，数字 badge 只在显示坐标中绕真实锚点排开，不会用 jitter 篡改
+roofline 坐标。`output/roofline/dashboard.png` 汇总正式 evidence coverage。
+
+非 roofline JSON（编译生命周期、halo、层级存储、provider conformance、容量规划等）
+也必须有同目录 PNG。`plot_diagnostics` 从原始 JSON 回放这些图，不重新执行 benchmark。
+`output/` 是可再生本地产物并被 Git 忽略；公开文档所需的精选静态图应放在
+`docs/assets/`，而不是提交整棵测量输出。

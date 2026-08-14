@@ -1,13 +1,21 @@
 from __future__ import annotations
 
 from pathlib import Path
+import tempfile
 import unittest
 
-from benchmarks.common.check_outputs import is_formal_operation, semantic_x_violations
+from benchmarks.common.check_outputs import (
+    MANIFEST, human_visualization_violations, is_formal_operation,
+    semantic_x_violations,
+)
 from benchmarks.common.output_layout import OPERATIONS, artifact_path, operation_dir
 
 
 class OutputLayoutTest(unittest.TestCase):
+    def test_canonical_evidence_manifest_is_tracked_outside_output(self):
+        self.assertEqual(MANIFEST, Path("benchmarks/evidence_manifest.json"))
+        self.assertTrue(MANIFEST.is_file())
+
     def test_every_operation_has_an_isolated_roofline_directory(self):
         directories = [
             operation_dir(operation, "regular-i64")
@@ -54,6 +62,16 @@ class OutputLayoutTest(unittest.TestCase):
         self.assertFalse(is_formal_operation({
             "status": "pending-matched-semantics", "cases": [],
         }))
+
+    def test_measured_json_requires_a_human_visualization(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            case = root / "case"
+            case.mkdir()
+            (case / "results.json").write_text("{}")
+            self.assertEqual(human_visualization_violations(root), [str(case)])
+            (case / "results.png").write_bytes(b"image")
+            self.assertEqual(human_visualization_violations(root), [])
 
 
 if __name__ == "__main__":

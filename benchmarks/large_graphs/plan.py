@@ -133,6 +133,8 @@ def main() -> None:
             "profiles": planned,
         }
         args.json.write_text(json.dumps(document, indent=2) + "\n")
+        from benchmarks.common.diagnostic_plotting import plot_json
+        plot_json(args.json)
 
 
 if __name__ == "__main__":

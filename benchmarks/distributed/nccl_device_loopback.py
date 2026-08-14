@@ -93,6 +93,8 @@ def main() -> None:
     }
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
+    from benchmarks.common.diagnostic_plotting import plot_json
+    plot_json(args.output)
     rows = "\n".join(
         f"| {case['bytes']} | {case['median_ms']:.4f} | "
         f"{case['diagnostic_payload_GBps']:.3f} | {case['correct']} |"

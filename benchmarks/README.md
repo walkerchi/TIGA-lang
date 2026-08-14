@@ -41,8 +41,18 @@ python -m benchmarks.distributed.halo_exchange --quick
 python -m benchmarks.providers.conformance
 python -m benchmarks.large_graphs.plan
 python -m benchmarks.common.check_outputs
+python -m benchmarks.common.plot_collections
+python -m benchmarks.common.plot_diagnostics
+python -m benchmarks.common.plot_cases
 ```
 
 Every performance claim must compare identical semantics and keep its artifacts
 under `output/roofline/<operation>/<case>/`. Handwritten oracle code may set a
 performance target, but it is never reported as GraphForge compiler output.
+
+Machine JSON is the reproducible source of truth, but it is not the human
+interface. Every measured JSON directory has a PNG/SVG/HTML visualization.
+Formal roofline cases additionally receive an operation-level `summary.png`:
+matching conditions are connected across input sizes, condition changes are
+faceted, provider colors are corpus-stable, and numeric markers expose
+coincident points without moving their measured coordinates.

@@ -2454,7 +2454,7 @@ Dense GEMM 有两个角色：一是现场测量 compute ceiling，二是验证 p
 切换 dense lowering；它不是 SpMV/radius/kNN 的同语义竞争者，不能把不同算法的 GFLOP/s 直接
 排名。所有 benchmark artifact 固定使用 `output/roofline/<operation>/<case>/`；每个 case 至少
 保存 raw samples、roof/byte-model JSON、PNG 与 SVG。不同 operation 的点不得混在一张图中，
-当前 registry 在 `output/roofline/MANIFEST.json`：
+当前 registry 在 `benchmarks/evidence_manifest.json`；`output/` 只保存可再生测量产物：
 
 ```text
 output/roofline/weighted_aggregation/<case>/{roofline.json,roofline.png,REPORT.md}

@@ -129,6 +129,8 @@ def main() -> None:
         "PASS" if result["correct"] and medians["total"] > 0 else "FAIL")
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(result, indent=2) + "\n")
+    from benchmarks.common.diagnostic_plotting import plot_json
+    plot_json(args.output)
     print(json.dumps(result, indent=2))
     if result["gate"] != "PASS":
         raise SystemExit(1)

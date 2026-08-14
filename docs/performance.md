@@ -10,6 +10,13 @@ output/roofline/<operation>/<case>/
   roofline.png
   provider_latency.png
   REPORT.md
+
+output/roofline/<operation>/
+  summary.png
+  SUMMARY.md
+
+output/roofline/
+  dashboard.png
 ```
 
 ## Current compiler-generated evidence

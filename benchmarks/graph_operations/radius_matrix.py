@@ -118,6 +118,8 @@ def main() -> None:
     for failure in failures:
         lines.append(f"\nBuild failure `{failure['case']}`: `{failure['stderr']}`")
     (root / "REPORT.md").write_text("\n".join(lines) + "\n")
+    from benchmarks.common.diagnostic_plotting import plot_json
+    plot_json(root / "matrix.json")
     print(root / "matrix.json")
     print(root / "REPORT.md")
     if args.fail_on_gate and not all_passed:

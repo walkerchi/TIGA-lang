@@ -141,6 +141,8 @@ def main() -> None:
     if args.json:
         args.json.parent.mkdir(parents=True, exist_ok=True)
         args.json.write_text(json.dumps(result, indent=2) + "\n")
+        from benchmarks.common.diagnostic_plotting import plot_json
+        plot_json(args.json)
 
 
 if __name__ == "__main__":

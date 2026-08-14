@@ -1,0 +1,115 @@
+{
+  "schema_version": 1,
+  "root": "output/roofline/<operation>/<case>/",
+  "required_case_artifacts": ["roofline.json", "roofline.png", "REPORT.md"],
+  "operations": {
+    "weighted_aggregation": {
+      "status": "measured-generated-and-library-dispatch",
+      "cases": [
+        "regular_local_cuda_i64_n131072_degree16_f1_16_64",
+        "powerlaw_local_cuda_i32_n131072_degree16_f1",
+        "powerlaw_local_cuda_i64_n131072_degree16_f1",
+        "powerlaw_random_cuda_i32_n131072_degree16_f1",
+        "powerlaw_random_cuda_i64_n131072_degree16_f1"
+      ],
+      "note": "F=1 regular uses compiler-emitted TTIR; F=16/64 use an explicit torch.sparse.mm dispatch. The four registered social-like power-law buckets cover local/random, i32/i64 and hot/cold. Compiler autotune selects register-resident chunked worklists for random gathers and reusable native CSR output for local graphs; public prepared_auto passes all eight gates with CI lows 1.255-2.015. Providers are sampled in rotating interleaved order to remove thermal/order drift.",
+      "auxiliary": ["kernel_ttir/results.json", "kernel_ttir/runtime.png"]
+    },
+    "diffusion": {
+      "status": "measured-generated-lowering",
+      "cases": [
+        "regular_local_cuda_i64_n131072_degree2",
+        "regular_local_cuda_i64_n131072_degree4",
+        "regular_local_cuda_i64_n131072_degree8",
+        "regular_local_cuda_i64_n131072_degree16",
+        "regular_local_cuda_i64_n131072_degree32",
+        "regular_local_cuda_i64_n131072_degree64",
+        "irregular_local_cuda_i64_n131072_degree16",
+        "skewed_local_cuda_i64_n131072_degree16",
+        "regular_random_cuda_i64_n8192_degree16"
+      ],
+      "note": "Each case separates compiler-generated GraphForge points from benchmark-only peers."
+    },
+    "radius_graph_build": {
+      "status": "measured-operational-model",
+      "cases": ["cuda_n32768_d3_degree32"],
+      "note": "Useful FLOPs count exact candidate distance tests; sorting and integer directory work remain explicit metadata."
+    },
+    "radius_distance_aggregation": {
+      "status": "performance-ready-24-gate-lifecycle-matrix",
+      "cases": ["cuda_n32768_d3_degree32"],
+      "auxiliary": [
+        "matrix_cuda_n32768_degree32_periodic_generated/matrix.json",
+        "matrix_cuda_n32768_degree32_periodic_generated/REPORT.md"
+      ],
+      "note": "N=32768,D=2/3, non-periodic/box/skew across consume, reuse, logical rebind and true topology rebuild: all 24 strict confidence gates pass. Periodic generated traversal carries lattice/inverse and performs minimum-image filtering without CSR/distance materialization."
+    },
+    "online_softmax": {
+      "status": "performance-ready-registered-case",
+      "cases": ["cuda_n131072_degree32_f1"],
+      "note": "A benchmark-defined tuple-state UDF is structurally proven and reassociated to a 32-row max/exp/sum TTIR tile. N=131072, degree=32 passes the matched handwritten-Triton strict gate at 1.007x with 95% CI low 1.005."
+    },
+    "knn_graph": {
+      "status": "performance-ready-build-and-generated-consume",
+      "cases": ["cuda_n8192_d3_k32", "cuda_n8192_d3_k32_consume"],
+      "note": "Graph.knn is a procedural exhaustive Euclidean relation. The build+weighted-consume case rebuilds exact cdist/top-k columns, reuses fixed row metadata, and rebinds them to one compiler-generated TTIR consumer without recompilation. Prepared GraphForge is 3.9072 ms versus matched cdist/top-k/gather-multiply-sum at 3.9137 ms: 1.0017x with CI low 1.0005. The older build-only artifact remains an auxiliary historical optimization result; no claim is extrapolated to other shapes or ANN."
+    },
+    "dense_matmul_calibration": {
+      "status": "measured-compiler-library-dispatch-gate-passed",
+      "cases": ["m2048_n2048_k2048_fp16"],
+      "note": "Native gf.Tensor matmul remains gf_tensor.matmul; auto legally selects the Torch-free cuBLASLt runtime path and passes the strict external torch.mm/cuBLAS confidence gate. --provider ttir retains direct tt.dot diagnostics."
+    },
+    "dense_attention": {
+      "status": "performance-ready-full-triangular-and-gqa",
+      "cases": [
+        "b1_h16_n4096_d64_fp16",
+        "b1_h16_n4096_d64_fp16_causal",
+        "b1_h16_n4096_d64_fp16_kvh4"
+      ],
+      "note": "User-defined MessagePassing lowers through Domain, Iter and Kernel to compiler-emitted TTIR; the handwritten Triton implementation is benchmark-only. Full Cartesian, lower-triangular, and grouped-query (Hq=16/Hkv=4) Graph relations pass external Flash SDPA: 1.074x (CI low 1.069), 1.117x (CI low 1.100), and 1.084x (CI low 1.078), respectively."
+    },
+    "horizontal_fusion": {
+      "status": "measured-generated-lowering",
+      "cases": ["cuda_n131072_degree16_i64"]
+    },
+    "message_passing_backward": {
+      "status": "measured-generated-vjp",
+      "cases": [
+        "regular_random_cuda_i64_n131072_degree16_dx",
+        "regular_random_cuda_i64_n131072_degree16_dweight",
+        "regular_random_cuda_i64_n131072_degree16_dweight_f16",
+        "regular_random_cuda_i64_n131072_degree16_dweight_f64",
+        "powerlaw_random_cuda_i64_n131072_degree16_dx",
+        "powerlaw_random_cuda_i64_n131072_degree16_dweight_f16",
+        "regular_edge_local_cuda_i64_n131072_degree16_product",
+        "radius_fixed_snapshot_cuda_n32768_d3_degree32"
+      ],
+      "note": "Forward UDF VJPs are compiler-derived; handwritten kernels remain matched benchmark peers. The captured non-additive product reducer uses a zero-safe row-tiled VJP and passes at 1.021x (95% CI low 1.016). Dynamic Euclidean radius uses a fixed selected-topology snapshot and compiler-emitted gf_tensor.csr_euclidean_distance_sum_vjp; N=32768,D=3,degree~32 passes at 1.079x (95% CI [1.073,1.082]) over matched handwritten Triton and 4.36x over torch.autograd."
+    },
+    "linear_attention": {
+      "status": "performance-ready-registered-case",
+      "cases": ["l64_t512_k16_v16_fp32"],
+      "note": "An ordinary broadcast/multiply/cumsum/sum Tensor expression is structurally fused to one recurrent TTIR kernel. The exact causal unnormalized recurrence passes the official FLA recurrent/chunk confidence gate; the rank-four prefix state is never materialized."
+    },
+    "sparse_attention": {
+      "status": "performance-ready-registered-case",
+      "cases": ["b1_h16_n4096_d64_fp16"],
+      "note": "A benchmark-defined MessagePassing workload uses online_softmax(block_prune_threshold=D/N). The threshold survives reducer IR and generic dense streaming lowering emits dynamic tile admission; the registered noncausal case passes official flash-sparse-attn at 1.182x (95% CI low 1.177). Both approximate outputs are accuracy-audited against exact Flash SDPA."
+    },
+    "cpu_pointwise_fusion": {
+      "status": "performance-ready-registered-case",
+      "cases": ["n4000000_f32_t16"],
+      "note": "Ordinary Tensor pointwise IR lowers to 512-bit semantic vectors, LLVM and a lazily-created persistent worker pool. The registered 4M-element case passes torch.compile/Inductor at 1.073x with 95% CI low 1.053."
+    },
+    "cpu_relation": {
+      "status": "performance-ready-registered-case",
+      "cases": ["regular_permuted_i32_n131072_degree16_t16"],
+      "note": "A native MessagePassing gather/UDF/CSR-reduce DAG fuses into nested LLVM loops and partitions independent destination ranges. This hot regular i32 bucket passes the fastest installed provider-native CSR peer at 6.318x with 95% CI low 5.540; no claim is extrapolated to ragged or power-law CPU graphs."
+    },
+    "visualization_heatmap": {
+      "status": "performance-ready-registered-case",
+      "cases": ["h2048_w2048_rgb_f32"],
+      "note": "The separate visualization product layer composes ordinary broadcast/add/mul/div Tensor IR; no heatmap op exists in core. Stable animation buffers use Tensor.prepare(). The registered 2048x2048 scalar-to-RGB case is 1.153x over torch.compile/Inductor with 95% CI low 1.140; cold JIT and PNG encoding are reported outside the hot kernel gate."
+    }
+  }
+}

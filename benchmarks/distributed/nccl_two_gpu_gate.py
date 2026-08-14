@@ -160,6 +160,8 @@ def main() -> None:
     }
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
+    from benchmarks.common.diagnostic_plotting import plot_json
+    plot_json(args.output)
     (args.output.parent / "REPORT.md").write_text(
         "# Two-GPU NCCL GraphForge gate\n\n"
         f"Gate: **{result['gate']}**. Median rank exchange: {median_ms:.4f} ms. "

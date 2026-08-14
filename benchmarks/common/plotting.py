@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import argparse
+import colorsys
+import hashlib
 import json
 import math
+import statistics
 from collections import defaultdict
 from pathlib import Path
 
@@ -20,6 +23,19 @@ PALETTE = (
     "#2563eb", "#dc2626", "#059669", "#7c3aed", "#ea580c",
     "#0891b2", "#4f46e5", "#be123c", "#65a30d",
 )
+
+PROVIDER_FAMILY_HUES = {
+    "graphforge": 0.60,
+    "torch": 0.01,
+    "triton": 0.76,
+    "handwritten": 0.82,
+    "cuda": 0.08,
+    "fla": 0.42,
+    "flash_sparse_attn": 0.50,
+    "dgl": 0.27,
+    "pyg": 0.92,
+    "scipy": 0.57,
+}
 
 
 def _load(path: Path) -> dict:
@@ -43,10 +59,89 @@ def _style():
     })
 
 
+def provider_color(provider: str) -> str:
+    """Return one corpus-wide stable color for an exact provider name.
+
+    The mapping depends only on the name, never on which other providers are
+    present in a particular figure. Providers in the same ecosystem retain a
+    recognizable hue while a stable name hash changes lightness/saturation.
+    """
+    family = provider.split(".", 1)[0].split("-", 1)[0]
+    base_hue = PROVIDER_FAMILY_HUES.get(family)
+    digest = hashlib.blake2b(provider.encode("utf-8"), digest_size=8).digest()
+    integer = int.from_bytes(digest, "big")
+    if base_hue is None:
+        base_hue = (integer & 0xFFFF) / 0x10000
+    hue_offset = (((integer >> 16) & 0xFF) / 255.0 - 0.5) * 0.055
+    saturation = 0.62 + ((integer >> 24) & 0xFF) / 255.0 * 0.18
+    value = 0.70 + ((integer >> 32) & 0xFF) / 255.0 * 0.18
+    rgb = colorsys.hsv_to_rgb((base_hue + hue_offset) % 1.0, saturation, value)
+    return "#" + "".join(f"{round(channel * 255):02x}" for channel in rgb)
+
+
 def _colors(results):
     providers = sorted({item["provider"] for item in results})
-    return {name: PALETTE[index % len(PALETTE)]
-            for index, name in enumerate(providers)}
+    return {name: provider_color(name) for name in providers}
+
+
+def _provider_numbers(results):
+    """Stable, human-readable provider IDs for coincident plot points."""
+    providers = sorted({item["provider"] for item in results})
+    return {name: index + 1 for index, name in enumerate(providers)}
+
+
+def _number_marker(number: int) -> str:
+    # MathText markers keep the measured coordinate exact while making two
+    # providers at the same semantic x visually distinguishable.
+    return f"${number}$"
+
+
+def scatter_numbered(
+    ax,
+    points: list[tuple[float, float, str]],
+    numbers: dict[str, int],
+    colors: dict[str, str] | None = None,
+) -> None:
+    """Draw provider numbers without hiding nearly coincident measurements.
+
+    A collision group keeps one hollow anchor at the measured coordinate. Its
+    provider badges are displaced only in display space and connected back to
+    that anchor, so the chart remains numerically honest.
+    """
+    colors = colors or {provider: provider_color(provider)
+                        for _x, _y, provider in points}
+    groups: dict[tuple[float, float], list[tuple[float, float, str]]] = defaultdict(list)
+    for x, y, provider in points:
+        # Same semantic x must be exact. A 0.01 log-y bucket treats values
+        # within roughly 2.3% as visually coincident at publication scale.
+        key = (round(math.log10(x), 8), round(math.log10(y), 2))
+        groups[key].append((x, y, provider))
+    for group in groups.values():
+        if len(group) == 1:
+            x, y, provider = group[0]
+            ax.scatter(
+                x, y, s=150, marker=_number_marker(numbers[provider]),
+                color=colors[provider], linewidth=1.1, zorder=7)
+            continue
+        anchor_x = statistics.fmean(item[0] for item in group)
+        anchor_y = statistics.geometric_mean(item[1] for item in group)
+        ax.scatter(
+            anchor_x, anchor_y, s=48, marker="o", facecolors="none",
+            edgecolors="#64748b", linewidth=1.0, zorder=5)
+        radius = 17.0
+        for index, (_x, _y, provider) in enumerate(
+                sorted(group, key=lambda item: numbers[item[2]])):
+            angle = 2 * math.pi * index / len(group) + math.pi / 2
+            offset = (radius * math.cos(angle), radius * math.sin(angle))
+            ax.annotate(
+                str(numbers[provider]), (anchor_x, anchor_y), xytext=offset,
+                textcoords="offset points", ha="center", va="center",
+                fontsize=9, fontweight="bold", color=colors[provider],
+                bbox={"boxstyle": "circle,pad=0.18", "facecolor": "white",
+                      "edgecolor": colors[provider], "linewidth": 1.0},
+                arrowprops={"arrowstyle": "-", "color": "#94a3b8",
+                            "linewidth": 0.7},
+                zorder=8)
 
 
 def _intensity(item, roof):
@@ -68,6 +163,8 @@ def plot_roofline(payload: dict, output: Path):
         return plot_dense_attention_roofline(payload, output)
     if operation == "message_passing_backward":
         return plot_backward_roofline(payload, output)
+    if operation == "knn_graph":
+        return plot_knn_roofline(payload, output)
     roof = payload["roof"]
     results = payload["results"]
     colors = _colors(results)
@@ -140,6 +237,83 @@ def plot_roofline(payload: dict, output: Path):
         f"DRAM {roof['dram_bandwidth_gbs']:.0f} GB/s  ·  "
         f"L2 {roof['l2_bandwidth_gbs']:.0f} GB/s",
         transform=ax.transAxes, va="top", fontsize=9, color="#475569")
+    _save(fig, output / "roofline")
+
+
+def plot_knn_roofline(payload: dict, output: Path):
+    """Render exact-kNN at its true roofline coordinate plus a useful zoom.
+
+    Exact builders share the same semantic work and byte model, so their x
+    coordinates intentionally coincide. Numeric provider markers expose that
+    overlap without jittering or otherwise falsifying the measurement.
+    """
+    roof = payload["roof"]
+    results = payload["results"]
+    colors = _colors(results)
+    numbers = _provider_numbers(results)
+    intensities = [_intensity(item, roof) for item in results]
+    achieved = [float(item["achieved_gflops"]) for item in results]
+    fp32 = float(roof.get("compute_gflops", roof["fp32_gflops"]))
+    xmin = min(intensities) / 1.7
+    xmax = max(intensities) * 1.7
+    xs = np.logspace(math.log10(xmin), math.log10(xmax), 300)
+
+    fig, axes = plt.subplots(
+        1, 2, figsize=(14.2, 6.2), constrained_layout=True, sharex=True,
+        gridspec_kw={"width_ratios": (1.05, 1.0)})
+    ceilings = (
+        ("DRAM roof", float(roof["dram_bandwidth_gbs"]), "--", "#64748b"),
+        ("L2 roof", float(roof["l2_bandwidth_gbs"]), "-", "#111827"),
+    )
+    for ax in axes:
+        for label, bandwidth, style, color in ceilings:
+            ax.plot(xs, np.minimum(fp32, bandwidth * xs), style,
+                    color=color, linewidth=2.0, label=label)
+        scatter_numbered(
+            ax,
+            [(_intensity(item, roof), float(item["achieved_gflops"]),
+              item["provider"]) for item in results],
+            numbers, colors)
+        ax.set_xscale("log")
+        ax.set_yscale("log")
+        ax.set_xlim(xmin, xmax)
+        ax.grid(True, which="both")
+        ax.set_xlabel("Semantic arithmetic intensity (useful FLOP / common byte)")
+
+    axes[0].axhline(
+        fp32, color="#9333ea", linestyle=":", linewidth=1.8,
+        label=f"FP32 ceiling ({fp32 / 1000:.1f} TFLOP/s)")
+    axes[0].set_ylim(
+        10 ** math.floor(math.log10(min(achieved) / 1.5)), fp32 * 1.5)
+    axes[0].set_ylabel("Useful semantic throughput (GFLOP/s)")
+    axes[0].set_title("Full hierarchical roofline")
+    axes[0].legend(fontsize=8, loc="upper left", framealpha=0.92)
+
+    axes[1].set_ylim(min(achieved) / 1.25, max(achieved) * 1.25)
+    axes[1].set_ylabel("Useful semantic throughput (GFLOP/s)")
+    axes[1].set_title("Achieved-region zoom · identical semantic x")
+    ordered = sorted(results, key=lambda item: numbers[item["provider"]])
+    provider_handles = [
+        Line2D(
+            [0], [0], linestyle="", marker=_number_marker(numbers[item["provider"]]),
+            markersize=10, color=colors[item["provider"]],
+            label=(f"{numbers[item['provider']]} = {item['provider']} · "
+                   f"{float(item['milliseconds']):.4f} ms"),
+        )
+        for item in ordered
+    ]
+    axes[1].legend(
+        handles=provider_handles, loc="lower right", fontsize=8,
+        framealpha=0.94, title="numeric marker = provider")
+
+    config = payload.get("config", {})
+    detail = (
+        f"N={int(config['nodes']):,}, D={config['dimensions']}, k={config['k']}"
+        if {"nodes", "dimensions", "k"} <= config.keys() else ""
+    )
+    workload = payload.get("workload", "exact k-nearest-neighbor build")
+    fig.suptitle(
+        f"GraphForge {workload}\n{detail}", fontsize=14, fontweight="bold")
     _save(fig, output / "roofline")
 
 
@@ -454,6 +628,7 @@ def plot_radius_build_operational_roofline(payload: dict, output: Path):
 def plot_latency(payload: dict, output: Path):
     results = payload["results"]
     colors = _colors(results)
+    numbers = _provider_numbers(results)
     caches = sorted({item["cache"] for item in results},
                     key=lambda name: (name != "hot", name))
     fig, axes = plt.subplots(
@@ -469,14 +644,19 @@ def plot_latency(payload: dict, output: Path):
             ax.plot(
                 [item["features"] for item in items],
                 [item["milliseconds"] for item in items],
-                marker="o", linewidth=2, markersize=6,
-                color=colors[provider], label=provider)
+                linewidth=1.6, color=colors[provider], alpha=0.65)
+            ax.scatter(
+                [item["features"] for item in items],
+                [item["milliseconds"] for item in items],
+                marker=_number_marker(numbers[provider]), s=130,
+                linewidth=1.1, color=colors[provider],
+                label=f"{numbers[provider]} = {provider}", zorder=5)
         ax.set_yscale("log")
         ax.grid(True, which="both")
         ax.set_xlabel("Feature width")
         ax.set_ylabel("Median latency (ms)")
         ax.set_title(f"{cache.capitalize()} working set")
-        ax.legend(fontsize=8, framealpha=0.9)
+        ax.legend(fontsize=8, framealpha=0.9, title="numeric marker = provider")
     workload = payload.get("workload", "weighted aggregation").replace("_", " ")
     fig.suptitle(f"{workload.title()} provider latency", fontsize=14,
                  fontweight="bold")

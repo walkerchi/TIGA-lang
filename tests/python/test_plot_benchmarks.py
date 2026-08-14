@@ -8,6 +8,40 @@ from pathlib import Path
 
 @unittest.skipUnless(importlib.util.find_spec("matplotlib"), "matplotlib missing")
 class PlotBenchmarksTest(unittest.TestCase):
+    @staticmethod
+    def _roof_payload(*, intensity=0.625, performance=100.0, nodes=1024):
+        return {
+            "operation": "test_operation",
+            "workload": "same semantics",
+            "roof": {
+                "dram_bandwidth_gbs": 800.0,
+                "l2_bandwidth_gbs": 1600.0,
+                "fp32_gflops": 30000.0,
+            },
+            "results": [
+                {
+                    "provider": "graphforge.compiler_ttir",
+                    "cache": "hot", "features": 16,
+                    "milliseconds": 0.1, "achieved_gflops": performance,
+                    "memory_roof": "L2", "optimistic_roof_gflops": 1000.0,
+                    "arithmetic_intensity_flop_per_byte": intensity,
+                    "topology": "regular", "locality": "local",
+                    "index_dtype": "i64", "nodes": nodes,
+                    "edges": nodes * 16,
+                },
+                {
+                    "provider": "torch.sparse.mm",
+                    "cache": "hot", "features": 16,
+                    "milliseconds": 0.12, "achieved_gflops": performance * 0.8,
+                    "memory_roof": "L2", "optimistic_roof_gflops": 1000.0,
+                    "arithmetic_intensity_flop_per_byte": intensity,
+                    "topology": "regular", "locality": "local",
+                    "index_dtype": "i64", "nodes": nodes,
+                    "edges": nodes * 16,
+                },
+            ],
+        }
+
     def test_plot_files_are_created(self):
         from benchmarks.common.plotting import (
             plot_latency,
@@ -86,6 +120,72 @@ class PlotBenchmarksTest(unittest.TestCase):
                 path = output / name
                 self.assertTrue(path.exists())
                 self.assertGreater(path.stat().st_size, 1000)
+
+    def test_provider_colors_are_stable_and_collection_plot_is_created(self):
+        from benchmarks.common.collection_plotting import (
+            plot_manifest_dashboard, plot_operation_summary,
+        )
+        from benchmarks.common.plotting import provider_color
+
+        self.assertEqual(
+            provider_color("graphforge.compiler_ttir"),
+            provider_color("graphforge.compiler_ttir"),
+        )
+        self.assertNotEqual(
+            provider_color("graphforge.compiler_ttir"),
+            provider_color("torch.sparse.mm"),
+        )
+        first = self._roof_payload()
+        second = self._roof_payload(
+            intensity=1.25, performance=180.0, nodes=2048)
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory)
+            path = plot_operation_summary([first, second], output)
+            self.assertTrue(path.exists())
+            self.assertGreater(path.stat().st_size, 1000)
+            self.assertTrue((output / "SUMMARY.md").exists())
+            dashboard = plot_manifest_dashboard({
+                "operations": {
+                    "test_operation": {
+                        "status": "performance-ready-test", "cases": ["a", "b"]
+                    }
+                }
+            }, output)
+            self.assertTrue(dashboard.exists())
+            self.assertTrue((output / "README.md").exists())
+
+    def test_knn_roofline_uses_specialized_overlap_view(self):
+        from benchmarks.common.plotting import plot_roofline
+
+        payload = self._roof_payload()
+        payload["operation"] = "knn_graph"
+        payload["workload"] = "exact k-nearest-neighbor build"
+        payload["config"] = {"nodes": 1024, "dimensions": 3, "k": 16}
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory)
+            plot_roofline(payload, output)
+            path = output / "roofline.png"
+            self.assertTrue(path.exists())
+            self.assertGreater(path.stat().st_size, 1000)
+
+    def test_non_roofline_diagnostic_json_gets_a_human_plot(self):
+        import json
+        from benchmarks.common.diagnostic_plotting import plot_json
+
+        payload = {
+            "schema": "graphforge.memory-hierarchy.v1",
+            "gate": "PASS", "h2d_ms": 1.0, "d2h_ms": 1.1,
+            "nvme_spill_ms": 8.0, "nvme_restore_ms": 6.0,
+            "h2d_GBps": 16.0, "d2h_GBps": 15.0,
+            "nvme_spill_GBps": 2.0, "nvme_restore_GBps": 2.5,
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "results.json"
+            path.write_text(json.dumps(payload))
+            image = plot_json(path)
+            self.assertEqual(image, path.with_suffix(".png"))
+            self.assertTrue(image.exists())
+            self.assertGreater(image.stat().st_size, 1000)
 
 
 if __name__ == "__main__":
