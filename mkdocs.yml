@@ -1,0 +1,51 @@
+site_name: GraphForge Compiler
+site_description: Relation-oriented compilation for sparse, dense, and generated graph computations
+docs_dir: docs
+site_dir: site
+theme:
+  name: material
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: deep purple
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: deep purple
+  features:
+    - navigation.instant
+    - navigation.sections
+    - navigation.top
+    - content.code.copy
+    - content.tabs.link
+markdown_extensions:
+  - admonition
+  - attr_list
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets:
+      base_path:
+        - .
+  - pymdownx.superfences
+nav:
+  - Overview: index.md
+  - Getting started: getting-started.md
+  - Programming model: programming-model.md
+  - Compiler pipeline: compiler-pipeline.md
+  - Tensor runtime & autograd: runtime-and-autograd.md
+  - Memory & distributed: memory-and-distributed.md
+  - Examples: examples.md
+  - Performance: performance.md
+  - API: api.md
+  - Roadmap: roadmap.md
+  - Development: development.md
+  - Research:
+      - Related work: RELATED_WORK.md
+      - Benchmark protocol: BENCHMARKS.md
+      - Compiler bootstrap: COMPILER_BOOTSTRAP.md

@@ -1,0 +1,90 @@
+[build-system]
+requires = ["scikit-build-core>=1.0"]
+build-backend = "scikit_build_core.build"
+
+[project]
+name = "graphforge-compiler"
+version = "0.1.0a1"
+description = "A relation-oriented MLIR compiler for sparse, dense, and generated graph computations"
+readme = "README.md"
+license = "Apache-2.0"
+requires-python = ">=3.10"
+dependencies = []
+keywords = ["compiler", "MLIR", "GPU", "sparse", "graph", "scientific-computing"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "Intended Audience :: Science/Research",
+  "Programming Language :: C++",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Scientific/Engineering",
+  "Topic :: Software Development :: Compilers",
+  "Typing :: Typed",
+]
+
+[project.optional-dependencies]
+torch = ["torch>=2.1"]
+cuda = ["triton>=3.3"]
+nccl-cu12 = ["nvidia-nccl-cu12>=2.28"]
+benchmarks = ["torch>=2.1", "matplotlib>=3.8"]
+visualization = ["numpy>=1.24", "Pillow>=10"]
+docs = ["mkdocs-material>=9.6"]
+test = ["pytest>=8", "numpy>=1.24", "Pillow>=10", "torch>=2.1", "lit>=18"]
+mpi = ["mpi4py>=4"]
+dev = [
+  "build>=1.2",
+  "matplotlib>=3.8",
+  "mkdocs-material>=9.6",
+  "numpy>=1.24",
+  "Pillow>=10",
+  "pytest>=8",
+  "torch>=2.1",
+  "triton>=3.3",
+  "twine>=5.1",
+]
+
+[tool.scikit-build]
+minimum-version = "build-system.requires"
+build-dir = "build/{wheel_tag}"
+cmake.build-type = "Release"
+wheel.packages = ["python/graphforge"]
+wheel.exclude = ["**/__pycache__", "**/*.pyc"]
+install.components = ["GraphForgeWheel"]
+sdist.inclusion-mode = "explicit"
+sdist.include = [
+  "pyproject.toml",
+  "LICENSE",
+  "CMakeLists.txt",
+  "cmake/**",
+  "include/**",
+  "lib/**",
+  "tools/**",
+  "python/**",
+  "python_bindings/**",
+  "benchmarks/**",
+  "docs/**",
+  "examples/**",
+  "tests/**",
+  "mkdocs.yml",
+  "README.md",
+  "PROJECT.md",
+]
+sdist.exclude = [
+  "**/__pycache__",
+  "**/__pycache__/**",
+  "**/*.pyc",
+  ".pytest_cache/**",
+  "build/**",
+  "dist/**",
+  "output/**",
+  "site/**",
+]
+
+[tool.scikit-build.cmake.define]
+GRAPHFORGE_INCLUDE_TESTS = "OFF"
+
+[tool.pytest.ini_options]
+testpaths = ["tests/python"]

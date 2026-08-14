@@ -1,0 +1,107 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="820" viewBox="0 0 1440 820" role="img" aria-labelledby="title desc">
+  <title id="title">GraphForge separates neighborhood topology from linear and nonlinear operators</title>
+  <desc id="desc">A reusable relation feeds either edge-wise message passing with an associative reducer or a fixed-port neighborhood kernel for joint nonlinear computation.</desc>
+  <defs>
+    <marker id="arrow2" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#475569"/>
+    </marker>
+    <style>
+      .title { font-family: DejaVu Sans, Arial, sans-serif; font-size: 34px; font-weight: 700; fill: #0f172a; }
+      .subtitle { font-family: DejaVu Sans, Arial, sans-serif; font-size: 18px; font-weight: 400; fill: #475569; }
+      .heading { font-family: DejaVu Sans, Arial, sans-serif; font-size: 22px; font-weight: 700; fill: #0f172a; }
+      .label { font-family: DejaVu Sans, Arial, sans-serif; font-size: 16px; font-weight: 600; fill: #334155; }
+      .small { font-family: DejaVu Sans, Arial, sans-serif; font-size: 14px; font-weight: 400; fill: #64748b; }
+      .mono { font-family: DejaVu Sans Mono, monospace; font-size: 13px; font-weight: 600; fill: #334155; }
+      .panel { fill: #ffffff; stroke: #cbd5e1; stroke-width: 2; }
+      .box-blue { fill: #eff6ff; stroke: #3b82f6; stroke-width: 2; }
+      .box-orange { fill: #fff7ed; stroke: #f97316; stroke-width: 2; }
+      .box-green { fill: #f0fdf4; stroke: #22c55e; stroke-width: 2; }
+      .box-purple { fill: #faf5ff; stroke: #a855f7; stroke-width: 2; }
+      .flow { stroke: #475569; stroke-width: 3; marker-end: url(#arrow2); fill: none; }
+      .edge { stroke: #94a3b8; stroke-width: 3; }
+      .node { fill: #ffffff; stroke: #64748b; stroke-width: 3; }
+      .center { fill: #dcfce7; stroke: #16a34a; stroke-width: 4; }
+    </style>
+  </defs>
+
+  <rect width="1440" height="820" fill="#f8fafc"/>
+  <text x="52" y="58" class="title">Topology says what may be read; the operator says the math</text>
+  <text x="52" y="88" class="subtitle">The same relation supports constant coefficients, Field-dependent nonlinear fluxes, and joint fixed-neighborhood formulas.</text>
+
+  <!-- Relation -->
+  <rect x="42" y="120" width="350" height="590" rx="18" class="panel"/>
+  <text x="68" y="160" class="heading">Reusable relation</text>
+  <text x="68" y="187" class="small">ports / edge geometry / boundary semantics</text>
+  <g>
+    <path d="M216 350L216 245 M216 350L307 297 M216 350L307 403 M216 350L216 455 M216 350L125 403 M216 350L125 297" class="edge"/>
+    <circle cx="216" cy="350" r="20" class="center"/>
+    <circle cx="216" cy="245" r="13" class="node"/><circle cx="307" cy="297" r="13" class="node"/>
+    <circle cx="307" cy="403" r="13" class="node"/><circle cx="216" cy="455" r="13" class="node"/>
+    <circle cx="125" cy="403" r="13" class="node"/><circle cx="125" cy="297" r="13" class="node"/>
+    <text x="201" y="355" class="mono">dst</text>
+    <text x="230" y="235" class="mono">p0</text><text x="318" y="293" class="mono">p1</text>
+    <text x="318" y="419" class="mono">p2</text><text x="230" y="478" class="mono">p3</text>
+    <text x="88" y="420" class="mono">p4</text><text x="88" y="293" class="mono">p5</text>
+  </g>
+  <rect x="74" y="530" width="286" height="134" rx="12" fill="#f8fafc" stroke="#cbd5e1"/>
+  <text x="94" y="558" class="mono">edge.logical_offset</text>
+  <text x="94" y="583" class="mono">edge.displacement</text>
+  <text x="94" y="608" class="mono">edge.normal / measure</text>
+  <text x="94" y="633" class="mono">src/dst/edge Fields</text>
+
+  <!-- split arrows -->
+  <path d="M402 320H470V235H526" class="flow"/>
+  <path d="M402 500H470V590H526" class="flow"/>
+
+  <!-- Edgewise path -->
+  <rect x="520" y="120" width="878" height="300" rx="18" class="panel"/>
+  <text x="548" y="160" class="heading">A. Edge-wise transform + associative reducer</text>
+  <text x="548" y="187" class="small">arbitrary sparse/dynamic degree · streamable · naturally distributed</text>
+
+  <rect x="552" y="222" width="224" height="126" rx="14" class="box-blue"/>
+  <text x="576" y="253" class="label">edge(src, dst, geom)</text>
+  <text x="576" y="280" class="mono">k = nonlinear_k(u, mat)</text>
+  <text x="576" y="304" class="mono">flux = k_face * Δu / d</text>
+  <text x="576" y="328" class="mono">return flux * measure</text>
+
+  <path d="M786 285H854" class="flow"/>
+
+  <rect x="866" y="222" width="202" height="126" rx="14" class="box-green"/>
+  <text x="903" y="253" class="label">Reducer</text>
+  <text x="897" y="282" class="mono">sum / max / tuple</text>
+  <text x="897" y="308" class="mono">combine(partials)</text>
+
+  <path d="M1078 285H1146" class="flow"/>
+
+  <rect x="1158" y="222" width="206" height="126" rx="14" class="box-orange"/>
+  <text x="1200" y="253" class="label">Result / optional node</text>
+  <text x="1191" y="282" class="mono">residual[dst]</text>
+  <text x="1191" y="308" class="mono">or update state</text>
+
+  <!-- Joint nonlinear path -->
+  <rect x="520" y="450" width="878" height="260" rx="18" class="panel"/>
+  <text x="548" y="490" class="heading">B. Joint fixed-neighborhood computation</text>
+  <text x="548" y="517" class="small">small stable port domain · WENO / limiter / local least squares / learned stencil</text>
+
+  <rect x="552" y="548" width="230" height="118" rx="14" class="box-purple"/>
+  <text x="588" y="580" class="label">PortGather</text>
+  <text x="578" y="609" class="mono">nbr[p0], ..., nbr[pN]</text>
+  <text x="578" y="635" class="mono">kept in registers</text>
+
+  <path d="M792 607H860" class="flow"/>
+
+  <rect x="872" y="548" width="292" height="118" rx="14" class="box-blue"/>
+  <text x="898" y="580" class="label">NeighborhoodKernel.compute</text>
+  <text x="898" y="609" class="mono">weights = nonlinear(all ports)</text>
+  <text x="898" y="635" class="mono">return joint local result</text>
+
+  <path d="M1174 607H1234" class="flow"/>
+
+  <rect x="1246" y="548" width="118" height="118" rx="14" class="box-orange"/>
+  <text x="1271" y="591" class="label">Result</text>
+  <text x="1267" y="621" class="mono">field[dst]</text>
+
+  <!-- common IR footer -->
+  <rect x="430" y="744" width="968" height="52" rx="14" fill="#0f172a"/>
+  <text x="502" y="777" style="font-family: DejaVu Sans Mono, monospace; font-size: 17px; font-weight: 600; fill: #e2e8f0;">Both lower to gf.apply + relation axes + reducer/PortGather + local regions</text>
+</svg>

@@ -1,0 +1,129 @@
+{
+  "schema_version": 1,
+  "updated": "2026-08-13",
+  "index_policy": "i32 column indices when the vertex domain fits, i64 CSR row offsets",
+  "cases": [
+    {
+      "id": "graph500-scale22",
+      "family": "graph500",
+      "kind": "synthetic-rmat",
+      "nodes": 4194304,
+      "source_edges": 67108864,
+      "adjacency_entries": 134217728,
+      "edge_semantics": "Graph500 edgefactor=16 tuples, expanded to an undirected adjacency",
+      "download_gib": 0,
+      "source": "https://graph500.org/?page_id=12",
+      "license": "benchmark specification; check reference implementation separately",
+      "profiles": [
+        {"name": "bfs", "edge_value_bytes": 0, "node_state_bytes": 16},
+        {"name": "sssp", "edge_value_bytes": 4, "node_state_bytes": 24},
+        {"name": "weighted_sum_f1", "edge_value_bytes": 4, "node_state_bytes": 8}
+      ],
+      "algorithms": ["construct", "bfs", "sssp", "weighted_sum"],
+      "metrics": ["construction_edges_per_second", "teps", "kernel_time", "end_to_end_time"],
+      "validation": "Graph500 soft validation plus a small-scale exact oracle"
+    },
+    {
+      "id": "graph500-scale26",
+      "family": "graph500",
+      "kind": "synthetic-rmat",
+      "nodes": 67108864,
+      "source_edges": 1073741824,
+      "adjacency_entries": 2147483648,
+      "edge_semantics": "Graph500 edgefactor=16 tuples, expanded to an undirected adjacency",
+      "download_gib": 0,
+      "source": "https://graph500.org/?page_id=12",
+      "license": "benchmark specification; check reference implementation separately",
+      "profiles": [
+        {"name": "bfs", "edge_value_bytes": 0, "node_state_bytes": 16},
+        {"name": "sssp", "edge_value_bytes": 4, "node_state_bytes": 24},
+        {"name": "weighted_sum_f1", "edge_value_bytes": 4, "node_state_bytes": 8}
+      ],
+      "algorithms": ["construct", "bfs", "sssp", "weighted_sum"],
+      "metrics": ["construction_edges_per_second", "teps", "kernel_time", "end_to_end_time"],
+      "validation": "Graph500 soft validation plus a small-scale exact oracle"
+    },
+    {
+      "id": "graph500-scale29",
+      "family": "graph500",
+      "kind": "synthetic-rmat",
+      "nodes": 536870912,
+      "source_edges": 8589934592,
+      "adjacency_entries": 17179869184,
+      "edge_semantics": "Graph500 edgefactor=16 tuples, expanded to an undirected adjacency",
+      "download_gib": 0,
+      "source": "https://graph500.org/?page_id=12",
+      "license": "benchmark specification; check reference implementation separately",
+      "profiles": [
+        {"name": "bfs", "edge_value_bytes": 0, "node_state_bytes": 16},
+        {"name": "sssp", "edge_value_bytes": 4, "node_state_bytes": 24},
+        {"name": "weighted_sum_f1", "edge_value_bytes": 4, "node_state_bytes": 8}
+      ],
+      "algorithms": ["construct", "bfs", "sssp", "weighted_sum"],
+      "metrics": ["construction_edges_per_second", "teps", "kernel_time", "end_to_end_time", "weak_scaling_efficiency"],
+      "validation": "Graph500 soft validation plus a small-scale exact oracle"
+    },
+    {
+      "id": "ldbc-graph500-26",
+      "family": "ldbc-graphalytics",
+      "kind": "fixed-synthetic",
+      "nodes": 32000000,
+      "source_edges": 1000000000,
+      "adjacency_entries": 1000000000,
+      "edge_semantics": "Graphalytics normalized edge records; preserve dataset direction metadata on import",
+      "download_gib": 3.4,
+      "source": "https://ldbcouncil.org/benchmarks/graphalytics/datasets/",
+      "license": "see Graphalytics dataset package",
+      "profiles": [
+        {"name": "bfs", "edge_value_bytes": 0, "node_state_bytes": 16},
+        {"name": "pagerank_f64", "edge_value_bytes": 0, "node_state_bytes": 32},
+        {"name": "sssp", "edge_value_bytes": 8, "node_state_bytes": 24}
+      ],
+      "algorithms": ["bfs", "pagerank", "wcc", "cdlp", "lcc", "sssp"],
+      "metrics": ["kernel_time", "makespan", "teps"],
+      "validation": "Graphalytics reference outputs and validation harness"
+    },
+    {
+      "id": "snap-friendster",
+      "family": "snap-social",
+      "kind": "fixed-real",
+      "nodes": 65608366,
+      "source_edges": 1806067135,
+      "adjacency_entries": 3612134270,
+      "edge_semantics": "SNAP reports unique undirected edges; CSR stores both directions",
+      "download_gib": 6.7,
+      "source": "https://snap.stanford.edu/data/com-Friendster.html",
+      "license": "dataset-specific SNAP terms and citation",
+      "profiles": [
+        {"name": "bfs", "edge_value_bytes": 0, "node_state_bytes": 16},
+        {"name": "pagerank_f64", "edge_value_bytes": 0, "node_state_bytes": 32},
+        {"name": "weighted_sum_f1", "edge_value_bytes": 4, "node_state_bytes": 8},
+        {"name": "message_passing_f16", "edge_value_bytes": 4, "node_state_bytes": 128},
+        {"name": "message_passing_f64", "edge_value_bytes": 4, "node_state_bytes": 512}
+      ],
+      "algorithms": ["bfs", "pagerank", "wcc", "weighted_sum", "message_passing"],
+      "metrics": ["teps", "edges_per_second", "kernel_time", "end_to_end_time", "partition_imbalance", "page_fault_bytes"],
+      "validation": "Graphalytics Friendster reference outputs where applicable; sampled CPU oracle for MessagePassing"
+    },
+    {
+      "id": "ogbn-papers100m",
+      "family": "open-graph-benchmark",
+      "kind": "fixed-real-featured",
+      "nodes": 111059956,
+      "source_edges": 1615685872,
+      "adjacency_entries": 1615685872,
+      "edge_semantics": "directed citation edges as distributed by OGB",
+      "download_gib": null,
+      "source": "https://ogb.stanford.edu/docs/nodeprop/#ogbn-papers100M",
+      "license": "ODC-BY",
+      "profiles": [
+        {"name": "message_passing_f16", "edge_value_bytes": 0, "node_state_bytes": 128},
+        {"name": "message_passing_f64", "edge_value_bytes": 0, "node_state_bytes": 512},
+        {"name": "message_passing_f128", "edge_value_bytes": 0, "node_state_bytes": 1024}
+      ],
+      "algorithms": ["weighted_sum", "sage_mean", "gcn_normalized_sum"],
+      "metrics": ["edges_per_second", "effective_feature_gib_per_second", "kernel_time", "end_to_end_time", "accuracy"],
+      "validation": "OGB splits/evaluator for accuracy and sampled float64 CPU oracle for aggregation"
+    }
+  ]
+}

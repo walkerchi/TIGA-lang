@@ -1,0 +1,6 @@
+add_subdirectory(Domain)
+add_subdirectory(Iter)
+add_subdirectory(Kernel)
+add_subdirectory(Storage)
+add_subdirectory(Task)
+add_subdirectory(Tensor)

@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="360" viewBox="0 0 900 360" role="img" aria-labelledby="title desc">
+  <title id="title">Dense exact attention throughput on RTX 5070 Ti</title>
+  <desc id="desc">GraphForge direct TTIR reaches 86.49 TFLOP per second, the benchmark Triton oracle 86.72, PyTorch Flash SDPA 84.20, and PyTorch math SDPA 5.10.</desc>
+  <rect width="900" height="360" rx="18" fill="#f8fafc"/>
+  <text x="34" y="42" font-family="sans-serif" font-size="24" font-weight="700" fill="#111827">Dense Cartesian streaming reduction</text>
+  <text x="34" y="68" font-family="sans-serif" font-size="15" fill="#475569">B=1 · H=16 · N=4096 · D=64 · FP16 · RTX 5070 Ti</text>
+  <g font-family="sans-serif" font-size="15" fill="#1f2937">
+    <text x="34" y="119">GraphForge direct TTIR</text>
+    <text x="34" y="179">Triton oracle (benchmark-only)</text>
+    <text x="34" y="239">PyTorch Flash SDPA</text>
+    <text x="34" y="299">PyTorch math SDPA</text>
+  </g>
+  <g>
+    <rect x="270" y="94" width="519" height="34" rx="6" fill="#2563eb"/>
+    <rect x="270" y="154" width="520" height="34" rx="6" fill="#7c3aed"/>
+    <rect x="270" y="214" width="505" height="34" rx="6" fill="#dc2626"/>
+    <rect x="270" y="274" width="31" height="34" rx="6" fill="#059669"/>
+  </g>
+  <g font-family="monospace" font-size="15" font-weight="700" fill="#111827">
+    <text x="800" y="117">86.49</text>
+    <text x="800" y="177">86.72</text>
+    <text x="800" y="237">84.20</text>
+    <text x="800" y="297">5.10</text>
+  </g>
+  <text x="730" y="335" font-family="sans-serif" font-size="13" fill="#64748b">useful TFLOP/s</text>
+</svg>

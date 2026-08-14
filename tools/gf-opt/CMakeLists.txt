@@ -1,0 +1,27 @@
+add_mlir_tool(gf-opt gf-opt.cpp)
+
+set_target_properties(gf-opt PROPERTIES
+  INSTALL_RPATH "${GRAPHFORGE_TOOL_RPATH}")
+
+target_link_libraries(gf-opt PRIVATE
+  GraphForgeDomain
+  GraphForgeIter
+  GraphForgeKernel
+  GraphForgeStorage
+  GraphForgeTask
+  GraphForgeTensor
+  GraphForgeTransforms
+  MLIRArithDialect
+  MLIRComplexDialect
+  MLIRFuncDialect
+  MLIRMathDialect
+  MLIRMemRefDialect
+  MLIRSCFDialect
+  MLIRVectorDialect
+  MLIROptLib
+)
+
+install(
+  TARGETS gf-opt
+  RUNTIME DESTINATION graphforge/bin
+  COMPONENT GraphForgeWheel)

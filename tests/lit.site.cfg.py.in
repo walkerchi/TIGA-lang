@@ -1,0 +1,15 @@
+@LIT_SITE_CFG_IN_HEADER@
+
+import os
+import lit.llvm
+
+lit.llvm.initialize(lit_config, config)
+
+config.graphforge_src_root = r"@CMAKE_SOURCE_DIR@"
+config.graphforge_obj_root = r"@CMAKE_BINARY_DIR@"
+config.graphforge_tools_dir = r"@LLVM_RUNTIME_OUTPUT_INTDIR@"
+config.llvm_tools_dir = r"@GRAPHFORGE_LLVM_TEST_TOOLS_DIR@"
+
+lit_config.load_config(
+    config, os.path.join(config.graphforge_src_root, "tests", "lit.cfg.py")
+)
