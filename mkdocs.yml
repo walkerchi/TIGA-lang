@@ -4,6 +4,8 @@ docs_dir: docs
 site_dir: site
 theme:
   name: material
+  logo: assets/graphforge-mark.svg
+  favicon: assets/graphforge-mark.svg
   palette:
     - media: "(prefers-color-scheme: light)"
       scheme: default
@@ -41,11 +43,16 @@ nav:
   - Tensor runtime & autograd: runtime-and-autograd.md
   - Memory & distributed: memory-and-distributed.md
   - Examples: examples.md
-  - Performance: performance.md
+  - Benchmark results: benchmark-results.md
+  - Performance methodology: performance.md
   - API: api.md
   - Roadmap: roadmap.md
   - Development: development.md
   - Research:
       - Related work: RELATED_WORK.md
       - Benchmark protocol: BENCHMARKS.md
+      - IR design: IR_DESIGN.md
+      - Scheduling abstractions: SCHEDULING_ABSTRACTIONS.md
+      - GPU graph optimization: GPU_GRAPH_OPTIMIZATION.md
+      - Architecture RFC: rfcs/0001-architecture.md
       - Compiler bootstrap: COMPILER_BOOTSTRAP.md

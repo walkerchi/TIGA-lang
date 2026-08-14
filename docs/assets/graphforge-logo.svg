@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 190" role="img" aria-labelledby="title desc">
+  <title id="title">GraphForge</title>
+  <desc id="desc">GraphForge relation-oriented compiler logo.</desc>
+  <defs>
+    <linearGradient id="gf-logo-gradient" x1="24" y1="22" x2="168" y2="168" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#22d3ee"/>
+      <stop offset="0.5" stop-color="#6366f1"/>
+      <stop offset="1" stop-color="#a855f7"/>
+    </linearGradient>
+  </defs>
+  <rect width="760" height="190" rx="22" fill="#ffffff"/>
+  <g transform="translate(12 12)">
+    <path d="M83 0 155 41.5v83L83 166 11 124.5v-83Z" fill="#0f172a"/>
+    <path d="M83 12 144.5 47v71L83 154l-61.5-36V47Z" fill="none" stroke="url(#gf-logo-gradient)" stroke-width="6"/>
+    <g fill="none" stroke="#cbd5e1" stroke-width="4" stroke-linecap="round">
+      <path d="m48 58 35 25 36-29M83 83l1 43M48 58l-10 47 46 21 44-27-9-45"/>
+    </g>
+    <g fill="url(#gf-logo-gradient)" stroke="#f8fafc" stroke-width="3">
+      <circle cx="48" cy="58" r="8"/><circle cx="119" cy="54" r="8"/>
+      <circle cx="38" cy="105" r="8"/><circle cx="128" cy="99" r="8"/>
+      <circle cx="84" cy="126" r="8"/>
+    </g>
+    <path d="m83 66 18 17-18 18-18-18Z" fill="#f8fafc" stroke="url(#gf-logo-gradient)" stroke-width="5"/>
+  </g>
+  <text x="202" y="104" font-family="Arial, Helvetica, sans-serif" font-size="62" font-weight="700" fill="#0f172a">Graph</text>
+  <text x="378" y="104" font-family="Arial, Helvetica, sans-serif" font-size="62" font-weight="700" fill="#6366f1">Forge</text>
+  <text x="205" y="139" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="600" letter-spacing="2.4" fill="#64748b">RELATION-ORIENTED COMPILER</text>
+</svg>

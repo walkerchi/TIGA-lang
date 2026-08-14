@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="540" viewBox="0 0 1000 540" role="img" aria-labelledby="title desc">
+  <title id="title">GraphForge registered workload speedups</title>
+  <desc id="desc">Seven independently matched GraphForge benchmark cases range from 1.002 to 1.182 times the peer performance.</desc>
+  <rect width="1000" height="540" rx="20" fill="#f8fafc"/>
+  <text x="36" y="45" font-family="Arial, sans-serif" font-size="25" font-weight="700" fill="#0f172a">Registered GPU cases vs matched peer</text>
+  <text x="36" y="72" font-family="Arial, sans-serif" font-size="14" fill="#64748b">Independent semantic gates · RTX 5070 Ti · truncated speedup axis · no cross-workload geomean</text>
+  <g stroke="#cbd5e1" stroke-width="1">
+    <path d="M340 100v370M460 100v370M580 100v370M700 100v370M820 100v370M940 100v370"/>
+  </g>
+  <path d="M460 96v382" stroke="#334155" stroke-width="3"/>
+  <g font-family="Arial, sans-serif" font-size="13" fill="#64748b" text-anchor="middle">
+    <text x="340" y="500">0.95×</text><text x="460" y="500">1.00×</text>
+    <text x="580" y="500">1.05×</text><text x="700" y="500">1.10×</text>
+    <text x="820" y="500">1.15×</text><text x="940" y="500">1.20×</text>
+  </g>
+  <text x="460" y="520" font-family="Arial, sans-serif" font-size="12" text-anchor="middle" fill="#475569">matched peer parity</text>
+  <g font-family="Arial, sans-serif" font-size="15" fill="#1e293b" text-anchor="end">
+    <text x="320" y="132">Exact dense attention</text>
+    <text x="320" y="187">Grouped-query attention</text>
+    <text x="320" y="242">Tile-pruned sparse attention</text>
+    <text x="320" y="297">Linear recurrence / FLA</text>
+    <text x="320" y="352">Exact kNN build + consume</text>
+    <text x="320" y="407">Dense matmul</text>
+    <text x="320" y="462">GPU heatmap preparation</text>
+  </g>
+  <g fill="#4f46e5">
+    <rect x="460" y="111" width="177.6" height="28" rx="6"/>
+    <rect x="460" y="166" width="201.6" height="28" rx="6"/>
+    <rect x="460" y="221" width="436.8" height="28" rx="6"/>
+    <rect x="460" y="276" width="88.8" height="28" rx="6"/>
+    <rect x="460" y="331" width="4.1" height="28" rx="2"/>
+    <rect x="460" y="386" width="12" height="28" rx="4"/>
+    <rect x="460" y="441" width="367.2" height="28" rx="6"/>
+  </g>
+  <g fill="#4f46e5">
+    <circle cx="637.6" cy="125" r="5"/><circle cx="661.6" cy="180" r="5"/>
+    <circle cx="896.8" cy="235" r="5"/><circle cx="548.8" cy="290" r="5"/>
+    <circle cx="464.1" cy="345" r="5"/><circle cx="472" cy="400" r="5"/>
+    <circle cx="827.2" cy="455" r="5"/>
+  </g>
+  <g font-family="Arial, sans-serif" font-size="14" font-weight="700" fill="#312e81">
+    <text x="648" y="130">1.074×</text><text x="672" y="185">1.084×</text>
+    <text x="907" y="240">1.182×</text><text x="559" y="295">1.037×</text>
+    <text x="478" y="350">1.002×</text><text x="486" y="405">1.005×</text>
+    <text x="838" y="460">1.153×</text>
+  </g>
+</svg>

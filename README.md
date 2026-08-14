@@ -1,76 +1,159 @@
-# GraphForge v2
+<div align="center">
+  <img src="docs/assets/graphforge-logo.svg" alt="GraphForge" width="560">
+  <p><strong>Compile relations, messages, and reducers—not hand-written workload kernels.</strong></p>
+  <p>
+    <a href="https://github.com/walkerchi/graphforge/actions/workflows/compiler-ci.yml"><img alt="compiler CI" src="https://github.com/walkerchi/graphforge/actions/workflows/compiler-ci.yml/badge.svg?branch=main"></a>
+    <img alt="Python 3.10–3.12" src="https://img.shields.io/badge/Python-3.10–3.12-3776AB?logo=python&logoColor=white">
+    <img alt="LLVM/MLIR 22.1.8" src="https://img.shields.io/badge/LLVM%2FMLIR-22.1.8-262D3A?logo=llvm">
+    <a href="LICENSE"><img alt="Apache-2.0 license" src="https://img.shields.io/badge/License-Apache--2.0-blue.svg"></a>
+  </p>
+</div>
 
-GraphForge is an experimental relation-oriented compiler with a minimal
-Tensor/runtime/autograd substrate. It is deliberately not an operator library:
-workloads live in `examples/` and `benchmarks/`; optimizer, NN and dataset
-layers are out of scope.
+GraphForge is an experimental relation-oriented compiler for sparse, dense,
+and generated graph computation. A user defines a graph, an edge UDF, and a
+reducer. The first call captures and JIT-compiles a guarded variant; later calls
+reuse it. The same program can participate in compiler-generated autograd,
+hierarchical storage planning, and halo-overlapped distributed execution.
 
-Licensed under Apache-2.0.
+> **Alpha software.** The measured paths below are real, but coverage is still
+> deliberately narrow. Unsupported target/shape combinations fail closed or
+> use an explicit correctness evaluator; they are never presented as optimized.
+
+## One programming model
+
+```python
+import graphforge as gf
+
+
+class WeightedNeighbors(gf.MessagePassing):
+    reducer = gf.sum()
+
+    def edge(self, src, dst, edge):
+        return edge.weight * (src.x - dst.x)
+
+
+row_ptr = gf.tensor([0, 2, 3, 5], dtype=gf.int64)
+col_idx = gf.tensor([0, 2, 1, 0, 1], dtype=gf.int64)
+graph = gf.Graph.from_csr(row_ptr, col_idx, num_src=3)
+
+x = gf.tensor([1.0, 2.0, 4.0], requires_grad=True)
+weight = gf.tensor([2.0, 3.0, 4.0, 5.0, 6.0], requires_grad=True)
+
+kernel = WeightedNeighbors()
+y = kernel(
+    graph=graph,
+    src={"x": x},
+    dst={"x": x},
+    edge={"weight": weight},
+)
+dx, dw = gf.autograd.grad(y.sum(), (x, weight))
+
+print(kernel.explain())
+print(kernel.ir("domain"))
+```
+
+There is no required `gf.compile(...)`: calling the `MessagePassing` object is
+the JIT boundary. After a compiled call, `kernel.ir(stage)`, `kernel.code(kind)`,
+`kernel.schedules`, and `kernel.explain()` expose the selected IR, PTX or other
+available artifacts, machine schedule, cache behavior, and compiler remarks.
+
+Reducers use the same compiler surface. Built-ins include additive reduction
+and stable online softmax; users may subclass `gf.Reducer` and define
+`identity`, `lift`, `combine`, and `finalize`. See
+[the custom reducer example](examples/custom_reducer.py).
+
+## What is implemented
+
+| Area | Current path | Status |
+|---|---|---|
+| Relations | Static/bounded-ragged CSR, dense Cartesian/triangular, radius, exact kNN | Implemented; coverage varies by shape |
+| User kernels | Captured edge/node UDF plus built-in or user reducer algebra | Implemented |
+| Autograd | Compiler-derived Tensor and relation VJP; no user-written backward in examples | Implemented for registered UDF/reducer families |
+| NVIDIA GPU | `gf.domain → gf.iter → gf.kernel → TTIR → vendor Triton → PTX/cubin` | Executable and benchmarked |
+| CPU | `gf_tensor → Vector/SCF/MemRef → LLVM → ExecutionEngine` | Executable and benchmarked |
+| Memory hierarchy | Logical regions, physical HBM/RAM/NVMe instances, async transfer/event DAG | Executable single-node paths |
+| Distributed | `Graph.halo()` ownership/ghost planning, pack/exchange/unpack, interior/boundary overlap | CPU/MPI exercised; multi-GPU NCCL performance is pending |
+| ROCm / Hygon / Metal / PPU | Versioned provider ABI and conformance contract | Plugin and real-hardware validation required |
+| Torch | Optional zero-copy/framework adapter | Compatible, never a core dependency |
+
+GraphForge is a compiler, not an attention, kNN, or visualization operator
+library. Workload programs and hand-written comparison kernels live in
+`examples/` and `benchmarks/`; no `@triton.jit` workload kernel is imported by
+the core package.
+
+## Measured comparison
+
+Registered results below were measured on the repository's RTX 5070 Ti host.
+Each row compares matched semantics, dtype, shape, and timing boundary. A value
+above `1.00×` means GraphForge was faster; the full page records confidence
+gates and limitations.
+
+| Workload | Registered case | GraphForge | Matched peer | Speedup |
+|---|---|---:|---:|---:|
+| Dense exact attention | B1/H16/N4096/D64 FP16 | 0.7720 ms | PyTorch Flash SDPA 0.8288 ms | **1.074×** |
+| Dense grouped-query attention | Hq16/Hkv4/N4096/D64 FP16 | 0.7769 ms | PyTorch Flash SDPA 0.8424 ms | **1.084×** |
+| Tile-pruned sparse attention | B1/H16/N4096/D64 FP16 | 0.9073 ms | official FSA 1.0724 ms | **1.182×** |
+| Causal linear recurrence | L64/T512/K16/V16 FP32 | 0.1056 ms | official FLA 0.1095 ms | **1.037×** |
+| Exact kNN build + consume | N8192/D3/k32 FP32 | 3.9072 ms | cdist/top-k pipeline 3.9137 ms | **1.002×** |
+| Dense matmul | 2048³ FP16 | 89.29 TFLOP/s | torch.mm/cuBLAS 88.86 TFLOP/s | **1.005×** |
+| GPU heatmap preparation | 2048² FP32→RGB | 0.0996 ms | Inductor 0.1148 ms | **1.153×** |
+
+![Dense exact attention comparison](docs/assets/dense-attention-performance.svg)
+
+These are registered buckets, not universal claims. Exact dense attention,
+linear attention, sparse attention, relation build, and relation consume have
+different mathematical work and are never placed under one misleading speedup
+claim. Read the [benchmark results](docs/benchmark-results.md) for the complete
+comparison tables, and the [methodology](docs/performance.md) for raw-artifact
+layout, roofline definitions, and reproduction commands.
+
+## Compiler architecture
 
 ```text
-Python MessagePassing → gf.domain ───────────────→ gf.iter → gf.kernel
-                           └→ gf.storage/gf.task ─┘
-                              → serialized provider TTIR → PTX/cubin
-Python Tensor → gf_tensor → SCF/MemRef → LLVM → in-process CPU JIT
+Python MessagePassing / Tensor program
+                  │ capture + specialize
+                  ▼
+    gf.domain ─ relation, UDF regions, reducer algebra
+                  │ fusion, effects, ownership, autograd
+                  ▼
+    gf.iter   ─ dense / sparse / generated traversal
+                  │ tiling, work partition, load balance
+                  ▼
+    gf.kernel ─ provider-neutral machine schedule
+          ┌───────┴────────┐
+          ▼                ▼
+ serialized TTIR      Vector/SCF/MemRef
+          │                │
+ vendor GPU stack         LLVM
+          │                │
+     PTX / binary        CPU JIT
+
+ gf.storage + gf.task preserve physical instances, transfers,
+ versions, halo communication, and overlap as an event DAG.
 ```
 
-`Graph.halo()` supplies a DTensor-like declarative distributed placement on the
-same `Graph` type. The compiler IR already preserves Region/PhysicalInstance/
-Event and partition/halo dependencies. A placed kernel is lowered to an
-inspectable `pack → exchange → unpack` plus interior/boundary overlap task DAG;
-the CPU stdlib provider executes rank-local contiguous Tensor forward/VJP through
-the same `Graph.halo()` MessagePassing API. Versioned `.gfg` relations remain
-paged on NVMe and each rank reads only its destination/edge shard. CUDA Buffer
-shards also pass forward/VJP binding on the available single GPU. The MPI plugin
-ABI is executable through an mpi4py-compatible communicator. A Torch-free NCCL
-provider now binds native device-buffer slices and CUDA stream events below the
-same graph API; its single-rank communicator plus local-device transport gate
-passes locally. RCCL and true NCCL multi-device correctness/overlap/performance
-remain fail-closed release gates.
+Keeping `gf.domain`, `gf.iter`, and `gf.kernel` separate retains graph and
+reducer structure long enough to choose CSR row tiling, dense tensor-core
+streaming, generated-neighborhood fusion, or distributed interior/boundary
+splitting before committing to a vendor layout.
 
-Generated paths currently cover scalar fixed/bounded-ragged CSR, generated
-radius distance aggregation, and a generic dense Cartesian contraction with a
-structured streaming reducer. Handwritten performance kernels live only under
-`benchmarks/kernels/` and are never imported by GraphForge runtime code.
+## Run it
 
-The Torch-independent runtime owns CPU Buffer/Stream/Event objects. `gf.Tensor`
-supports general broadcasting, views, axis reductions, complex dtypes and
-functional conjugate-Wirtinger VJP. Supported CPU DAGs are constructed with
-MLIR OpBuilder and lowered in-process through SCF/MemRef and the LLVM dialect to
-an MLIR ExecutionEngine; there is no generated C/C++ source path. The Python
-evaluator remains a correctness oracle. `Tensor.mlir()` emits verified canonical
-`gf_tensor` IR, the JIT cache uses its stable semantic hash, and
-`gf.autograd.grad_mlir()` exposes the native reverse-mode pass.
-Torch is an optional adapter installed with `.[torch]`; it is not pulled in by
-the Torch-free CUDA compiler/runtime extra `.[cuda]`. NCCL deployment support is
-available separately as `.[nccl-cu12]` or through a system-provided library.
-Static-CSR edge/node UDFs and structurally additive tuple reducers have
-compiler-generated relation VJPs, so examples do not define backward methods.
+The PyPI distribution name is `graphforge-compiler`; the first public release
+is not published yet. Run the source tree today:
 
 ```bash
+git clone https://github.com/walkerchi/graphforge.git
+cd graphforge
 export PYTHONPATH="$PWD/python"
-python3 -m unittest discover -s tests/python -v
-python3 examples/message_passing_autograd.py
-python3 examples/torch_interop.py  # optional PyTorch adapter only
-python3 -m benchmarks.autograd.message_passing_backward --quick
-python3 -m benchmarks.autograd.message_passing_backward \
-  --quick --gradient dweight --features 16
-python3 -m benchmarks.neural_networks.dense_attention --quick
+
+python examples/message_passing_autograd.py
+python examples/custom_reducer.py
+python examples/radius_autograd.py
+python examples/torch_interop.py  # optional adapter
 ```
 
-Runnable examples are indexed in [examples/README.md](examples/README.md).
-Measured artifacts use `output/roofline/<operation>/<case>/`; the public
-[benchmark guide](docs/performance.md) explains semantic matching, FLOP/byte
-models, cold JIT accounting and performance gates.
-
-The planned PyPI distribution name is `graphforge-compiler`, because the
-`graphforge` distribution name belongs to an unrelated project. The Python
-import remains `import graphforge as gf`.
-
-## MLIR compiler
-
-The out-of-tree compiler is pinned to LLVM/MLIR 22.1.8. Point `MLIR_DIR` at its
-CMake package and build `gf-opt` plus the lit suite:
+Building the native compiler requires the pinned LLVM/MLIR 22.1.8 SDK:
 
 ```bash
 cmake -S . -B build -G Ninja \
@@ -78,20 +161,17 @@ cmake -S . -B build -G Ninja \
 cmake --build build --target check-graphforge
 ```
 
-For local bring-up an explicitly configured compatibility SDK may be used with
-`GRAPHFORGE_STRICT_LLVM_VERSION=OFF`; no `/tmp` tool path is part of the package
-or test contract. The strict pinned LLVM/MLIR build remains the release/CI contract. See
-[docs/COMPILER_BOOTSTRAP.md](docs/COMPILER_BOOTSTRAP.md).
+## Documentation
 
-Start with [PROJECT.md](PROJECT.md).  The earlier architecture discussion is in
-[docs/rfcs/0001-architecture.md](docs/rfcs/0001-architecture.md), and the
-literature/project survey is in [docs/RELATED_WORK.md](docs/RELATED_WORK.md).
-The focused design note on tensor-axis, sparse/ragged, layout, storage, pipeline,
-and distributed scheduling is in
-[docs/SCHEDULING_ABSTRACTIONS.md](docs/SCHEDULING_ABSTRACTIONS.md).
-The staged plan for naive Static/Dynamic Graph support followed by one measured
-GPU work-tile optimization is in
-[docs/GPU_GRAPH_OPTIMIZATION.md](docs/GPU_GRAPH_OPTIMIZATION.md).
-The query/cache coverage matrix, roofline methodology, SOTA provider rules, and
-measured RTX 5070 Ti baseline are in
-[docs/BENCHMARKS.md](docs/BENCHMARKS.md).
+| Read this | For |
+|---|---|
+| [Getting started](docs/getting-started.md) | Installation, first JIT call, artifact inspection |
+| [Programming model](docs/programming-model.md) | Graphs, MessagePassing, generated relations, reducers |
+| [Compiler pipeline](docs/compiler-pipeline.md) | Domain/iteration/kernel IR and lowering |
+| [Tensor runtime & autograd](docs/runtime-and-autograd.md) | Torch-free Tensor, views, complex dtypes, VJP |
+| [Memory & distributed](docs/memory-and-distributed.md) | HBM/RAM/NVMe placement and `Graph.halo()` |
+| [Examples](examples/README.md) | Runnable programs grouped by capability |
+| [Benchmark results](docs/benchmark-results.md) | Human-readable comparisons and current limits |
+| [Project specification](PROJECT.md) | Design contract, milestones, and remaining gates |
+
+GraphForge is licensed under Apache-2.0.

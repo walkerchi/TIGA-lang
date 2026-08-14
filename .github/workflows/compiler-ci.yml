@@ -95,25 +95,62 @@ jobs:
           "$RUNNER_TEMP/smoke-venv/bin/python" \
             "$GITHUB_WORKSPACE/tests/smoke/wheel_without_torch.py"
 
-      - name: Run installed-wheel CPU Python suite
+      - name: Reclaim native build space before Python tests
+        shell: bash
+        run: |
+          rm -rf "$GITHUB_WORKSPACE/build/ci" "$GITHUB_WORKSPACE/dist"
+
+      - name: Run Torch-free compiler/runtime tests
         shell: bash
         run: |
           set -euxo pipefail
           python3 -m venv "$RUNNER_TEMP/test-venv"
           "$RUNNER_TEMP/test-venv/bin/pip" install \
             pytest numpy pillow
-          "$RUNNER_TEMP/test-venv/bin/pip" install \
-            torch --index-url https://download.pytorch.org/whl/cpu
           "$RUNNER_TEMP/test-venv/bin/pip" install --no-deps wheelhouse/*.whl
           cd "$RUNNER_TEMP"
-          GRAPHFORGE_OPT="$GITHUB_WORKSPACE/build/ci/bin/gf-opt" \
-          GRAPHFORGE_TRANSLATE="$GITHUB_WORKSPACE/build/ci/bin/gf-translate" \
           PYTHONPATH="$GITHUB_WORKSPACE" \
             "$RUNNER_TEMP/test-venv/bin/python" -m pytest -q \
-              "$GITHUB_WORKSPACE/tests/python"
+              "$GITHUB_WORKSPACE/tests/python/test_large_graph_suite.py" \
+              "$GITHUB_WORKSPACE/tests/python/test_output_layout.py" \
+              "$GITHUB_WORKSPACE/tests/python/test_perf_protocol.py" \
+              "$GITHUB_WORKSPACE/tests/python/test_plot_benchmarks.py" \
+              "$GITHUB_WORKSPACE/tests/python/test_project_boundaries.py" \
+              "$GITHUB_WORKSPACE/tests/python/test_provider_registry.py" \
+              "$GITHUB_WORKSPACE/tests/python/test_symbolic_shapes.py"
 
       - uses: actions/upload-artifact@v4
         with:
           name: graphforge-linux-wheel
           path: wheelhouse/*.whl
           if-no-files-found: error
+
+  torch-compatibility:
+    name: Optional Torch adapter and full CPU suite
+    needs: linux-llvm-mlir
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/download-artifact@v4
+        with:
+          name: graphforge-linux-wheel
+          path: wheelhouse
+      - name: Install wheel, tests, and optional CPU Torch adapter
+        shell: bash
+        run: |
+          set -euxo pipefail
+          python -m pip install pytest numpy pillow
+          python -m pip install torch \
+            --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install --no-deps wheelhouse/*.whl
+      - name: Run installed-wheel CPU Python suite
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cd "$RUNNER_TEMP"
+          PYTHONPATH="$GITHUB_WORKSPACE" \
+            python -m pytest -q "$GITHUB_WORKSPACE/tests/python"

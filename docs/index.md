@@ -56,8 +56,10 @@ print(program.code("ptx"))
 | Unsupported program/shape | explicit semantic evaluator |
 | Torch-independent Tensor slice | native CPU buffer + symbolic add/mul/sum VJP oracle |
 
-The current implementation is alpha software. See [performance](performance.md)
-for measured evidence and [roadmap](roadmap.md) for unsupported shapes.
+The current implementation is alpha software. See the
+[benchmark results](benchmark-results.md) for measured comparisons, the
+[performance methodology](performance.md) for reproduction rules, and the
+[roadmap](roadmap.md) for unsupported shapes.
 
 ## Start here
 
@@ -67,4 +69,5 @@ for measured evidence and [roadmap](roadmap.md) for unsupported shapes.
 - [Understand the minimal Tensor runtime and autograd](runtime-and-autograd.md)
 - [See how memory hierarchy and distributed execution fit](memory-and-distributed.md)
 - [Run complete examples](examples.md)
+- [Compare registered benchmark results](benchmark-results.md)
 - [Reproduce performance claims](performance.md)
