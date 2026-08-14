@@ -17,8 +17,10 @@ it. The same program can participate in compiler-generated autograd,
 hierarchical storage planning, and distributed halo execution. The Task IR can
 plan overlap; on CPU host transports the runtime now derives interior and
 boundary rows, overlaps realized interior compute with halo progress, and
-assembles disjoint rows through compiler IR. Device-direct multi-GPU overlap
-remains an explicit alpha gap.
+assembles disjoint rows through compiler IR. CUDA device-buffer transports now
+enqueue halo work on a communication stream, execute the interior on an
+independent compiler stream, wait, and execute the boundary. True 2+ GPU
+NCCL/RCCL timeline and peer-link performance remain explicit alpha gaps.
 
 > **Alpha software.** The measured paths below are real, but coverage is still
 > deliberately narrow. Unsupported target/shape combinations fail closed or
@@ -160,7 +162,7 @@ dynamic graph build, build+consume, backward, and cache regimes.
 | NVIDIA GPU | `gf.domain → gf.iter → gf.kernel → TTIR → vendor Triton → PTX/cubin` | Executable and benchmarked |
 | CPU | `gf_tensor → Vector/SCF/MemRef → LLVM → ExecutionEngine` | Executable and benchmarked |
 | Memory hierarchy | Logical regions, physical HBM/RAM/NVMe instances, async transfer/event DAG | Executable single-node paths |
-| Distributed | `Graph.halo()` ownership/ghost planning, pack/exchange/unpack, automatic interior/halo/boundary execution | CPU two-process overlap and MPI transport exercised; multi-GPU NCCL/RCCL performance pending |
+| Distributed | `Graph.halo()` ownership/ghost planning, pack/exchange/unpack, automatic interior/halo/boundary execution | CPU overlap measured; CUDA device-direct dual-stream order exercised; multi-GPU NCCL/RCCL measurement pending |
 | ROCm / Hygon / Metal / PPU | Versioned provider ABI and conformance contract | Plugin and real-hardware validation required |
 | Torch | Optional zero-copy/framework adapter | Compatible, never a core dependency |
 

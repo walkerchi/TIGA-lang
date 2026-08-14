@@ -280,6 +280,7 @@ class DistributedRuntimeTest(unittest.TestCase):
         class DeviceFixtureTransport:
             rank = 0
             world_size = 2
+            prefer_compute_overlap = True
 
             def __init__(self):
                 # Rank zero's ring ghosts are global entities 4 and 7, in the
@@ -287,6 +288,7 @@ class DistributedRuntimeTest(unittest.TestCase):
                 self.remote = gf.runtime.Buffer(8, device="cuda:0")
                 self.remote.write(struct.pack("ff", 4.0, 7.0))
                 self.exchanges = []
+                self.forward_stream = None
 
             def send(self, peer, payload):
                 del peer, payload
@@ -298,6 +300,8 @@ class DistributedRuntimeTest(unittest.TestCase):
 
             def exchange_device(self, sends, receives, *, stream):
                 self.exchanges.append((sends, receives))
+                if len(self.exchanges) == 1:
+                    self.forward_stream = stream
                 if len(self.exchanges) == 2:
                     # Rank one's rows contribute one additional cotangent to
                     # rank-zero-owned entities 0 and 3.
@@ -327,14 +331,42 @@ class DistributedRuntimeTest(unittest.TestCase):
         local_x = gf.tensor(
             [0.0, 1.0, 2.0, 3.0], device="cuda:0", requires_grad=True)
         transport = DeviceFixtureTransport()
+        interior_started = threading.Event()
+        original_realize = gf.Tensor.realize
+        original_synchronize = gf.runtime.Stream.synchronize
+
+        def observe_interior(value):
+            expression = getattr(value, "_expr", None)
+            if (value.shape == (2,) and expression is not None
+                    and expression.op == "csr_segment_sum"):
+                interior_started.set()
+            return original_realize(value)
+
+        def require_interior_before_halo_wait(stream):
+            if stream is transport.forward_stream:
+                self.assertTrue(
+                    interior_started.is_set(),
+                    "device halo stream synchronized before interior realization",
+                )
+            return original_synchronize(stream)
+
         try:
-            with mock.patch.dict(os.environ, {"GRAPHFORGE_TENSOR_BACKEND": "native"}):
-                with DistributedRuntime(transport):
-                    output = ShardedNeighborSum()(
-                        graph=graph, src={"x": local_x}, dst={})
-                    self.assertEqual(output.tolist(), [8.0, 3.0, 6.0, 9.0])
-                    gradient = gf.autograd.grad(output.sum(), local_x)
-                    self.assertEqual(gradient.tolist(), [3.0, 3.0, 3.0, 3.0])
+            with (
+                mock.patch.dict(
+                    os.environ, {"GRAPHFORGE_TENSOR_BACKEND": "native"}),
+                mock.patch.object(gf.Tensor, "realize", observe_interior),
+                mock.patch.object(
+                    gf.runtime.Stream, "synchronize",
+                    require_interior_before_halo_wait,
+                ),
+                DistributedRuntime(transport) as runtime,
+            ):
+                output = ShardedNeighborSum()(
+                    graph=graph, src={"x": local_x}, dst={})
+                self.assertEqual(output.tolist(), [8.0, 3.0, 6.0, 9.0])
+                trace = runtime.last_execution_trace
+                gradient = gf.autograd.grad(output.sum(), local_x)
+                self.assertEqual(gradient.tolist(), [3.0, 3.0, 3.0, 3.0])
             self.assertEqual(len(transport.exchanges), 2)
             self.assertTrue(all(
                 len(sends) == len(receives) == 1
@@ -343,6 +375,20 @@ class DistributedRuntimeTest(unittest.TestCase):
             self.assertIn("transport=device-direct", output.expression())
             self.assertEqual(output.execution["backend"], "cuda-ttir-triton")
             self.assertEqual(gradient.execution["backend"], "cuda-ttir-triton")
+            self.assertEqual(
+                trace["schedule"], "interior||device-halo->boundary")
+            self.assertEqual(trace["timing_kind"], "host-submit-order")
+            self.assertEqual(trace["interior_rows"], 2)
+            self.assertEqual(trace["boundary_rows"], 2)
+            self.assertIsNone(trace["measured_overlap_ms"])
+            self.assertLessEqual(
+                trace["communication_enqueued_ns"],
+                trace["interior_started_ns"],
+            )
+            self.assertLessEqual(
+                trace["interior_finished_ns"],
+                trace["communication_wait_started_ns"],
+            )
         finally:
             transport.remote.close()
 

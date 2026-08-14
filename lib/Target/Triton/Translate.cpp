@@ -6332,6 +6332,8 @@ private:
     if (auto gather = dyn_cast_or_null<tensor::GatherOp>(operation)) {
       return emitGather(gather);
     }
+    if (auto scatter = dyn_cast_or_null<tensor::ScatterRowsOp>(operation))
+      return emitScatterRows(scatter);
     if (auto reshape = dyn_cast_or_null<tensor::ReshapeOp>(operation)) {
       FailureOr<std::string> rewritten = emitValue(reshape.getInput());
       if (succeeded(rewritten)) names[value] = *rewritten;
@@ -6409,7 +6411,7 @@ private:
     }
     if (operation)
       operation->emitError(
-          "pointwise TTIR supports input/gather/broadcast/reshape/add/mul/div/neg/exp/sqrt producers");
+          "pointwise TTIR supports input/gather/scatter_rows/broadcast/reshape/add/mul/div/neg/exp/sqrt producers");
     return failure();
   }
 
@@ -6605,6 +6607,104 @@ private:
       physical = shifted;
     }
     return emitRawInput(source, physical, "%mask", gather.getResult());
+  }
+
+  FailureOr<std::string> emitScatterRows(tensor::ScatterRowsOp scatter) {
+    auto source = scatter.getInput().getDefiningOp<tensor::InputOp>();
+    auto destination =
+        scatter.getDestination().getDefiningOp<tensor::InputOp>();
+    auto inverse = scatter.getInverse().getDefiningOp<tensor::InputOp>();
+    auto sourceType = dyn_cast<RankedTensorType>(scatter.getInput().getType());
+    auto destinationType =
+        dyn_cast<RankedTensorType>(scatter.getDestination().getType());
+    auto inverseType =
+        dyn_cast<RankedTensorType>(scatter.getInverse().getType());
+    auto resultType = dyn_cast<RankedTensorType>(scatter.getResult().getType());
+    if (!source || !destination || !inverse || !sourceType ||
+        !destinationType || !inverseType || !resultType ||
+        sourceType.getRank() != resultType.getRank() ||
+        sourceType.getRank() < 1 || sourceType.getRank() > 2 ||
+        destinationType.getRank() != 1 || inverseType.getRank() != 1 ||
+        inverseType.getDimSize(0) != resultRows ||
+        (sourceType.getRank() == 2 &&
+         sourceType.getDimSize(1) != resultColumns))
+      return scatter.emitError(
+          "pointwise scatter_rows requires direct rank-one/rank-two source "
+          "and direct rank-one maps");
+
+    std::string columns = denseI64(resultColumns, "scatter_columns");
+    std::string resultRow = next("scatter_result_row");
+    output << "    " << resultRow << " = arith.divui %index, " << columns
+           << " : tensor<" << blockSize << "xi64>\n";
+
+    std::string inversePhysical = resultRow;
+    if (inverse.getStrides()[0] != 1) {
+      std::string stride = denseI64(
+          inverse.getStrides()[0], "scatter_inverse_stride");
+      std::string scaled = next("scatter_inverse_scaled");
+      output << "    " << scaled << " = arith.muli " << resultRow << ", "
+             << stride << " : tensor<" << blockSize << "xi64>\n";
+      inversePhysical = scaled;
+    }
+    if (inverse.getOffsetAttr().getInt() != 0) {
+      std::string offset = denseI64(
+          inverse.getOffsetAttr().getInt(), "scatter_inverse_offset");
+      std::string shifted = next("scatter_inverse_shifted");
+      output << "    " << shifted << " = arith.addi " << inversePhysical
+             << ", " << offset << " : tensor<" << blockSize << "xi64>\n";
+      inversePhysical = shifted;
+    }
+    FailureOr<std::string> rawSourceRow = emitRawInput(
+        inverse, inversePhysical, "%mask", scatter.getInverse());
+    if (failed(rawSourceRow)) return failure();
+    std::string sourceRow = *rawSourceRow;
+    if (inverseType.getElementType().isInteger(32)) {
+      sourceRow = next("scatter_source_row_i64");
+      output << "    " << sourceRow << " = arith.extsi " << *rawSourceRow
+             << " : tensor<" << blockSize << "xi32> to tensor<"
+             << blockSize << "xi64>\n";
+    }
+    std::string zero = denseI64(0, "scatter_zero");
+    std::string active = next("scatter_active");
+    std::string valid = next("scatter_valid");
+    std::string safeRow = next("scatter_safe_row");
+    output << "    " << active << " = arith.cmpi sge, " << sourceRow << ", "
+           << zero << " : tensor<" << blockSize << "xi64>\n"
+           << "    " << valid << " = arith.andi %mask, " << active
+           << " : tensor<" << blockSize << "xi1>\n"
+           << "    " << safeRow << " = arith.select " << active << ", "
+           << sourceRow << ", " << zero << " : tensor<" << blockSize
+           << "xi1>, tensor<" << blockSize << "xi64>\n";
+
+    std::string rowStride = denseI64(
+        source.getStrides()[0], "scatter_source_row_stride");
+    std::string rowOffset = next("scatter_source_row_offset");
+    output << "    " << rowOffset << " = arith.muli " << safeRow << ", "
+           << rowStride << " : tensor<" << blockSize << "xi64>\n";
+    std::string physical = rowOffset;
+    if (sourceType.getRank() == 2) {
+      std::string column = next("scatter_column");
+      std::string columnStride = denseI64(
+          source.getStrides()[1], "scatter_source_column_stride");
+      std::string columnOffset = next("scatter_column_offset");
+      std::string combined = next("scatter_source_physical");
+      output << "    " << column << " = arith.remui %index, " << columns
+             << " : tensor<" << blockSize << "xi64>\n"
+             << "    " << columnOffset << " = arith.muli " << column << ", "
+             << columnStride << " : tensor<" << blockSize << "xi64>\n"
+             << "    " << combined << " = arith.addi " << rowOffset << ", "
+             << columnOffset << " : tensor<" << blockSize << "xi64>\n";
+      physical = combined;
+    }
+    if (source.getOffsetAttr().getInt() != 0) {
+      std::string offset = denseI64(
+          source.getOffsetAttr().getInt(), "scatter_source_offset");
+      std::string shifted = next("scatter_source_shifted");
+      output << "    " << shifted << " = arith.addi " << physical << ", "
+             << offset << " : tensor<" << blockSize << "xi64>\n";
+      physical = shifted;
+    }
+    return emitRawInput(source, physical, valid, scatter.getResult());
   }
 
   FailureOr<std::string> emitRawInput(tensor::InputOp input,

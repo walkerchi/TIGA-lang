@@ -1028,111 +1028,114 @@ def execute_sharded_message_passing(
         and not device_direct
         and prefer_overlap
     )
+    device_overlap = device_direct and prefer_overlap
     communication_stream = Stream(graph_device) if device_direct else None
 
-    def device_direct_halo(value: Tensor) -> Buffer:
+    # Device halo storage must outlive every operation enqueued on the
+    # communication stream.  Cleanup is deliberately separated from enqueue:
+    # synchronizing inside ``device_direct_halo`` would serialize halo traffic
+    # before the compiler can launch the independent interior partition.
+    device_completions: list[Any] = []
+    device_temporary_buffers: list[Buffer] = []
+    device_receive_buffers: list[Buffer] = []
+    device_retained_values: list[Tensor] = []
+
+    def release_device_halo_temporaries() -> None:
+        for completion in device_completions:
+            close = getattr(completion, "close", None)
+            if callable(close):
+                close()
+        device_completions.clear()
+        for buffer in device_receive_buffers:
+            buffer.close()
+        device_receive_buffers.clear()
+        for buffer in device_temporary_buffers:
+            buffer.close()
+        device_temporary_buffers.clear()
+        device_retained_values.clear()
+
+    def enqueue_device_direct_halo(value: Tensor) -> Buffer:
         assert communication_stream is not None
         source, source_temporary = runtime_buffer(value)
         row_bytes = value.dtype.itemsize * value.numel // value.shape[0]
         sends: list[tuple[int, DeviceBufferSlice]] = []
-        packed_values: list[Tensor] = []
-        packed_temporaries: list[Buffer] = []
         receive_buffers: list[tuple[tuple[int, ...], Buffer]] = []
-        completions: list[Any] = []
-        try:
-            for peer, ids in halo.send_to:
-                local_ids = tuple(entity - halo.owned_begin for entity in ids)
-                if not local_ids:
+        if source_temporary:
+            device_temporary_buffers.append(source)
+        for peer, ids in halo.send_to:
+            local_ids = tuple(entity - halo.owned_begin for entity in ids)
+            if not local_ids:
+                continue
+            if local_ids == tuple(
+                range(local_ids[0], local_ids[0] + len(local_ids))
+            ):
+                region = DeviceBufferSlice(
+                    source,
+                    (value.offset + local_ids[0] * value.strides[0])
+                    * value.dtype.itemsize,
+                    len(local_ids) * row_bytes,
+                )
+            else:
+                indices = tensor(local_ids, dtype=int64, device=graph_device)
+                packed = value.gather(indices)
+                packed.realize()
+                device_retained_values.append(packed)
+                packed_buffer, temporary = runtime_buffer(packed)
+                if temporary:
+                    device_temporary_buffers.append(packed_buffer)
+                region = DeviceBufferSlice(
+                    packed_buffer,
+                    packed.offset * packed.dtype.itemsize,
+                    packed.nbytes,
+                )
+            sends.append((peer, region))
+
+        receives: list[tuple[int, DeviceBufferSlice]] = []
+        for peer, ids in halo.receive_from:
+            buffer = Buffer(len(ids) * row_bytes, device=graph_device)
+            receive_buffers.append((ids, buffer))
+            device_receive_buffers.append(buffer)
+            receives.append((peer, DeviceBufferSlice(buffer, 0, buffer.nbytes)))
+
+        device_completions.append(runtime.transport.exchange_device(
+            tuple(sends), tuple(receives), stream=communication_stream))
+        combined = Buffer(
+            value.nbytes + len(halo.ghost_ids) * row_bytes,
+            device=graph_device,
+        )
+        device_completions.append(source.copy_to(
+            combined,
+            stream=communication_stream,
+            source_offset=value.offset * value.dtype.itemsize,
+            bytes=value.nbytes,
+        ))
+        ghost_position = {
+            entity: index for index, entity in enumerate(halo.ghost_ids)
+        }
+        for ids, received in receive_buffers:
+            positions = tuple(ghost_position[entity] for entity in ids)
+            runs: list[tuple[int, int, int]] = []
+            run_source = run_destination = run_count = 0
+            for source_row, destination_row in enumerate(positions):
+                if run_count and destination_row == run_destination + run_count:
+                    run_count += 1
                     continue
-                if local_ids == tuple(
-                    range(local_ids[0], local_ids[0] + len(local_ids))
-                ):
-                    region = DeviceBufferSlice(
-                        source,
-                        (value.offset + local_ids[0] * value.strides[0])
-                        * value.dtype.itemsize,
-                        len(local_ids) * row_bytes,
-                    )
-                else:
-                    indices = tensor(
-                        local_ids, dtype=int64, device=graph_device)
-                    packed = value.gather(indices)
-                    packed.realize()
-                    packed_values.append(packed)
-                    packed_buffer, temporary = runtime_buffer(packed)
-                    if temporary:
-                        packed_temporaries.append(packed_buffer)
-                    region = DeviceBufferSlice(
-                        packed_buffer,
-                        packed.offset * packed.dtype.itemsize,
-                        packed.nbytes,
-                    )
-                sends.append((peer, region))
-
-            receives: list[tuple[int, DeviceBufferSlice]] = []
-            for peer, ids in halo.receive_from:
-                buffer = Buffer(len(ids) * row_bytes, device=graph_device)
-                receive_buffers.append((ids, buffer))
-                receives.append(
-                    (peer, DeviceBufferSlice(buffer, 0, buffer.nbytes)))
-
-            completions.append(runtime.transport.exchange_device(
-                tuple(sends), tuple(receives), stream=communication_stream))
-            combined = Buffer(
-                value.nbytes + len(halo.ghost_ids) * row_bytes,
-                device=graph_device,
-            )
-            completions.append(source.copy_to(
-                combined,
-                stream=communication_stream,
-                source_offset=value.offset * value.dtype.itemsize,
-                bytes=value.nbytes,
-            ))
-            ghost_position = {
-                entity: index for index, entity in enumerate(halo.ghost_ids)
-            }
-            for ids, received in receive_buffers:
-                positions = tuple(ghost_position[entity] for entity in ids)
-                runs: list[tuple[int, int, int]] = []
-                run_source = run_destination = run_count = 0
-                for source_row, destination_row in enumerate(positions):
-                    if run_count and destination_row == run_destination + run_count:
-                        run_count += 1
-                        continue
-                    if run_count:
-                        runs.append((run_source, run_destination, run_count))
-                    run_source = source_row
-                    run_destination = destination_row
-                    run_count = 1
                 if run_count:
                     runs.append((run_source, run_destination, run_count))
-                for source_row, destination_row, count in runs:
-                    completions.append(received.copy_to(
-                        combined,
-                        stream=communication_stream,
-                        source_offset=source_row * row_bytes,
-                        destination_offset=(
-                            value.nbytes + destination_row * row_bytes
-                        ),
-                        bytes=count * row_bytes,
-                    ))
-            communication_stream.synchronize()
-            return combined
-        finally:
-            # Every provider operation and D2D copy is complete after the
-            # stream synchronization above. On an exception, wait for any
-            # successfully enqueued work before releasing temporary storage.
-            if completions:
-                try:
-                    communication_stream.synchronize()
-                except Exception:
-                    pass
-            for _ids, buffer in receive_buffers:
-                buffer.close()
-            for buffer in packed_temporaries:
-                buffer.close()
-            if source_temporary:
-                source.close()
+                run_source = source_row
+                run_destination = destination_row
+                run_count = 1
+            if run_count:
+                runs.append((run_source, run_destination, run_count))
+            for source_row, destination_row, count in runs:
+                device_completions.append(received.copy_to(
+                    combined,
+                    stream=communication_stream,
+                    source_offset=source_row * row_bytes,
+                    destination_offset=value.nbytes + destination_row * row_bytes,
+                    bytes=count * row_bytes,
+                ))
+        return combined
 
     for name, value in src.items():
         if value.shape[0] != halo.owned_entities:
@@ -1163,9 +1166,29 @@ def execute_sharded_message_passing(
     # field before the first interior launch preserves overlap even when one
     # kernel consumes multiple source fields.
     pending_halos: dict[str, tuple[Tensor, bytes, DistributedCompletion]] = {}
+    device_halos: dict[str, Buffer] = {}
     interior_output = None
     interior_started_ns: int | None = None
     interior_finished_ns: int | None = None
+    communication_enqueued_ns: int | None = None
+    communication_wait_started_ns: int | None = None
+    communication_wait_finished_ns: int | None = None
+
+    def realize_interior_partition() -> None:
+        nonlocal interior_output, interior_started_ns, interior_finished_ns
+        interior_output = launch_partition(
+            row_plan.interior_graph,
+            row_plan.interior_rows,
+            row_plan.interior_edges,
+            src,
+        )
+        if interior_output is not None:
+            # Tensor execution is lazy. Realization is the ordering point that
+            # submits/executes independent interior work before the halo wait.
+            interior_started_ns = time.perf_counter_ns()
+            interior_output.realize()
+            interior_finished_ns = time.perf_counter_ns()
+
     if host_overlap:
         for name in sorted(src):
             value = src[name]
@@ -1181,19 +1204,7 @@ def execute_sharded_message_passing(
                     halo, owned, element_bytes=element_bytes),
             )
         try:
-            interior_output = launch_partition(
-                row_plan.interior_graph,
-                row_plan.interior_rows,
-                row_plan.interior_edges,
-                src,
-            )
-            if interior_output is not None:
-                # Tensor execution is lazy.  Realization here is the ordering
-                # point that makes this a real compute/communication overlap,
-                # rather than merely an optimistic Task IR dependency.
-                interior_started_ns = time.perf_counter_ns()
-                interior_output.realize()
-                interior_finished_ns = time.perf_counter_ns()
+            realize_interior_partition()
         except BaseException:
             # Drain peer communication before propagating a compute failure so
             # the opposite rank cannot remain blocked in its exchange.
@@ -1204,12 +1215,38 @@ def execute_sharded_message_passing(
                     pass
             raise
 
+    if device_direct:
+        assert communication_stream is not None
+        try:
+            # Enqueue all fields first so one field cannot serialize another.
+            for name in sorted(src):
+                device_halos[name] = enqueue_device_direct_halo(src[name])
+            communication_enqueued_ns = time.perf_counter_ns()
+            if device_overlap:
+                # Native CUDA executables own an independent compute stream;
+                # NCCL/D2D halo work remains ordered on communication_stream.
+                realize_interior_partition()
+            communication_wait_started_ns = time.perf_counter_ns()
+            communication_stream.synchronize()
+            communication_wait_finished_ns = time.perf_counter_ns()
+        except BaseException:
+            try:
+                communication_stream.synchronize()
+            except Exception:
+                pass
+            release_device_halo_temporaries()
+            for buffer in device_halos.values():
+                buffer.close()
+            communication_stream.close()
+            raise
+        release_device_halo_temporaries()
+
     local_src = {}
     try:
         for name in sorted(src):
             value = src[name]
             if device_direct:
-                combined = device_direct_halo(value)
+                combined = device_halos[name]
                 transport_kind = "device-direct"
             elif host_overlap:
                 _pending_value, owned, completion = pending_halos[name]
@@ -1293,6 +1330,29 @@ def execute_sharded_message_passing(
             "interior_finished_ns": interior_finished_ns,
             "measured_overlap_ms": overlap_ns / 1e6,
         }
+    elif device_overlap:
+        runtime._last_execution_trace = {
+            "schema": "graphforge.distributed-execution-trace.v1",
+            "schedule": "interior||device-halo->boundary",
+            "timing_kind": "host-submit-order",
+            "interior_rows": (
+                0 if row_plan.interior_rows is None
+                else row_plan.interior_rows.shape[0]
+            ),
+            "boundary_rows": (
+                0 if row_plan.boundary_rows is None
+                else row_plan.boundary_rows.shape[0]
+            ),
+            "communication_enqueued_ns": communication_enqueued_ns,
+            "communication_wait_started_ns": communication_wait_started_ns,
+            "communication_wait_finished_ns": communication_wait_finished_ns,
+            "interior_started_ns": interior_started_ns,
+            "interior_finished_ns": interior_finished_ns,
+            # These host timestamps establish submission/dependency order. A
+            # CUDA profiler or a provider event pair is required to measure
+            # actual device concurrency, so do not manufacture a duration.
+            "measured_overlap_ms": None,
+        }
     else:
         runtime._last_execution_trace = {
             "schema": "graphforge.distributed-execution-trace.v1",
@@ -1305,7 +1365,7 @@ def execute_sharded_message_passing(
             "measured_overlap_ms": 0.0,
         }
 
-    if host_overlap:
+    if host_overlap or device_overlap:
         boundary_output = launch_partition(
             row_plan.boundary_graph,
             row_plan.boundary_rows,

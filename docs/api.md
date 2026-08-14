@@ -86,14 +86,16 @@ loops and launch bounds static while avoiding one user kernel per input size.
   halo progress, realizes the interior while communication is active, then
   runs the boundary and places both disjoint row sets with compiled
   `gf_tensor.scatter_rows`. The runtime records an inspectable overlap trace.
-  CUDA device-direct execution remains serialized until a true multi-GPU
-  correctness/timeline gate exists.
+  CUDA device-buffer transports use the same split, enqueue halo copies/P2P on
+  a communication stream, realize the interior on an independent compiler
+  stream, wait, and then execute the boundary. Its local fixture proves this
+  dependency order and generated forward/VJP code, not elapsed GPU overlap.
   The optional `DistributedRuntime.from_provider("mpi")` binds an
   mpi4py-compatible communicator through the transport plugin ABI.
   `DistributedRuntime.from_provider("nccl", ...)` binds native CUDA buffer
   slices and stream events without importing Torch; its rank-one communicator
   plus local-D2D transport gate passes, but is not NCCL P2P evidence. RCCL and
-  true multi-device correctness, overlap and performance remain explicit
+  true multi-device correctness, profiler overlap and performance remain explicit
   fail-closed gates.
 
 `gf.DeviceMesh(device_type, shape, names=...)` describes logical devices without

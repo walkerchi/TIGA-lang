@@ -127,6 +127,11 @@ def unique_id(*, library: str | os.PathLike[str] | None = None) -> bytes:
 class NCCLTransport:
     """NCCL communicator implementing GraphForge's device-buffer extension."""
 
+    # Point-to-point operations are enqueued on the caller-provided CUDA
+    # stream and return an Event.  The distributed executor may therefore run
+    # an independent interior kernel before waiting for the halo stream.
+    prefer_compute_overlap = True
+
     def __init__(
         self,
         rank: int,

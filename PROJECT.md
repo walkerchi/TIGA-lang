@@ -85,7 +85,7 @@ kernel。
 - 本地 wheel 已捆绑 `gf-opt`、`gf-translate` 和 runtime，并在两个全新、无 Torch 的 venv
   验证相对 RPATH、native Tensor IR 和工具启动；manylinux_2_38 修复产物及从 sdist 独立重建
   也已通过。正式 PyPI wheel 仍须由 hosted trusted-publishing workflow 发布。当前本机 Python
-  suite 为 211 passed、0 skip、10 subtests，LLVM/MLIR 22.1.8 lit 为 56/56；这不是
+  suite 为 212 passed、0 skip、10 subtests，LLVM/MLIR 22.1.8 lit 为 57/57；这不是
   ROCm/DCU/Metal/PPU 支持声明。
 
 ### 文档权属
@@ -3012,8 +3012,8 @@ dependency 与 version mismatch 保留 unfused program。
 Tensor、scalar CSR/dense/generated-radius 以及 structured dense online reducer frontend 已由
 C++ OpBuilder 原生构造；Torch compatibility bridge 只保留 typed capture 和显式 tool/provider
 进程边界。native Domain→Iter→Kernel→Task 已改为同一 MLIRContext 内的 pass pipeline；
-serialized TTIR 只保留在 vendor provider ABI 边界。当前 Python suite 为 211 passed、
-0 skip、10 个参数化子测通过；LLVM/MLIR 22.1.8 lit 56/56。以下编号是实现审计，不是第二份
+serialized TTIR 只保留在 vendor provider ABI 边界。当前 Python suite 为 212 passed、
+0 skip、10 个参数化子测通过；LLVM/MLIR 22.1.8 lit 57/57。以下编号是实现审计，不是第二份
 TODO 台账；所有未完成项只在 §15.3 登记：
 
 1. 已在校验 SHA256 的官方 LLVM/MLIR 22.1.8 SDK 上完成 clean build、56/56 lit、完整 Python
@@ -3079,8 +3079,11 @@ TODO 台账；所有未完成项只在 §15.3 登记：
     forward/reverse VJP、CUDA Buffer forward/reverse binding、`.gfg` paged rank binding 与真实
     mpi4py/MPICH provider 均通过。16 MiB local-host MPI halo 的 pack/transport/unpack/total 为
     3.10/5.53/0.06/8.87 ms（端到端 1.892 GB/s）。Torch-free NCCL 2.28.9 provider 已用
-    native Buffer/Stream 完成 communicator + rank-local D2D byte-exact gate；完整 device-transport fixture 已走通
-    MessagePassing forward/reverse VJP 且无 host staging。尚缺 RCCL 与真多卡 gate；
+    native Buffer/Stream 完成 communicator + rank-local D2D byte-exact gate；完整 device-transport
+    fixture 已走通 MessagePassing forward/reverse VJP 且无 host staging。forward 自动执行器会把
+    halo enqueue 到 communication stream，在独立 compiler stream realize interior，等待后执行
+    boundary，并用 CUDA `gf_tensor.scatter_rows` 合并。fixture 的 host trace 只证明提交/依赖顺序，
+    不作为设备并发计时。尚缺 RCCL 与真多卡 profiler/performance gate；
 17. CUDA runtime 已通过 Driver API 自主管理 primary context、allocation、stream/event、
     module/function 与 launch；TTIR vendor compile 后可选择 GraphForge Driver launcher，并在
     当前 Torch stream 上保持互操作依赖，不再要求由 Torch 发射 kernel；
@@ -3128,7 +3131,7 @@ benchmark artifact 的能力，`PARTIAL` 不得用于发布声明。每关闭一
 | K0 | DONE | exact procedural kNN build+consume | `Graph.knn` 不预存邻接；N=8192/D3/k32 每次 exhaustive Euclidean cdist/top-k 重建 col_idx，固定 row_ptr 元数据复用并把新 snapshot 重绑到同一个 compiler-generated weighted-consume TTIR executable。Prepared GraphForge 3.9072 ms，对 matched cdist/top-k/gather-multiply-sum 3.9137 ms，严格 gate 1.0017x（CI low 1.0005）；普通 lazy-JIT 热调用 3.9111 ms，位置 mutation differential 与 compile-cache hit 通过 |
 | R0 | DONE | runtime-owned provider ABI | CPU ExecutionEngine；CUDA Driver primary context、allocator、stream/event、module/function/kernel launch；TTIR 经 runtime-owned launcher 执行，且 native CUDA Tensor 在禁止 import Torch 的子进程完成 compile/launch/readback |
 | M0 | DONE | hierarchy memory execution | `gf_storage.transfer/release` bundle lowering、capacity/peak-liveness、native pinned↔HBM async DMA、RAM↔NVMe spill/version differential；32 MiB artifact H2D/D2H 7.20/7.13 GB/s |
-| X0 | PARTIAL | distributed partition/halo execution | typed overlap DAG、exact owner/ghost、bundle resolver、CPU/CUDA rank-local forward/reverse VJP、版本化 `.gfg` paged shard 与 mpi4py/MPICH `mpiexec -n 2` 均通过；16 MiB MPI halo 为 8.87 ms/1.892 GB/s。CPU host-transport 自动执行器已缓存 interior/boundary subgraph，实际并行 halo worker 与 interior LLVM execution，并以 `gf_tensor.scatter_rows` 合并；N65536/degree16/F64 的受控 5 ms link model 测得 13.7224 ms overlap 和 1.069x 端到端收益。Torch-free NCCL provider 直接接受 native/external device-buffer slices；rank-one NCCL 2.28.9 communicator + local D2D byte gate 和完整 device-transport MessagePassing forward/reverse gate 通过，但不作为 NCCL P2P 证据。当前只有一张 GPU；RCCL、真实 2+ GPU NCCL correctness/device-direct overlap timeline 和 peer-link performance 待完成 |
+| X0 | PARTIAL | distributed partition/halo execution | typed overlap DAG、exact owner/ghost、bundle resolver、CPU/CUDA rank-local forward/reverse VJP、版本化 `.gfg` paged shard 与 mpi4py/MPICH `mpiexec -n 2` 均通过；16 MiB MPI halo 为 8.87 ms/1.892 GB/s。CPU host-transport 自动执行器已缓存 interior/boundary subgraph，实际并行 halo worker 与 interior LLVM execution，并以 `gf_tensor.scatter_rows` 合并；N65536/degree16/F64 的受控 5 ms link model 测得 13.7224 ms overlap 和 1.069x 端到端收益。Torch-free NCCL provider 直接接受 native/external device-buffer slices；rank-one NCCL 2.28.9 communicator + local D2D byte gate 通过。CUDA device fixture 已验证 communication-stream halo enqueue、独立 compiler-stream interior、wait、boundary、CUDA scatter merge 及 automatic reverse VJP 的提交顺序；host trace 不冒充 GPU 并发计时或 NCCL P2P 证据。当前只有一张 GPU；RCCL、真实 2+ GPU NCCL correctness/profiler overlap timeline 和 peer-link performance 待完成 |
 | B0 | PENDING | ROCm/DCU provider | vendor TTIR pipeline、真机 correctness/performance CI |
 | B1 | PENDING | Metal provider | provider ABI、MSL/Metal lowering、Apple 真机 CI |
 | B2 | PENDING | PPU provider | vendor compiler/runtime plugin 与真机 CI |

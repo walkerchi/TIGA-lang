@@ -352,6 +352,23 @@ def _physicalize_storage(
         if expression is None:
             memo[id(value)] = value
             return value
+        if (value is not output and value._buffer is not None
+                and expression.op not in {"reshape", "permute", "broadcast"}):
+            # Keep the semantic/autograd DAG intact, but bind any explicitly
+            # realized compute intermediate as a zero-copy executable ABI
+            # leaf. Views are excluded: they can alias storage eagerly while
+            # still carrying structural shape proofs required by scan/matmul
+            # fusion. This is the CUDA counterpart of the CPU materialization
+            # barrier and is required when interior work is completed before
+            # a boundary consumer is compiled.
+            rewritten = Tensor(
+                value.shape, dtype=value.dtype, device=value.device,
+                buffer=value._buffer, offset=value.offset,
+                strides=value.strides, requires_grad=False,
+                version=value.version, ready_event=value.ready_event,
+            )
+            memo[id(value)] = rewritten
+            return rewritten
         if (expression.op == "distributed_halo_snapshot"
                 and value._buffer is not None):
             # Forward communication already installed owned||ghost storage.
@@ -598,6 +615,41 @@ def _physicalize_storage(
             )
             memo[id(value)] = rewritten
             return rewritten
+        if expression.op == "gather":
+            # A gather performs an arbitrary cross-lane read. Its source and
+            # index therefore have to be physical ABI inputs; a pointwise
+            # producer cannot be substituted into the current lane. This
+            # generic barrier also covers VJPs that gather from a previously
+            # partitioned/scattered distributed result.
+            direct_operands = []
+            for operand in expression.operands:
+                if operand._expr is not None:
+                    was_materialized = operand._buffer is not None
+                    operand.realize()
+                    if not was_materialized:
+                        execution = operand.execution or {}
+                        materialize_ms += float(
+                            execution.get("launch_ms", 0.0))
+                        saved_compile_ms += float(
+                            execution.get("compile_ms", 0.0))
+                        saved_bytes += int(execution.get("saved_bytes", 0))
+                    operand = Tensor(
+                        operand.shape, dtype=operand.dtype,
+                        device=operand.device, buffer=operand._buffer,
+                        offset=operand.offset, strides=operand.strides,
+                        requires_grad=False, version=operand.version,
+                        ready_event=operand.ready_event,
+                    )
+                direct_operands.append(operand)
+            rewritten = Tensor(
+                value.shape, dtype=value.dtype, device=value.device,
+                requires_grad=value.requires_grad,
+                expression=_Expr(
+                    expression.op, tuple(direct_operands), expression.attrs),
+                version=value.version,
+            )
+            memo[id(value)] = rewritten
+            return rewritten
         operands = tuple(visit(item) for item in expression.operands)
         if expression.op in {"csr_expand_rows", "csr_segment_sum"}:
             source, row_ptr = operands
@@ -641,6 +693,27 @@ def _physicalize_storage(
                 materialize_ms += (time.perf_counter_ns() - started) / 1e6
                 row_ptr._cuda_destination_index_cache = destination
             if expression.op == "csr_expand_rows":
+                # Relation expansion is itself an indexed read. If its node
+                # producer was already a gather (for example a partitioned
+                # destination cotangent), cut between the two gathers: one
+                # Triton program cannot satisfy an arbitrary second-level
+                # index from values held only in the current lane.
+                if source._expr is not None:
+                    was_materialized = source._buffer is not None
+                    source.realize()
+                    if not was_materialized:
+                        execution = source.execution or {}
+                        materialize_ms += float(
+                            execution.get("launch_ms", 0.0))
+                        saved_compile_ms += float(
+                            execution.get("compile_ms", 0.0))
+                        saved_bytes += int(execution.get("saved_bytes", 0))
+                    source = Tensor(
+                        source.shape, dtype=source.dtype, device=source.device,
+                        buffer=source._buffer, offset=source.offset,
+                        strides=source.strides, requires_grad=False,
+                        version=source.version, ready_event=source.ready_event,
+                    )
                 rewritten = source.gather(destination)
             else:
                 if source._expr is not None:

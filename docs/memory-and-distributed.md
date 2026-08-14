@@ -16,7 +16,11 @@ one GPU, streamed from NVMe, or partitioned across ranks.
     reverse-halo automatic VJP 与 overlap ordering 均通过普通 `Graph.halo()` +
     `MessagePassing` 两进程测试；
     CUDA Buffer rank-local forward/reverse binding and versioned `.gfg` paged
-    partition execution are implemented. Each rank reads only its CSR shard and
+    partition execution are implemented. Device-buffer forward execution now
+    enqueues owned/ghost assembly on a communication stream, realizes the
+    owned-source-only interior on an independent compiler stream, waits, and
+    executes the boundary; `gf_tensor.scatter_rows` is compiler-lowered on CUDA
+    as well as CPU. Each rank reads only its CSR shard and
     derives exact halo maps without constructing global `col_idx` in RAM. A
     versioned `graphforge.transport` ABI and optional mpi4py-compatible provider
     are implemented and pass a real `mpiexec -n 2` forward/VJP test. The local
@@ -26,7 +30,7 @@ one GPU, streamed from NVMe, or partitioned across ranks.
     communicator plus D2D fast-path artifact passes with NCCL 2.28.9. Since a
     rank is not its own NCCL P2P peer, this proves provider binding and local
     transport semantics, not an NCCL data path or peer-link result. RCCL and true multi-device
-    correctness/overlap/performance remain release gates.
+    correctness/profiler-timeline/performance remain release gates.
 
 ## Hierarchical memory
 
@@ -153,3 +157,7 @@ controlled link model, not a measured inter-node claim.
 `benchmarks/distributed/nccl_device_loopback.py` separately validates communicator
 creation plus the device-buffer provider's local-D2D path and explicitly marks
 its rank-one throughput as neither NCCL nor performance evidence.
+The device-transport MessagePassing fixture additionally validates the
+`enqueue halo → realize interior → wait → boundary` submission order and its
+automatic reverse VJP. Host timestamps are reported only as ordering evidence;
+actual GPU concurrency requires the two-device profiler gate.

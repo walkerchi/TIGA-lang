@@ -49,6 +49,36 @@ class TensorRuntimeTest(unittest.TestCase):
             self.assertEqual(gradient.tolist(), [[1.0, 2.0], [3.0, 4.0]])
             self.assertIn('"gf_tensor.gather"', gradient.mlir())
 
+    @unittest.skipUnless(_cuda_available(), "CUDA is unavailable")
+    def test_cuda_scatter_rows_forward_vjp_uses_generated_ttir(self):
+        with patch.dict(os.environ, {"GRAPHFORGE_TENSOR_BACKEND": "native"}):
+            value = gf.tensor(
+                [[1.0, 2.0], [3.0, 4.0]], device="cuda:0",
+                requires_grad=True,
+            )
+            destination = gf.tensor(
+                [1, 3], dtype=gf.int64, device="cuda:0")
+            inverse = gf.tensor(
+                [-1, 0, -1, 1], dtype=gf.int64, device="cuda:0")
+            placed = value._scatter_rows(destination, inverse, 4)
+
+            self.assertEqual(
+                placed.tolist(),
+                [[0.0, 0.0], [1.0, 2.0], [0.0, 0.0], [3.0, 4.0]],
+            )
+            self.assertEqual(placed.execution["backend"], "cuda-ttir-triton")
+            self.assertIn("gf_tensor_pointwise", placed.generated_code("ttir"))
+            self.assertIn("tt.load", placed.generated_code("ttir"))
+
+            cotangent = gf.tensor([
+                [10.0, 20.0], [1.0, 2.0],
+                [30.0, 40.0], [3.0, 4.0],
+            ], device="cuda:0")
+            gradient = gf.autograd.grad(
+                placed, value, grad_output=cotangent)
+            self.assertEqual(gradient.tolist(), [[1.0, 2.0], [3.0, 4.0]])
+            self.assertEqual(gradient.execution["backend"], "cuda-ttir-triton")
+
     def test_native_execution_cuts_realized_operand_without_cutting_autograd(self):
         with patch.dict(os.environ, {"GRAPHFORGE_TENSOR_BACKEND": "native"}):
             value = gf.tensor([2.0] * 4096, requires_grad=True)

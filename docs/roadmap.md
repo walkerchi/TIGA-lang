@@ -73,7 +73,10 @@ forward/reverse VJP；当前机器只有一张 GPU，所以这些测试是 provi
 通过。`graphforge.transport` plugin ABI 和 mpi4py/MPICH provider 也已由真实
 `mpiexec -n 2` 执行；16 MiB halo artifact 的端到端吞吐为 1.892 GB/s。Torch-free NCCL
 device-buffer provider、单 rank 真实 communicator + D2D local-path byte gate，以及完整
-device-transport MessagePassing forward/reverse VJP binding 已完成；这不算 NCCL P2P 证据。
+device-transport MessagePassing forward/reverse VJP binding 已完成。forward executor 已将
+device halo enqueue 到 communication stream，在独立 compiler stream realize interior，等待后
+运行 boundary，并以 CUDA `gf_tensor.scatter_rows` 合并；fixture 记录的 host 时间只证明提交与
+依赖顺序，不算 NCCL P2P 或真实 GPU overlap 证据。
 CPU host-transport 自动执行器已把 owned rows 拆成 interior/boundary：先启动 halo worker，
 实际 realize interior，再等待 ghost、运行 boundary，并通过一等 `gf_tensor.scatter_rows`
 线性拼回 owned row domain。两进程 artifact 在显式 5 ms receive-delay 模型下测得
@@ -84,7 +87,7 @@ Graph/Tensor，不暴露 send/recv。
 
 ### C0/P0 — hosted reproducibility and release
 
-本地已使用校验 SHA256 的官方 LLVM/MLIR 22.1.8 SDK 完成 clean build、56/56 lit、211 个
+本地已使用校验 SHA256 的官方 LLVM/MLIR 22.1.8 SDK 完成 clean build；当前为 57/57 lit、212 个
 Python tests、strict docs、manylinux_2_38 wheel audit、无 Torch smoke 和 sdist→wheel rebuild。
 hosted compiler run `31793915112` 的 clean-build 与独立 Torch compatibility jobs 均已通过。
 仍不能由本机替代的是完整 CPython 3.10–3.12 Linux/macOS release matrix、PyPI
