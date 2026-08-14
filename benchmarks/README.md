@@ -38,6 +38,7 @@ python -m benchmarks.autograd.message_passing_backward --quick
 python -m benchmarks.autograd.dynamic_radius_backward --quick
 python -m benchmarks.memory_hierarchy.transfer --quick
 python -m benchmarks.distributed.halo_exchange --quick
+python -m benchmarks.distributed.automatic_overlap --quick
 python -m benchmarks.providers.conformance
 python -m benchmarks.large_graphs.plan
 python -m benchmarks.common.check_outputs

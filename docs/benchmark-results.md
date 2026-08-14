@@ -44,15 +44,17 @@ evidence of a broad advantage across shapes.
 | Regular local CSR | 131,072 rows, degree 16, scalar FP32 | auto-selected generated/native path | 0.0186 ms vs `torch.sparse.mm` 0.0310 ms, **1.67×** |
 | Regular random vector CSR | 131,072 rows, degree 16, F=16, i32, hot/cold | compiler-generated row-neighbor-feature TTIR | **4.322×/3.801×** vs `torch.sparse.mm`; CI low 4.245/3.759 |
 | Regular random vector CSR | same topology, F=64, hot/cold | compiler-generated row-neighbor-feature TTIR | **1.966×/1.302×** vs `torch.sparse.mm`; CI low 1.956/1.288 |
+| Irregular random vector CSR | 131,072 rows, degree 0–32, F=16, i32, hot/cold | compiler-generated bounded-ragged row-neighbor-feature TTIR | **4.213×/3.270×** vs `torch.sparse.mm`; CI low 4.153/3.230 |
+| Irregular random vector CSR | same topology, F=64, hot/cold | compiler-generated bounded-ragged row-neighbor-feature TTIR | **1.595×/1.283×** vs `torch.sparse.mm`; CI low 1.584/1.270 |
 | Power-law social slice | 90% degree 8, 9% degree 64, 1% degree 256; i32/i64; local/random; hot/cold | degree-bucket/worklist planner | all eight registered gates pass; CI-low range **1.255–2.015×** |
 | Online-softmax reducer | 131,072 rows, degree 32 | compiler schedule, stable tuple state | **1.007×**, CI low 1.005 vs matched hand-written Triton |
 | Product reducer backward | 131,072 rows, degree 16 | zero-safe compiler-generated VJP | **1.021×**, CI low 1.016 vs matched hand-written Triton |
 | Radius distance backward | fixed selected snapshot, N32768/D3/degree≈32 | generated geometry VJP | **1.079×**, CI low 1.073 vs matched hand-written Triton; 4.36× vs Torch autograd |
 
-Fixed-degree vector CSR uses compiler-generated TTIR in the registered rows
-above. Ragged vector shapes that dispatch to an external sparse library are
-labeled as dispatch results. A correctness evaluator is never included in a
-“fastest backend” conclusion.
+Fixed-degree and bounded-ragged vector CSR use compiler-generated TTIR in the
+registered rows above. Shapes beyond the proven bounds that dispatch to an
+external sparse library are labeled as dispatch results. A correctness
+evaluator is never included in a “fastest backend” conclusion.
 
 ## Dynamic graph boundaries
 
@@ -84,6 +86,20 @@ contract. Consequently:
   error against exact attention separately;
 - these rows are never combined into a single “attention speedup” geomean.
 
+## Distributed automatic overlap
+
+The CPU runtime benchmark uses two real processes and the public
+`Graph.halo()` MessagePassing path. For 65,536 entities, degree 16, feature
+width 64 and a 25% boundary, an explicit 5 ms receive-delay model produced
+13.7224 ms median measured communication/interior overlap. Automatic execution
+was 38.2262 ms versus 40.8632 ms forced-serialized, or **1.069×**. The artifact
+contains per-rank timestamps and a human-readable timeline under
+`output/distributed/automatic_cpu_overlap/`.
+
+This is evidence for scheduler ordering and performance under the stated
+controlled link model. It is not an inter-node measurement and is not evidence
+for NCCL, RCCL, or multi-GPU overlap.
+
 ## Reproduce and inspect
 
 ```bash
@@ -98,6 +114,7 @@ python -m benchmarks.graph_operations.knn_build --fail-on-gate
 python -m benchmarks.neural_networks.dense_attention --fail-on-gate
 python -m benchmarks.neural_networks.linear_attention --fail-on-gate
 python -m benchmarks.neural_networks.sparse_attention --fail-on-gate
+python -m benchmarks.distributed.automatic_overlap
 python -m benchmarks.common.check_outputs
 ```
 

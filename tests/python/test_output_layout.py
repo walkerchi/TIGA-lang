@@ -16,6 +16,18 @@ class OutputLayoutTest(unittest.TestCase):
         self.assertEqual(MANIFEST, Path("benchmarks/evidence_manifest.json"))
         self.assertTrue(MANIFEST.is_file())
 
+    def test_distributed_overlap_evidence_has_human_timeline_contract(self):
+        import json
+
+        manifest = json.loads(MANIFEST.read_text())
+        overlap = manifest["auxiliary_evidence"][
+            "distributed_automatic_cpu_overlap"]
+        self.assertEqual(
+            overlap["path"], "output/distributed/automatic_cpu_overlap")
+        self.assertIn("results.json", overlap["required_artifacts"])
+        self.assertIn("timeline.png", overlap["required_artifacts"])
+        self.assertIn("REPORT.md", overlap["required_artifacts"])
+
     def test_every_operation_has_an_isolated_roofline_directory(self):
         directories = [
             operation_dir(operation, "regular-i64")

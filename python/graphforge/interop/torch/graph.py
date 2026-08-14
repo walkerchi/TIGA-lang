@@ -479,8 +479,10 @@ class Graph:
         """Return the same logical graph with declarative halo placement.
 
         No communication happens here.  The compiler will derive owned/ghost
-        regions and lower halo exchange plus interior/boundary overlap below
-        the user kernel. Execution requires an active ``DistributedRuntime``;
+        regions and lower halo exchange plus an interior/boundary dependency
+        plan below the user kernel. Execution requires an active
+        ``DistributedRuntime``; automatic communication/computation overlap is
+        not yet implemented in the alpha runtime;
         this keeps transport selection below the Graph/MessagePassing API.
         """
         if not isinstance(mesh, DeviceMesh):

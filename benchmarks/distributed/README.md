@@ -6,6 +6,25 @@ snapshot, and measures pack/duplex exchange/unpack with byte-exact validation.
 The stdlib pipe provider establishes semantics and regression coverage; NCCL,
 MPI and RCCL providers must use the same workload and report their own peer.
 
+`automatic_overlap.py` exercises the public `Graph.halo()` MessagePassing path
+with both owned-only interior rows and ghost-dependent boundary rows. It writes
+`results.json`, a human-readable `REPORT.md`, and a two-rank `timeline.png`;
+the gate requires correct output, a nonzero measured intersection between
+actual interior Tensor execution and halo transport on every sample, and an
+end-to-end win over the same runtime forced to serialize. The default 5 ms
+receive delay is an explicit controlled inter-node-latency model, not a claim
+about the local pipe provider or a measured network:
+
+```bash
+python -m benchmarks.distributed.automatic_overlap --quick
+```
+
+The registered full case uses two CPU ranks, N=65,536, degree 16, feature width
+64 and a 25% boundary. It records 13.7224 ms median overlap and 38.2262 ms
+automatic latency versus 40.8632 ms forced-serialized (1.069x). The source
+retains the controlled-delay field in JSON and the report so this cannot be
+mistaken for an inter-node measurement.
+
 `mpi_halo_exchange.py` runs the same pack/exchange/unpack boundary over the
 optional MPI plugin. Reproduce the registered local-host provider artifact with:
 

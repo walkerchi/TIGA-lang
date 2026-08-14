@@ -1858,8 +1858,7 @@ class MessagePassing(Kernel):
             degree is None
             and 0 < maximum_degree <= 64
             and graph.device.type == "cuda"
-            and x.ndim == 1
-            and weight.ndim == 1
+            and direct_fixed_shape
             and mlir_stages is not None
             and mlir_stages.provider_ttir is not None
         ):
@@ -1892,6 +1891,7 @@ class MessagePassing(Kernel):
                         "  recognize linear_weighted_sum reducer(sum)",
                         f"  degree_range [{minimum_degree}, {maximum_degree}]",
                         f"  direct_ttir masked_rows={launch_manifest.block_rows} "
+                        f"features={1 if x.ndim == 1 else x.shape[1]} "
                         f"warps={launch_manifest.num_warps}",
                     )),
                     (
@@ -1915,7 +1915,7 @@ class MessagePassing(Kernel):
                     passes=variant_passes,
                     artifacts=artifacts,
                     remarks=(
-                        "bounded ragged scalar rows use compiler-emitted masked tiles",
+                        "bounded ragged rows use compiler-emitted masked row-neighbor-feature tiles",
                         "TTIR was emitted from gf_kernel IR without a @triton.jit frontend",
                         "the direct candidate matched the Triton oracle performance gate",
                         "zero-degree rows produce the sum reducer identity",

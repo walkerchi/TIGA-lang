@@ -96,8 +96,10 @@ static void setSchedule(Operation *operation, StringRef kind,
   } else {
     resources.insert(resources.begin(), "relation.global.read");
     roles = {"workgroup.destination-rows", "subgroup.neighbor-reduction",
-             kind == "fixed-row-neighbor-feature" ? "lane.feature"
-                                                    : "lane.scalar"};
+             (kind == "fixed-row-neighbor-feature" ||
+              kind == "bounded-ragged-row-neighbor-feature")
+                 ? "lane.feature"
+                 : "lane.scalar"};
     handoffs.insert(handoffs.begin() + 1, "reduce.subgroup");
     instructions = {"masked-memory",
                     deterministic ? "ordered-reduce" : "associative-reduce"};
@@ -160,16 +162,19 @@ public:
       IntegerAttr minimum = launch.getDegreeMinAttr();
       IntegerAttr maximum = launch.getDegreeMaxAttr();
       if (std::optional<int64_t> width = fixedVectorWidth(launch);
-          width && minimum && maximum &&
-          minimum.getInt() == maximum.getInt() && minimum.getInt() > 0 &&
-          minimum.getInt() <= 64) {
-        int64_t neighbors = nextPowerOfTwo(minimum.getInt());
+          width && maximum && maximum.getInt() > 0 &&
+          maximum.getInt() <= 64) {
+        int64_t neighbors = nextPowerOfTwo(maximum.getInt());
         int64_t capacity = std::max<int64_t>(1, 16384 / (neighbors * *width));
         int64_t rows = 1;
         while (rows * 2 <= std::min<int64_t>(32, capacity)) rows *= 2;
         int64_t warps = std::clamp<int64_t>(rows * *width / 128, 1, 8);
-        setSchedule(launch, "fixed-row-neighbor-feature", rows, neighbors,
-                    warps, builder);
+        bool fixed = minimum && minimum.getInt() == maximum.getInt();
+        setSchedule(
+            launch,
+            fixed ? "fixed-row-neighbor-feature"
+                  : "bounded-ragged-row-neighbor-feature",
+            rows, neighbors, warps, builder);
         launch->setAttr("block_features", builder.getI64IntegerAttr(*width));
         return;
       }

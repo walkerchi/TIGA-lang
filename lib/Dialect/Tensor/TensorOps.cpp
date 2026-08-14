@@ -308,6 +308,31 @@ LogicalResult GatherOp::verify() {
   return success();
 }
 
+LogicalResult ScatterRowsOp::verify() {
+  auto input = getInput().getType();
+  auto destination = getDestination().getType();
+  auto inverse = getInverse().getType();
+  auto result = getResult().getType();
+  if (input.getRank() < 1 || destination.getRank() != 1 ||
+      inverse.getRank() != 1 || result.getRank() < 1)
+    return emitOpError(
+        "requires ranked input/result and rank-one destination/inverse maps");
+  if (!isa<IntegerType>(destination.getElementType()) ||
+      !isa<IntegerType>(inverse.getElementType()))
+    return emitOpError("requires integer destination/inverse maps");
+  if (destination.getDimSize(0) != input.getDimSize(0))
+    return emitOpError("destination extent must equal the input row count");
+  if (inverse.getDimSize(0) != static_cast<int64_t>(getNumRows()))
+    return emitOpError("inverse extent must equal num_rows");
+  if (input.getElementType() != result.getElementType())
+    return emitOpError("must preserve the input element type");
+  SmallVector<int64_t> expected{static_cast<int64_t>(getNumRows())};
+  expected.append(input.getShape().begin() + 1, input.getShape().end());
+  if (ArrayRef<int64_t>(expected) != result.getShape())
+    return emitOpError("result shape must begin with num_rows");
+  return success();
+}
+
 LogicalResult SegmentSumOp::verify() {
   auto input = getInput().getType();
   auto index = getIndex().getType();

@@ -74,13 +74,20 @@ loops and launch bounds static while avoiding one user kernel per input size.
 - `graph.halo(mesh, *, partition=gf.ByDestination(), depth="auto")` returns the
   same logical `Graph` type with owned/ghost requirements. It is declarative:
   communication is inserted below the user kernel. The alpha currently
-  lowers it to executable-plan halo pack/exchange/unpack and interior/boundary
-  overlap Task IR. `DistributedTaskResolver` binds those typed tasks to
+  lowers it to executable-plan halo pack/exchange/unpack and an
+  interior/boundary dependency Task IR. `DistributedTaskResolver` binds those typed tasks to
   Torch-free pack/transport/unpack executables and installs exact ordered ghosts,
   while an active CPU `DistributedRuntime` now accepts contiguous rank-local
   `gf.Tensor` fields and automatically remaps owned+ghost CSR below ordinary
   `MessagePassing`; its CPU VJP reverses ghost cotangents back to owners.
   Versioned paged CSR shards and CUDA Buffer rank-local forward/VJP are executable.
+  On CPU host transports the automatic executor partitions owned rows into
+  owned-source-only interior and ghost-dependent boundary subgraphs. It starts
+  halo progress, realizes the interior while communication is active, then
+  runs the boundary and places both disjoint row sets with compiled
+  `gf_tensor.scatter_rows`. The runtime records an inspectable overlap trace.
+  CUDA device-direct execution remains serialized until a true multi-GPU
+  correctness/timeline gate exists.
   The optional `DistributedRuntime.from_provider("mpi")` binds an
   mpi4py-compatible communicator through the transport plugin ABI.
   `DistributedRuntime.from_provider("nccl", ...)` binds native CUDA buffer

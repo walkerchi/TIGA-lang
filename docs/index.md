@@ -53,9 +53,11 @@ print(program.code("ptx"))
 | Default Euclidean generated radius + distance sum | compiler-emitted TTIR |
 | Dense Cartesian contraction + structured streaming reducer | compiler-emitted tensor-core TTIR |
 | Fixed-degree vector CSR weighted sum | compiler-emitted row-neighbor-feature TTIR |
-| Unsupported/ragged vector CSR shape | explicit dispatch to `torch.sparse.mm` |
+| Bounded-ragged vector CSR weighted sum | compiler-emitted masked row-neighbor-feature TTIR |
+| Unsupported high-degree/general vector shape | explicit dispatch to `torch.sparse.mm` |
 | Unsupported program/shape | explicit semantic evaluator |
 | Torch-independent Tensor slice | native CPU buffer + symbolic add/mul/sum VJP oracle |
+| CPU distributed relation | automatic interior ∥ halo → boundary with compiled row placement |
 
 The current implementation is alpha software. See the
 [benchmark results](benchmark-results.md) for measured comparisons, the

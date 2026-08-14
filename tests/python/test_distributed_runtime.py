@@ -7,6 +7,7 @@ import shutil
 import struct
 import subprocess
 import tempfile
+import threading
 import unittest
 from unittest import mock
 from pathlib import Path
@@ -585,6 +586,72 @@ class DistributedRuntimeTest(unittest.TestCase):
         ]
         self.assertEqual(results[0], expected[:4])
         self.assertEqual(results[1], expected[4:])
+
+    def test_cpu_automatic_executor_realizes_interior_before_halo_completion(self):
+        """The runtime schedule overlaps execution, not only Task IR nodes."""
+        entities = 8
+        row_ptr = [3 * row for row in range(entities + 1)]
+        col_idx = [
+            source for destination in range(entities)
+            for source in ((destination - 1) % entities, destination,
+                           (destination + 1) % entities)
+        ]
+        graph = gf.Graph.from_csr(
+            gf.tensor(row_ptr, dtype=gf.int64),
+            gf.tensor(col_idx, dtype=gf.int64),
+            num_src=entities, validate="full",
+        ).halo(gf.DeviceMesh("cpu", 2), depth=1)
+        local_x = gf.tensor([0.0, 1.0, 2.0, 3.0])
+        interior_started = threading.Event()
+        receive_entered = threading.Event()
+
+        class OverlapProbeTransport:
+            rank = 0
+            world_size = 2
+            prefer_compute_overlap = True
+
+            def send_bytes(self, peer, payload):
+                self.assert_peer(peer)
+                self.sent = bytes(payload)
+
+            def receive_bytes(self, peer, size):
+                self.assert_peer(peer)
+                receive_entered.set()
+                if not interior_started.wait(timeout=5):
+                    raise RuntimeError(
+                        "halo blocked before interior Tensor realization")
+                payload = struct.pack("=ff", 4.0, 7.0)
+                if len(payload) != size:
+                    raise RuntimeError("unexpected probe receive size")
+                return payload
+
+            @staticmethod
+            def assert_peer(peer):
+                if peer != 1:
+                    raise AssertionError(f"unexpected peer {peer}")
+
+        original_realize = gf.Tensor.realize
+
+        def observe_interior(value):
+            expression = getattr(value, "_expr", None)
+            if (value.shape == (2,) and expression is not None
+                    and expression.op == "csr_segment_sum"):
+                interior_started.set()
+            return original_realize(value)
+
+        transport = OverlapProbeTransport()
+        with mock.patch.object(gf.Tensor, "realize", observe_interior):
+            with DistributedRuntime(transport) as runtime:
+                output = ShardedNeighborSum()(
+                    graph=graph, src={"x": local_x}, dst={})
+                self.assertEqual(output.tolist(), [8.0, 3.0, 6.0, 9.0])
+                trace = runtime.last_execution_trace
+        self.assertTrue(receive_entered.is_set())
+        self.assertTrue(interior_started.is_set())
+        self.assertEqual(trace["schedule"], "interior||halo->boundary")
+        self.assertEqual(trace["interior_rows"], 2)
+        self.assertEqual(trace["boundary_rows"], 2)
+        self.assertGreater(trace["measured_overlap_ms"], 0.0)
 
     def test_graph_halo_vjp_reverse_exchanges_ghost_cotangents(self):
         entities = 8

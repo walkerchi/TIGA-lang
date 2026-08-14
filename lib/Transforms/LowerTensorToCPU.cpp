@@ -229,6 +229,8 @@ public:
       return emitCumsum(scan, coordinates);
     if (auto gather = dyn_cast_or_null<gft::GatherOp>(operation))
       return emitGather(gather, coordinates);
+    if (auto scatter = dyn_cast_or_null<gft::ScatterRowsOp>(operation))
+      return emitScatterRows(scatter, coordinates);
     if (auto segment = dyn_cast_or_null<gft::SegmentSumOp>(operation))
       return emitSegmentSum(segment, coordinates);
     if (auto expand = dyn_cast_or_null<gft::CSRExpandRowsOp>(operation))
@@ -509,6 +511,37 @@ private:
     inputCoordinates.append(outputCoordinates.begin() + 1,
                             outputCoordinates.end());
     return emit(gather.getInput(), inputCoordinates);
+  }
+
+  FailureOr<Value> emitScatterRows(gft::ScatterRowsOp scatter,
+                                   ArrayRef<Value> outputCoordinates) {
+    SmallVector<Value> inverseCoordinates{outputCoordinates.front()};
+    FailureOr<Value> rawSource = emit(
+        scatter.getInverse(), inverseCoordinates);
+    if (failed(rawSource)) return failure();
+    Value source = builder.create<arith::IndexCastOp>(
+        location, builder.getIndexType(), *rawSource);
+    Value active = builder.create<arith::CmpIOp>(
+        location, arith::CmpIPredicate::sge, source, constantIndex(0));
+    Value safeSource = builder.create<arith::SelectOp>(
+        location, active, source, constantIndex(0));
+    SmallVector<Value> inputCoordinates{safeSource};
+    inputCoordinates.append(outputCoordinates.begin() + 1,
+                            outputCoordinates.end());
+    auto elementType = cast<RankedTensorType>(
+        scatter.getInput().getType()).getElementType();
+    auto conditional = builder.create<scf::IfOp>(
+        location, TypeRange{elementType}, active, true);
+    {
+      OpBuilder::InsertionGuard guard(builder);
+      builder.setInsertionPointToStart(&conditional.getThenRegion().front());
+      FailureOr<Value> item = emit(scatter.getInput(), inputCoordinates);
+      if (failed(item)) return failure();
+      builder.create<scf::YieldOp>(location, *item);
+      builder.setInsertionPointToStart(&conditional.getElseRegion().front());
+      builder.create<scf::YieldOp>(location, zero(elementType));
+    }
+    return conditional.getResult(0);
   }
 
   FailureOr<Value> emitSegmentSum(gft::SegmentSumOp segment,

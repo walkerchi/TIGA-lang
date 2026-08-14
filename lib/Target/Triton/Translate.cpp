@@ -1275,7 +1275,9 @@ static LogicalResult emitFixedDegreeProductMultiplyTTIR(
 
 static void emitFixedDegreeVectorTTIR(
     llvm::raw_ostream &o, StringRef index, int64_t numRows, int64_t degree,
-    int64_t features, int64_t blockM, int64_t blockD, int64_t numWarps) {
+    int64_t features, int64_t blockM, int64_t blockD, int64_t numWarps,
+    bool ragged = false) {
+  StringRef edgeOffsetType = ragged ? index : "i32";
   o << "// graphforge.launch entry=gf_csr_weighted_sum block_rows="
     << blockM << " num_warps=" << numWarps
     << " abi=row_ptr,col_idx,x,weight,out\n"
@@ -1295,10 +1297,6 @@ static void emitFixedDegreeVectorTTIR(
     << blockM << "x" << blockD << "x" << features << "xf32>\n"
     << "    %nrows = arith.constant dense<" << numRows << "> : tensor<"
     << blockM << "x1xi32>\n"
-    << "    %degree_row = arith.constant dense<" << degree << "> : tensor<"
-    << blockM << "x1xi32>\n"
-    << "    %degree_limit = arith.constant dense<" << degree
-    << "> : tensor<1x" << blockD << "xi32>\n"
     << "    %feature_stride = arith.constant dense<" << features
     << "> : tensor<" << blockM << "x" << blockD << "x1x" << index
     << ">\n"
@@ -1323,37 +1321,78 @@ static void emitFixedDegreeVectorTTIR(
     << " : i32, start = 0 : i32} : tensor<" << features << "xi32>\n"
     << "    %features1 = tt.expand_dims %range_f {axis = 0 : i32} : tensor<"
     << features << "xi32> -> tensor<1x" << features << "xi32>\n"
-    << "    %edge_row = arith.muli %rows, %degree_row : tensor<" << blockM
-    << "x1xi32>\n"
-    << "    %edge_row_b = tt.broadcast %edge_row : tensor<" << blockM
-    << "x1xi32> -> tensor<" << blockM << "x" << blockD << "xi32>\n"
-    << "    %neighbor_b = tt.broadcast %neighbors : tensor<1x" << blockD
-    << "xi32> -> tensor<" << blockM << "x" << blockD << "xi32>\n"
-    << "    %edges = arith.addi %edge_row_b, %neighbor_b : tensor<" << blockM
-    << "x" << blockD << "xi32>\n"
     << "    %row_mask1 = arith.cmpi slt, %rows, %nrows : tensor<" << blockM
-    << "x1xi32>\n"
-    << "    %degree_mask1 = arith.cmpi slt, %neighbors, %degree_limit : tensor<1x"
-    << blockD << "xi32>\n"
+    << "x1xi32>\n";
+  if (ragged) {
+    o << "    %row_zero = arith.constant dense<0> : tensor<" << blockM
+      << "x1x" << index << ">\n"
+      << "    %one = arith.constant dense<1> : tensor<" << blockM
+      << "x1xi32>\n"
+      << "    %row_ptr_base = tt.splat %row_ptr : !tt.ptr<" << index
+      << "> -> tensor<" << blockM << "x1x!tt.ptr<" << index << ">>\n"
+      << "    %start_ptr = tt.addptr %row_ptr_base, %rows : tensor<" << blockM
+      << "x1x!tt.ptr<" << index << ">>, tensor<" << blockM << "x1xi32>\n"
+      << "    %starts = tt.load %start_ptr, %row_mask1, %row_zero : tensor<"
+      << blockM << "x1x!tt.ptr<" << index << ">>\n"
+      << "    %end_ptr = tt.addptr %start_ptr, %one : tensor<" << blockM
+      << "x1x!tt.ptr<" << index << ">>, tensor<" << blockM << "x1xi32>\n"
+      << "    %ends = tt.load %end_ptr, %row_mask1, %row_zero : tensor<"
+      << blockM << "x1x!tt.ptr<" << index << ">>\n";
+    if (index == "i64")
+      o << "    %neighbors_index = arith.extsi %neighbors : tensor<1x"
+        << blockD << "xi32> to tensor<1x" << blockD << "xi64>\n";
+    o << "    %starts_b = tt.broadcast %starts : tensor<" << blockM << "x1x"
+      << index << "> -> tensor<" << blockM << "x" << blockD << "x" << index
+      << ">\n"
+      << "    %neighbor_b = tt.broadcast %neighbors"
+      << (index == "i64" ? "_index" : "") << " : tensor<1x" << blockD << "x"
+      << index << "> -> tensor<" << blockM << "x" << blockD << "x" << index
+      << ">\n"
+      << "    %edges = arith.addi %starts_b, %neighbor_b : tensor<" << blockM
+      << "x" << blockD << "x" << index << ">\n"
+      << "    %ends_b = tt.broadcast %ends : tensor<" << blockM << "x1x"
+      << index << "> -> tensor<" << blockM << "x" << blockD << "x" << index
+      << ">\n"
+      << "    %edge_limit = arith.cmpi slt, %edges, %ends_b : tensor<"
+      << blockM << "x" << blockD << "x" << index << ">\n";
+  } else {
+    o << "    %degree_row = arith.constant dense<" << degree << "> : tensor<"
+      << blockM << "x1xi32>\n"
+      << "    %degree_limit = arith.constant dense<" << degree
+      << "> : tensor<1x" << blockD << "xi32>\n"
+      << "    %edge_row = arith.muli %rows, %degree_row : tensor<" << blockM
+      << "x1xi32>\n"
+      << "    %edge_row_b = tt.broadcast %edge_row : tensor<" << blockM
+      << "x1xi32> -> tensor<" << blockM << "x" << blockD << "xi32>\n"
+      << "    %neighbor_b = tt.broadcast %neighbors : tensor<1x" << blockD
+      << "xi32> -> tensor<" << blockM << "x" << blockD << "xi32>\n"
+      << "    %edges = arith.addi %edge_row_b, %neighbor_b : tensor<" << blockM
+      << "x" << blockD << "xi32>\n"
+      << "    %degree_mask1 = arith.cmpi slt, %neighbors, %degree_limit : tensor<1x"
+      << blockD << "xi32>\n"
+      << "    %degree_mask = tt.broadcast %degree_mask1 : tensor<1x"
+      << blockD << "xi1> -> tensor<" << blockM << "x" << blockD
+      << "xi1>\n";
+  }
+  o
     << "    %row_mask = tt.broadcast %row_mask1 : tensor<" << blockM
     << "x1xi1> -> tensor<" << blockM << "x" << blockD << "xi1>\n"
-    << "    %degree_mask = tt.broadcast %degree_mask1 : tensor<1x" << blockD
-    << "xi1> -> tensor<" << blockM << "x" << blockD << "xi1>\n"
-    << "    %edge_mask = arith.andi %row_mask, %degree_mask : tensor<"
+    << "    %edge_mask = arith.andi %row_mask, %"
+    << (ragged ? "edge_limit" : "degree_mask") << " : tensor<"
     << blockM << "x" << blockD << "xi1>\n"
     << "    %col_base = tt.splat %col_idx : !tt.ptr<" << index
     << "> -> tensor<" << blockM << "x" << blockD << "x!tt.ptr<" << index
     << ">>\n"
     << "    %col_ptr = tt.addptr %col_base, %edges : tensor<" << blockM
     << "x" << blockD << "x!tt.ptr<" << index << ">>, tensor<" << blockM
-    << "x" << blockD << "xi32>\n"
+    << "x" << blockD << "x" << edgeOffsetType << ">\n"
     << "    %src = tt.load %col_ptr, %edge_mask, %source_zero : tensor<"
     << blockM << "x" << blockD << "x!tt.ptr<" << index << ">>\n"
     << "    %weight_base = tt.splat %weight : !tt.ptr<f32> -> tensor<"
     << blockM << "x" << blockD << "x!tt.ptr<f32>>\n"
     << "    %weight_ptr = tt.addptr %weight_base, %edges : tensor<" << blockM
     << "x" << blockD << "x!tt.ptr<f32>>, tensor<" << blockM << "x"
-    << blockD << "xi32>\n"
+    << blockD << "x" << edgeOffsetType << ">\n"
     << "    %weight_value = tt.load %weight_ptr, %edge_mask, %edge_zero : tensor<"
     << blockM << "x" << blockD << "x!tt.ptr<f32>>\n"
     << "    %src3 = tt.expand_dims %src {axis = 2 : i32} : tensor<" << blockM
@@ -3126,17 +3165,25 @@ static LogicalResult translateKernelToTriton(Operation *root,
     auto rows = launch->getAttrOfType<IntegerAttr>("block_rows");
     auto neighbors = launch->getAttrOfType<IntegerAttr>("block_neighbors");
     auto warps = launch->getAttrOfType<IntegerAttr>("num_warps");
-    if (launch.getDeterministic() || !degreeMin || !degreeMax ||
-        degreeMin.getInt() != degreeMax.getInt() || degreeMin.getInt() <= 0 ||
-        degreeMin.getInt() > 64 || !schedule ||
-        schedule.getValue() != "fixed-row-neighbor-feature" || !rows ||
-        !neighbors || neighbors.getInt() < degreeMin.getInt() || !warps ||
+    bool fixed = degreeMin && degreeMax &&
+                 degreeMin.getInt() == degreeMax.getInt();
+    bool boundedRagged = degreeMax && degreeMax.getInt() > 0 &&
+                         degreeMax.getInt() <= 64 && !fixed;
+    bool legalSchedule =
+        schedule &&
+        ((fixed && schedule.getValue() == "fixed-row-neighbor-feature") ||
+         (boundedRagged &&
+          schedule.getValue() == "bounded-ragged-row-neighbor-feature"));
+    if (launch.getDeterministic() || !degreeMax || degreeMax.getInt() <= 0 ||
+        degreeMax.getInt() > 64 || !legalSchedule || !rows || !neighbors ||
+        neighbors.getInt() < degreeMax.getInt() || !warps ||
         launch.getNumRowsAttr().getInt() >
             std::numeric_limits<int32_t>::max() / vectorWidth)
-      return reject(launch, "vector weighted sum requires a guarded fixed-degree feature tile");
+      return reject(launch, "vector weighted sum requires a guarded bounded feature tile");
     emitFixedDegreeVectorTTIR(
-        output, index, launch.getNumRowsAttr().getInt(), degreeMin.getInt(),
-        vectorWidth, rows.getInt(), neighbors.getInt(), warps.getInt());
+        output, index, launch.getNumRowsAttr().getInt(), degreeMax.getInt(),
+        vectorWidth, rows.getInt(), neighbors.getInt(), warps.getInt(),
+        boundedRagged);
     return success();
   }
   bool optimizedWeightedSum =

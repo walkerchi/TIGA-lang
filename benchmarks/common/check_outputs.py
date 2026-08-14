@@ -79,6 +79,12 @@ def main() -> None:
             path = root / operation / relative
             if not path.is_file():
                 missing.append(str(path))
+    for record in manifest.get("auxiliary_evidence", {}).values():
+        directory = Path(record["path"])
+        for filename in record.get("required_artifacts", ()):
+            path = directory / filename
+            if not path.is_file():
+                missing.append(str(path))
     unregistered = sorted(
         str(path) for path in root.glob("*/*/roofline.json")
         if path.resolve() not in registered_json

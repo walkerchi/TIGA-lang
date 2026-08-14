@@ -165,6 +165,14 @@ class PersistentCompileWorker:
         except subprocess.TimeoutExpired:
             process.kill()
             process.wait()
+        # Popen does not close PIPE file objects when a terminated child is
+        # merely waited on.  Close both ends explicitly so crash recovery does
+        # not leak descriptors (or emit ResourceWarning during interpreter
+        # shutdown and the test suite).
+        if process.stdin is not None and not process.stdin.closed:
+            process.stdin.close()
+        if process.stdout is not None and not process.stdout.closed:
+            process.stdout.close()
 
     def simulate_crash_for_test(self) -> None:
         """Terminate the worker; the next request must start a fresh process."""
@@ -183,6 +191,8 @@ class PersistentCompileWorker:
             except subprocess.TimeoutExpired:
                 process.terminate()
                 process.wait(timeout=2)
+            if process.stdout is not None and not process.stdout.closed:
+                process.stdout.close()
 
 
 _WORKER = PersistentCompileWorker(

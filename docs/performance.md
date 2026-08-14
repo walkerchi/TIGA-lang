@@ -40,17 +40,20 @@ Raw samples and device metadata are stored with each artifact.
 | Scalar CSR weighted sum, regular local/hot | 131072 rows, degree=16, FP32 | 0.0186 ms | `torch.sparse.mm` 0.0310 ms | 1.67× peer/GraphForge |
 | Vector CSR weighted sum, regular random/hot | 131072 rows, degree=16, F=16, i32 | 0.0512 ms | `torch.sparse.mm` 0.2213 ms | 4.322× peer/GraphForge, CI low 4.245 |
 | Vector CSR weighted sum, regular random/cold | 131072 rows, degree=16, F=64, i32 | 0.2684 ms | `torch.sparse.mm` 0.3495 ms | 1.302× peer/GraphForge, CI low 1.288 |
+| Vector CSR weighted sum, irregular random/hot | 131072 rows, degree=0–32, F=16, i32 | 0.0548 ms | `torch.sparse.mm` 0.2308 ms | 4.213× peer/GraphForge, CI low 4.153 |
+| Vector CSR weighted sum, irregular random/cold | same topology, F=64 | 0.2711 ms | `torch.sparse.mm` 0.3477 ms | 1.283× peer/GraphForge, CI low 1.270 |
 | Generated radius distance sum | 3D, target degree=32 | 0.3343 ms | benchmark Triton oracle 0.3383 ms | 1.012× peer/GraphForge |
+| CPU automatic halo overlap | 2 ranks, N=65536, degree=16, F=64, 5 ms controlled receive model | 38.2262 ms | forced serialized 40.8632 ms | 1.069× peer/GraphForge |
 
 Dense attention is generated from a user-defined Cartesian message and reducer;
 the core contains no attention kernel. Cold capture + MLIR + provider JIT is
 reported separately from warm execution in the registered artifact.
 
-For fixed-degree weighted aggregation, F=1 and the registered F=16/64 cases are
-compiler-generated TTIR paths. The public `prepared_auto` boundary removes
-Python/guard costs from repeated launches while the ordinary lazy call remains
-reported separately. Ragged vector cases without a proven schedule explicitly
-dispatch to `torch.sparse.mm`.
+For fixed-degree and bounded-ragged weighted aggregation, F=1 and the registered
+F=16/64 cases are compiler-generated TTIR paths. The public `prepared_auto`
+boundary removes Python/guard costs from repeated launches while the ordinary
+lazy call remains reported separately. Vector cases beyond the proven
+degree/feature bounds explicitly dispatch to `torch.sparse.mm`.
 
 !!! warning "Do not compare unlike operations on one roofline"
 
@@ -69,6 +72,7 @@ export GRAPHFORGE_TRANSLATE="$PWD/build/bin/gf-translate"
 python -m benchmarks.compiler.provider_gate --fail-on-gate
 python -m benchmarks.graph_operations.radius_roofline
 python -m benchmarks.neural_networks.dense_attention
+python -m benchmarks.distributed.automatic_overlap
 python -m benchmarks.visualization.heatmap --fail-on-gate
 python -m benchmarks.common.check_outputs
 ```

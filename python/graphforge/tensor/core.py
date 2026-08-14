@@ -723,6 +723,43 @@ class Tensor:
             version=max(self.version, index.version),
         )
 
+    def _scatter_rows(
+        self, destination: Tensor, inverse: Tensor, num_rows: int
+    ) -> Tensor:
+        """Compiler primitive for a proved disjoint row placement.
+
+        ``destination`` maps input rows to output rows and ``inverse`` maps
+        output rows back to inputs, using -1 for rows not written by this
+        partition. The redundant maps make both forward and VJP linear.
+        """
+        if self.ndim == 0:
+            raise ValueError("cannot scatter rows from a scalar Tensor")
+        if (not isinstance(destination, Tensor) or destination.ndim != 1
+                or destination.dtype.kind != "int"):
+            raise TypeError("scatter destination must be a rank-one integer Tensor")
+        if (not isinstance(inverse, Tensor) or inverse.ndim != 1
+                or inverse.dtype.kind != "int"):
+            raise TypeError("scatter inverse must be a rank-one integer Tensor")
+        if destination.shape[0] != self.shape[0]:
+            raise ValueError("scatter destination extent must match input rows")
+        if (not isinstance(num_rows, int)
+                or isinstance(num_rows, builtins.bool) or num_rows < 0
+                or inverse.shape[0] != num_rows):
+            raise ValueError("scatter inverse extent must equal num_rows")
+        if self.device != destination.device or self.device != inverse.device:
+            raise ValueError("scatter input and maps must share a device")
+        return Tensor(
+            (num_rows, *self.shape[1:]),
+            dtype=self.dtype,
+            device=self.device,
+            requires_grad=self.requires_grad,
+            expression=_Expr(
+                "scatter_rows", (self, destination, inverse),
+                (("num_rows", num_rows),),
+            ),
+            version=max(self.version, destination.version, inverse.version),
+        )
+
     def csr_expand_rows(self, row_ptr: Tensor, num_edges: int) -> Tensor:
         """Expand destination rows over their CSR edge ranges."""
         if not isinstance(row_ptr, Tensor) or row_ptr.ndim != 1 or \
@@ -1195,6 +1232,21 @@ class Tensor:
                 for column in range(row_width):
                     result[destination_begin + column] += values[0][
                         source_begin + column]
+        elif expression.op == "scatter_rows":
+            source = expression.operands[0]
+            inverse_values = values[2]
+            row_width = _numel(source.shape[1:])
+            result = [0] * self.numel
+            for destination, raw_source in enumerate(inverse_values):
+                source_row = int(raw_source)
+                if source_row < 0:
+                    continue
+                if source_row >= source.shape[0]:
+                    raise IndexError("scatter inverse index is out of range")
+                source_begin = source_row * row_width
+                destination_begin = destination * row_width
+                result[destination_begin:destination_begin + row_width] = values[0][
+                    source_begin:source_begin + row_width]
         elif expression.op == "csr_expand_rows":
             rows = [int(value) for value in values[1]]
             row_width = _numel(self.shape[1:])

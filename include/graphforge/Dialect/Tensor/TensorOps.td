@@ -152,6 +152,23 @@ def GraphForge_GatherOp : GraphForge_TensorOp<"gather"> {
   let hasVerifier = 1;
 }
 
+def GraphForge_ScatterRowsOp : GraphForge_TensorOp<"scatter_rows"> {
+  let summary = "Place disjoint input rows into a larger row domain";
+  let description = [{
+    `destination` maps every input row to one unique result row. `inverse`
+    maps each result row back to its input row, or contains -1 for an empty
+    result row. Keeping both maps makes forward placement and reverse gather
+    linear without atomics or a quadratic generic segment reduction. The
+    distributed partition planner produces and proves these maps.
+  }];
+  let arguments = (ins AnyRankedTensor:$input,
+                       AnyRankedTensor:$destination,
+                       AnyRankedTensor:$inverse,
+                       ConfinedAttr<I64Attr, [IntNonNegative]>:$num_rows);
+  let results = (outs AnyRankedTensor:$result);
+  let hasVerifier = 1;
+}
+
 def GraphForge_SegmentSumOp : GraphForge_TensorOp<"segment_sum"> {
   let summary = "Reduce messages by destination segment";
   let description = [{

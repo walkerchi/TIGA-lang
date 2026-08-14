@@ -15,6 +15,9 @@ class MPITransport:
         self.rank = int(communicator.Get_rank())
         self.world_size = int(communicator.Get_size())
         self._tag = int(tag)
+        # MPI deployments may span hosts; the automatic executor can hide a
+        # meaningful fraction of their halo latency behind interior work.
+        self.prefer_compute_overlap = True
         if self.world_size <= 0 or not 0 <= self.rank < self.world_size:
             raise ValueError("MPI communicator returned an invalid topology")
         if self._tag < 0:

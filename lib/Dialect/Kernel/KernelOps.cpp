@@ -45,7 +45,8 @@ static LogicalResult verifyScheduleABI(LaunchOp launch) {
         "machine schedule contract must be either absent or complete");
   StringRef scheduleKind = launch.getScheduleKindAttr().getValue();
   if (!llvm::StringSwitch<bool>(scheduleKind)
-           .Cases({"fixed-row-neighbor-feature", "provider-deferred",
+           .Cases({"fixed-row-neighbor-feature",
+                   "bounded-ragged-row-neighbor-feature", "provider-deferred",
                    "fixed-row-neighbor", "bounded-ragged-row-neighbor",
                    "scalar-row-loop", "generated-cell-neighbor",
                    "dense-query-key-tile"}, true)

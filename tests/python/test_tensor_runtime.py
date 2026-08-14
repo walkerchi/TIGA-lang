@@ -22,6 +22,49 @@ def _cuda_available() -> bool:
 
 
 class TensorRuntimeTest(unittest.TestCase):
+    def test_scatter_rows_native_forward_vjp_and_lowering(self):
+        with patch.dict(os.environ, {"GRAPHFORGE_TENSOR_BACKEND": "native"}):
+            value = gf.tensor(
+                [[1.0, 2.0], [3.0, 4.0]], requires_grad=True)
+            destination = gf.tensor([1, 3], dtype=gf.int64)
+            inverse = gf.tensor([-1, 0, -1, 1], dtype=gf.int64)
+            placed = value._scatter_rows(destination, inverse, 4)
+
+            self.assertEqual(
+                placed.tolist(),
+                [[0.0, 0.0], [1.0, 2.0], [0.0, 0.0], [3.0, 4.0]],
+            )
+            self.assertIn('"gf_tensor.scatter_rows"', placed.mlir())
+            execution = placed.execution or {}
+            self.assertEqual(execution.get("backend"), "cpu-llvm-jit")
+            self.assertIn("scf.if", execution.get("artifacts", {}).get(
+                "cpu_loop", ""))
+
+            cotangent = gf.tensor([
+                [10.0, 20.0], [1.0, 2.0],
+                [30.0, 40.0], [3.0, 4.0],
+            ])
+            gradient = gf.autograd.grad(
+                placed, value, grad_output=cotangent)
+            self.assertEqual(gradient.tolist(), [[1.0, 2.0], [3.0, 4.0]])
+            self.assertIn('"gf_tensor.gather"', gradient.mlir())
+
+    def test_native_execution_cuts_realized_operand_without_cutting_autograd(self):
+        with patch.dict(os.environ, {"GRAPHFORGE_TENSOR_BACKEND": "native"}):
+            value = gf.tensor([2.0] * 4096, requires_grad=True)
+            materialized = (value * value).realize()
+            output = materialized + 1.0
+            self.assertEqual(output.tolist()[:2], [5.0, 5.0])
+
+            # The second executable binds materialized storage directly and
+            # therefore contains no multiply, while the semantic Python graph
+            # still carries the multiply for reverse-mode differentiation.
+            physical_ir = (output.execution or {}).get("ir", "")
+            self.assertNotIn('"gf_tensor.mul"', physical_ir)
+            self.assertIn('"gf_tensor.mul"', output.mlir())
+            gradient = gf.autograd.grad(output.sum(), value)
+            self.assertEqual(gradient.tolist()[:2], [4.0, 4.0])
+
     def test_cuda_driver_launcher_binds_provider_scratch_buffers(self):
         from graphforge.codegen.ttir import _CUDADriverLauncher
 

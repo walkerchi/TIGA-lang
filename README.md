@@ -14,7 +14,11 @@ defines a graph, an edge UDF, and a reducer; the compiler chooses how to travers
 and lower static CSR, irregular ragged, generated-neighborhood, or dense implicit
 relations. The first call JIT-compiles a guarded variant and later calls reuse
 it. The same program can participate in compiler-generated autograd,
-hierarchical storage planning, and halo-overlapped distributed execution.
+hierarchical storage planning, and distributed halo execution. The Task IR can
+plan overlap; on CPU host transports the runtime now derives interior and
+boundary rows, overlaps realized interior compute with halo progress, and
+assembles disjoint rows through compiler IR. Device-direct multi-GPU overlap
+remains an explicit alpha gap.
 
 > **Alpha software.** The measured paths below are real, but coverage is still
 > deliberately narrow. Unsupported target/shape combinations fail closed or
@@ -78,7 +82,7 @@ the actual graph and target.
 | Radius graph | Neighbors selected from positions at runtime | cell-list build, materialized CSR, or generated build-consume fusion |
 | Exact kNN | `k` selected sources per destination | dynamic index snapshot plus compiled consumer reuse |
 | Paged `.gfg` relation | Graph exceeds device or host memory | destination-sharded page stream through NVMe/RAM/HBM instances |
-| Distributed relation | Sources cross ownership boundaries | compiler-derived halo plus interior/communication/boundary overlap |
+| Distributed relation | Sources cross ownership boundaries | compiler-derived halo and an interior/communication/boundary task plan |
 
 ```text
 relation + fields + edge UDF + reducer
@@ -132,13 +136,15 @@ These RTX 5070 Ti results use matched sparse semantics and timing boundaries.
 | Scalar CSR weighted sum, local/hot | 131,072 rows, degree 16, FP32 | 0.0186 ms | `torch.sparse.mm` 0.0310 ms | **1.67×** |
 | Vector CSR SpMM, random/hot | 131,072 rows, degree 16, F=16, i32 | 0.0512 ms | `torch.sparse.mm` 0.2213 ms | **4.32×**, CI-low 4.245 |
 | Vector CSR SpMM, random/cold | same topology, F=64 | 0.2684 ms | `torch.sparse.mm` 0.3495 ms | **1.30×**, CI-low 1.288 |
+| Ragged vector CSR SpMM, random/hot | 131,072 rows, degree 0–32, F=16, i32 | 0.0548 ms | `torch.sparse.mm` 0.2308 ms | **4.21×**, CI-low 4.153 |
 | Social power-law CSR | 90% degree 8 / 9% degree 64 / 1% degree 256; i32/i64; local/random; hot/cold | auto row/worklist schedule | fastest registered peer per bucket | **8/8 gates pass**, CI-low 1.255–2.015× |
 | Sparse online-softmax reducer | 131,072 rows, degree 32 | compiler-generated TTIR | hand-written Triton | **1.007×**, CI-low 1.005 |
 | Product-reducer backward | 131,072 rows, degree 16 | compiler-generated zero-safe VJP | hand-written Triton | **1.021×**, CI-low 1.016 |
 
-The scalar rows and the fixed-degree F=16/F=64 rows above are compiler-generated
-TTIR. Ragged vector shapes that have no proven profitable schedule still dispatch
-explicitly to an external sparse library and remain labeled as dispatch results.
+The scalar, fixed-degree vector, and bounded-ragged vector rows above are
+compiler-generated TTIR. Vector shapes beyond the proven degree/feature bounds
+still dispatch explicitly to an external sparse library and remain labeled as
+dispatch results.
 The [benchmark results](docs/benchmark-results.md) separate sparse consume,
 dynamic graph build, build+consume, backward, and cache regimes.
 
@@ -154,7 +160,7 @@ dynamic graph build, build+consume, backward, and cache regimes.
 | NVIDIA GPU | `gf.domain → gf.iter → gf.kernel → TTIR → vendor Triton → PTX/cubin` | Executable and benchmarked |
 | CPU | `gf_tensor → Vector/SCF/MemRef → LLVM → ExecutionEngine` | Executable and benchmarked |
 | Memory hierarchy | Logical regions, physical HBM/RAM/NVMe instances, async transfer/event DAG | Executable single-node paths |
-| Distributed | `Graph.halo()` ownership/ghost planning, pack/exchange/unpack, interior/boundary overlap | CPU/MPI exercised; multi-GPU NCCL performance is pending |
+| Distributed | `Graph.halo()` ownership/ghost planning, pack/exchange/unpack, automatic interior/halo/boundary execution | CPU two-process overlap and MPI transport exercised; multi-GPU NCCL/RCCL performance pending |
 | ROCm / Hygon / Metal / PPU | Versioned provider ABI and conformance contract | Plugin and real-hardware validation required |
 | Torch | Optional zero-copy/framework adapter | Compatible, never a core dependency |
 

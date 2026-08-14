@@ -332,6 +332,26 @@ struct TensorBuilder {
     else if (*operation == "gather")
       cached = builder.create<gft::GatherOp>(
           location, *resultType, inputs[0], inputs[1]);
+    else if (*operation == "scatter_rows") {
+      PyOwned attrs(attribute(expression.value, "attrs"));
+      if (!attrs) return failure();
+      PyOwned sequence(PySequence_Fast(attrs.value, "expected attrs"));
+      if (!sequence) return failure();
+      PyObject *count = nullptr;
+      for (Py_ssize_t index = 0;
+           index < PySequence_Fast_GET_SIZE(sequence.value); ++index) {
+        PyObject *pair = PySequence_Fast_GET_ITEM(sequence.value, index);
+        PyObject *name = PyTuple_GetItem(pair, 0);
+        if (name && PyUnicode_CompareWithASCIIString(name, "num_rows") == 0)
+          count = PyTuple_GetItem(pair, 1);
+      }
+      FailureOr<int64_t> rows = count
+          ? integer(count) : FailureOr<int64_t>(failure());
+      if (failed(rows) || inputs.size() != 3) return failure();
+      cached = builder.create<gft::ScatterRowsOp>(
+          location, *resultType, inputs[0], inputs[1], inputs[2],
+          builder.getI64IntegerAttr(*rows));
+    }
     else if (*operation == "csr_euclidean_distance_sum_vjp") {
       PyOwned attrs(attribute(expression.value, "attrs"));
       if (!attrs) return failure();

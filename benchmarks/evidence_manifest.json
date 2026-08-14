@@ -2,17 +2,26 @@
   "schema_version": 1,
   "root": "output/roofline/<operation>/<case>/",
   "required_case_artifacts": ["roofline.json", "roofline.png", "REPORT.md"],
+  "auxiliary_evidence": {
+    "distributed_automatic_cpu_overlap": {
+      "status": "measured-two-process-controlled-link-model",
+      "path": "output/distributed/automatic_cpu_overlap",
+      "required_artifacts": ["results.json", "timeline.png", "REPORT.md"],
+      "note": "Two CPU ranks, N=65536, degree=16, F=64, 25% boundary and an explicit 5 ms receive-delay model. The automatic interior||halo->boundary runtime measured 13.7224 ms median overlap and 38.2262 ms end-to-end versus 40.8632 ms serialized (1.069x). This is process/runtime evidence, not measured inter-node or multi-GPU performance."
+    }
+  },
   "operations": {
     "weighted_aggregation": {
-      "status": "measured-generated-scalar-vector-and-library-dispatch",
+      "status": "measured-generated-scalar-and-bounded-vector",
       "cases": [
         "regular_local_cuda_i64_n131072_degree16_f1_16_64",
+        "irregular_random_cuda_i32_n131072_degree16_f16_64",
         "powerlaw_local_cuda_i32_n131072_degree16_f1",
         "powerlaw_local_cuda_i64_n131072_degree16_f1",
         "powerlaw_random_cuda_i32_n131072_degree16_f1",
         "powerlaw_random_cuda_i64_n131072_degree16_f1"
       ],
-      "note": "Fixed-degree F=1/F=16/F=64 regular CSR uses compiler-emitted TTIR; unsupported ragged vector shapes explicitly dispatch to torch.sparse.mm. The random/i32/N=131072/degree16 vector gate reports F16 hot/cold at 4.322x/3.801x and F64 at 1.966x/1.302x over torch.sparse.mm. The four registered social-like power-law buckets cover local/random, i32/i64 and hot/cold. Compiler autotune selects register-resident chunked worklists for random gathers and reusable native CSR output for local graphs; public prepared_auto passes all eight gates with CI lows 1.255-2.015. Providers are sampled in rotating interleaved order to remove thermal/order drift.",
+      "note": "Fixed-degree and bounded-ragged (maximum degree <=64) F=1/F=16/F=64 CSR use compiler-emitted TTIR; unsupported high-degree/general vector shapes explicitly dispatch to torch.sparse.mm. The fixed random/i32/N=131072/degree16 gate reports F16 hot/cold at 4.322x/3.801x and F64 at 1.966x/1.302x. The irregular degree-0..32 gate reports F16 hot/cold at 4.213x/3.270x and F64 at 1.595x/1.283x, with all 95% CI lows above 1.0. The four registered social-like power-law buckets cover local/random, i32/i64 and hot/cold. Compiler autotune selects register-resident chunked worklists for random gathers and reusable native CSR output for local graphs; public prepared_auto passes all eight gates with CI lows 1.255-2.015. Providers are sampled in rotating interleaved order to remove thermal/order drift.",
       "auxiliary": ["kernel_ttir/results.json", "kernel_ttir/runtime.png"]
     },
     "diffusion": {

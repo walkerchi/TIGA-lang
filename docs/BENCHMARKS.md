@@ -120,6 +120,11 @@ speedup 为 `4.322x/3.801x`（CI low `4.245/3.759`），F64 为 `1.966x/1.302x`
 （CI low `1.956/1.288`），baseline 均为 `torch.sparse.mm`。普通 lazy call 与
 `prepared_auto` 分开计时，首次 provider JIT 单列为 `compile_ms`。
 
+bounded-ragged vector CSR 会从 degree bounds 选择独立的 masked
+row×neighbor×feature schedule，而不是复用 fixed-degree 地址公式。registered
+irregular/random/i32/N=131072/degree 0–32 中，F16 hot/cold 为 `4.213x/3.270x`
+（CI low `4.153/3.230`），F64 为 `1.595x/1.283x`（CI low `1.584/1.270`）。
+
 ## 3. Roofline definition
 
 每次运行现场测量 hierarchical roofs：

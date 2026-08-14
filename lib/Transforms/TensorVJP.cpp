@@ -362,6 +362,18 @@ static LogicalResult lowerGrad(GradOp grad, IRRewriter &rewriter) {
       }
       continue;
     }
+    if (auto scatter = dyn_cast<ScatterRowsOp>(operation)) {
+      if (dependsOn(scatter.getInput(), grad.getWrt(), dependencyMemo)) {
+        auto inputType = cast<RankedTensorType>(scatter.getInput().getType());
+        OperationState state(location, GatherOp::getOperationName());
+        state.addOperands({upstream, scatter.getDestination()});
+        state.addTypes(inputType);
+        Value contribution = rewriter.create(state)->getResult(0);
+        accumulate(rewriter, location, adjoints, scatter.getInput(),
+                   contribution);
+      }
+      continue;
+    }
     if (auto segment = dyn_cast<SegmentSumOp>(operation)) {
       if (dependsOn(segment.getInput(), grad.getWrt(), dependencyMemo)) {
         auto inputType = cast<RankedTensorType>(segment.getInput().getType());

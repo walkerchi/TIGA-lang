@@ -585,6 +585,38 @@ class MLIRBridgeTest(unittest.TestCase):
         self.assertIn('%sum = "tt.reduce"', ttir)
 
     @unittest.skipUnless(_gf_translate(), "a built gf-translate is required")
+    def test_ragged_vector_kernel_translates_to_masked_feature_tile(self):
+        nodes, features = 64, 16
+        degrees = torch.arange(nodes, dtype=torch.int64) % 17
+        row_ptr = torch.empty(nodes + 1, dtype=torch.int64)
+        row_ptr[0] = 0
+        torch.cumsum(degrees, dim=0, out=row_ptr[1:])
+        col_idx = torch.arange(int(row_ptr[-1]), dtype=torch.int64) % nodes
+        graph = gf.Graph.from_csr(row_ptr, col_idx, num_src=nodes)
+        x = torch.randn(nodes, features)
+        weight = torch.randn(col_idx.numel())
+        module = message_passing_domain_mlir(
+            kernel=WeightedAggregation(),
+            graph=graph,
+            src={"x": x},
+            dst={},
+            edge={"weight": weight},
+            params={},
+            kernel_name="RaggedVectorWeightedAggregation",
+        )
+        stages = lower_mlir_stages(module, gf_opt=_gf_opt())
+        ttir = lower_kernel_to_ttir(
+            stages.kernel, gf_translate=_gf_translate())
+
+        self.assertIn(
+            'schedule_kind = "bounded-ragged-row-neighbor-feature"',
+            stages.kernel,
+        )
+        self.assertIn("%starts = tt.load %start_ptr", ttir)
+        self.assertIn("%edge_limit = arith.cmpi slt", ttir)
+        self.assertIn("tensor<32x16x16xf32>", ttir)
+
+    @unittest.skipUnless(_gf_translate(), "a built gf-translate is required")
     def test_generated_radius_reaches_direct_provider_ttir(self):
         positions = torch.rand(64, 3)
         graph = gf.Graph.radius(positions, cutoff=0.25)

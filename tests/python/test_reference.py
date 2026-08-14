@@ -848,7 +848,7 @@ class ReferenceTest(unittest.TestCase):
         torch.cuda.is_available() and importlib.util.find_spec("triton"),
         "CUDA and Triton are required",
     )
-    def test_vector_ragged_weighted_sum_dispatches_external_sparse_library(self):
+    def test_vector_ragged_weighted_sum_uses_compiler_feature_tile(self):
         nodes, features = 1024, 16
         degrees = torch.arange(nodes, device="cuda", dtype=torch.int64) % 17
         row_ptr = torch.empty(nodes + 1, device="cuda", dtype=torch.int64)
@@ -873,8 +873,15 @@ class ReferenceTest(unittest.TestCase):
             edge={"weight": weight},
         )
         torch.testing.assert_close(actual, expected, rtol=3e-4, atol=3e-4)
-        self.assertEqual(kernel.last_variant.provider, "torch.sparse.mm")
-        self.assertIn("dispatch-native-sparse-mm", kernel.explain())
+        self.assertTrue(kernel.last_variant.provider.startswith("triton-"))
+        self.assertEqual(
+            kernel.last_variant.lowering,
+            "gf-kernel-to-ttir-bounded-ragged-weighted-sum",
+        )
+        self.assertIn(
+            "bounded-ragged-row-neighbor-feature", kernel.ir("kernel")
+        )
+        self.assertIn("ptx", kernel.last_variant.artifacts)
 
     @unittest.skipUnless(
         torch.cuda.is_available() and importlib.util.find_spec("triton"),

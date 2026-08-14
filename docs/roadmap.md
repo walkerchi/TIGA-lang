@@ -37,7 +37,7 @@ inspection、cold/warm compile、roofline 和 matched-peer gate 都在目标硬�
 - typed halo overlap DAG、owner/ghost map 和真实两进程 Torch-free exact exchange；
 - persistent isolated vendor compile worker、content-addressed cache；
 - optional functional `torch.library` adapter、FakeTensor/meta/autograd/Inductor tests；
-- LLVM 22.1.8 clean build、53/53 lit、200 Python tests + 10 subtests；
+- LLVM 22.1.8 clean build、56/56 lit、211 Python tests + 10 subtests；
 - `gf.kernel` 的 provider-neutral machine-schedule ABI 已由选择 pass 生成、dialect
   verifier 校验，并通过 native binding 暴露为 `kernel.schedules` 与 structured findings；
 - manylinux/macOS release workflow、本地 manylinux_2_38 wheel audit、两次独立 no-Torch
@@ -62,7 +62,7 @@ online-softmax gate 也已关闭。
 
 ### X0 — automatic sharded execution
 
-已有 typed `halo_pack → halo_exchange → halo_unpack`、interior/boundary overlap、真实 transport、
+已有 typed `halo_pack → halo_exchange → halo_unpack`、表达 interior/boundary dependency 的 Task IR、真实 transport、
 provider-neutral completion、bundle→transport executable resolver，以及 CPU contiguous
 rank-local Tensor 的自动 owned+ghost CSR binding和两进程 reverse-halo VJP。CUDA rank-local
 Buffer 已完成 staged halo，device-buffer transport 也已走通无 host staging 的 native TTIR
@@ -74,13 +74,17 @@ forward/reverse VJP；当前机器只有一张 GPU，所以这些测试是 provi
 `mpiexec -n 2` 执行；16 MiB halo artifact 的端到端吞吐为 1.892 GB/s。Torch-free NCCL
 device-buffer provider、单 rank 真实 communicator + D2D local-path byte gate，以及完整
 device-transport MessagePassing forward/reverse VJP binding 已完成；这不算 NCCL P2P 证据。
-剩余工作是 RCCL，以及两个
-以上真实设备的端到端 NCCL correctness、overlap timeline 和通信吞吐 artifact。用户 API 仍只
-操作同一种 Graph/Tensor，不暴露 send/recv。
+CPU host-transport 自动执行器已把 owned rows 拆成 interior/boundary：先启动 halo worker，
+实际 realize interior，再等待 ghost、运行 boundary，并通过一等 `gf_tensor.scatter_rows`
+线性拼回 owned row domain。两进程 artifact 在显式 5 ms receive-delay 模型下测得
+13.7224 ms overlap，38.2262 ms 对 40.8632 ms serialized（1.069x）；该结果证明执行顺序和
+受控模型下的收益，不冒充真实多节点网络。剩余 RCCL，以及两个以上真实设备的端到端 NCCL
+correctness、device-direct overlap timeline 和通信吞吐 artifact。用户 API 仍只操作同一种
+Graph/Tensor，不暴露 send/recv。
 
 ### C0/P0 — hosted reproducibility and release
 
-本地已使用校验 SHA256 的官方 LLVM/MLIR 22.1.8 SDK 完成 clean build、53/53 lit、206 个
+本地已使用校验 SHA256 的官方 LLVM/MLIR 22.1.8 SDK 完成 clean build、56/56 lit、211 个
 Python tests、strict docs、manylinux_2_38 wheel audit、无 Torch smoke 和 sdist→wheel rebuild。
 hosted compiler run `31793915112` 的 clean-build 与独立 Torch compatibility jobs 均已通过。
 仍不能由本机替代的是完整 CPython 3.10–3.12 Linux/macOS release matrix、PyPI
@@ -97,8 +101,9 @@ ABI/conformance 已就绪，但厂商 toolchain 与真机不是当前工作区�
 - 当前 N=131072/degree-tail{8,64,256} 的 power-law 已覆盖 i32/i64、local/random、hot/cold
   八个正式 gate；random 使用 chunked worklist，local 使用 reusable-output native CSR，
   `prepared_auto` 的 CI low 为 1.255–2.015。结论仍不外推其他 N 与 tail 分布；
-- general strides/layouts、multi-output vector projection、ragged vector SpMM 和
-  nonlinear/fused message family；fixed-degree F16/F64 vector TTIR 已登记；
+- general strides/layouts、multi-output vector projection、high-degree vector
+  SpMM 和 nonlinear/fused message family；fixed/bounded-ragged F16/F64 vector
+  TTIR 已登记；
 - exact kNN 已关闭 N=8192/D3/k32 build+weighted-consume bucket：动态 column snapshot
   重绑 compiler-generated TTIR 且严格 gate 通过；覆盖结论仍不外推更多 N/D/k；
 - FLA/FSA 只作为 examples/benchmarks 中的匹配 workload，不成为 GraphForge core 算子；

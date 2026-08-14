@@ -10,8 +10,11 @@ one GPU, streamed from NVMe, or partitioned across ranks.
     including compiler-plan transfer/release and native async DMA. Exact
     owner/ghost maps、real Torch-free multi-process neighbor transport，以及把
     compiler-emitted `__gf_halo_pack/exchange/unpack` 直接绑定到 runtime bundle 的
-    `DistributedTaskResolver` 已实现。CPU contiguous rank-local Tensor forward 与
-    reverse-halo automatic VJP 已通过普通 `Graph.halo()` + `MessagePassing` 两进程测试；
+    `DistributedTaskResolver` 已实现。CPU host transport 会自动缓存 owned-row
+    interior/boundary split，在 halo worker 运行时实际执行 interior LLVM kernel，
+    随后执行 boundary 并用 compiled `gf_tensor.scatter_rows` 合并。forward、
+    reverse-halo automatic VJP 与 overlap ordering 均通过普通 `Graph.halo()` +
+    `MessagePassing` 两进程测试；
     CUDA Buffer rank-local forward/reverse binding and versioned `.gfg` paged
     partition execution are implemented. Each rank reads only its CSR shard and
     derives exact halo maps without constructing global `col_idx` in RAM. A
@@ -142,6 +145,11 @@ HBM/RAM/NVMe boundaries. `benchmarks/distributed/halo_exchange.py` reports the r
 two-process payload, neighbor exchange latency and effective bandwidth；后续 multi-device
 artifact 还要加入 local kernel、pack/unpack、network/collective、exposed communication 和 critical-path；
 speedup without the communication boundary is not accepted.
+`benchmarks/distributed/automatic_overlap.py` measures that public path against
+the same runtime forced to serialize, records per-rank communication/interior
+timestamps, and writes `timeline.png`. Its registered 1.069× result uses an
+explicit 5 ms receive-delay model and is therefore scheduler evidence under a
+controlled link model, not a measured inter-node claim.
 `benchmarks/distributed/nccl_device_loopback.py` separately validates communicator
 creation plus the device-buffer provider's local-D2D path and explicitly marks
 its rank-one throughput as neither NCCL nor performance evidence.

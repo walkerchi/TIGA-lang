@@ -262,6 +262,9 @@ def grad(
         elif expression.op == "segment_sum":
             operand, index = operands
             _accumulate(adjoints, operand, upstream.gather(index))
+        elif expression.op == "scatter_rows":
+            operand, destination, _inverse = operands
+            _accumulate(adjoints, operand, upstream.gather(destination))
         elif expression.op == "csr_expand_rows":
             operand, row_ptr = operands
             _accumulate(

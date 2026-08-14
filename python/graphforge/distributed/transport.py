@@ -6,6 +6,7 @@ from concurrent.futures import Future, ThreadPoolExecutor
 from contextvars import ContextVar
 from dataclasses import dataclass
 from multiprocessing.connection import Connection
+import time
 from typing import Any, Callable, Mapping, Protocol, Sequence, runtime_checkable
 
 from .model import HaloMap, derive_halo_map
@@ -97,6 +98,9 @@ class PipeTransport:
         self.rank = rank
         self.world_size = world_size
         self._connections = dict(connections)
+        # Same-host stdlib pipes are a semantic provider. Their communication
+        # is usually too short to repay an extra interior/boundary launch.
+        self.prefer_compute_overlap = False
 
     def send(self, peer: int, payload: object) -> None:
         try:
@@ -447,7 +451,7 @@ def reverse_halo_device(cotangent, halo: HaloMap, transport: DeviceBufferTranspo
     consumer remains provider-independent and no device value is decoded by
     Python.
     """
-    from ..runtime import Buffer, DeviceType, Stream
+    from ..runtime import Buffer, Device, DeviceType, Stream
     from ..tensor import Tensor, int64, tensor
 
     if not isinstance(cotangent, Tensor) or cotangent.device.type != DeviceType.CUDA:
@@ -660,8 +664,11 @@ class DistributedCompletion:
     executor below the distributed runtime boundary.
     """
 
-    def __init__(self, future: Future[HaloBuffer]) -> None:
+    def __init__(
+        self, future: Future[HaloBuffer], timing: dict[str, int] | None = None
+    ) -> None:
         self._future = future
+        self._timing = {} if timing is None else timing
 
     @property
     def ready(self) -> bool:
@@ -673,6 +680,14 @@ class DistributedCompletion:
     def result(self) -> HaloBuffer:
         return self._future.result()
 
+    @property
+    def started_ns(self) -> int | None:
+        return self._timing.get("started_ns")
+
+    @property
+    def finished_ns(self) -> int | None:
+        return self._timing.get("finished_ns")
+
 
 class DistributedRuntime:
     """Own asynchronous communication progress below graph kernels."""
@@ -683,6 +698,10 @@ class DistributedRuntime:
         self.transport = transport
         self._executor = ThreadPoolExecutor(max_workers=progress_threads)
         self._context_token = None
+        self._last_execution_trace: dict[str, object] | None = None
+        # Internal benchmark/conformance control. Public execution always lets
+        # the compiler-selected overlap path decide; users do not schedule it.
+        self._force_serialized: bool | None = None
 
     @classmethod
     def from_provider(
@@ -698,11 +717,26 @@ class DistributedRuntime:
         self, halo: HaloMap, owned_data, *, element_bytes: int
     ) -> DistributedCompletion:
         """Start halo progress and return a provider-neutral completion."""
-        return DistributedCompletion(
-            self._executor.submit(
-                exchange_halo, halo, owned_data, element_bytes=element_bytes,
-                transport=self.transport,
-            )
+        timing: dict[str, int] = {}
+
+        def launch() -> HaloBuffer:
+            timing["started_ns"] = time.perf_counter_ns()
+            try:
+                return exchange_halo(
+                    halo, owned_data, element_bytes=element_bytes,
+                    transport=self.transport,
+                )
+            finally:
+                timing["finished_ns"] = time.perf_counter_ns()
+
+        return DistributedCompletion(self._executor.submit(launch), timing)
+
+    @property
+    def last_execution_trace(self) -> dict[str, object] | None:
+        """Return timings from the latest automatic sharded execution."""
+        return (
+            None if self._last_execution_trace is None
+            else dict(self._last_execution_trace)
         )
 
     def close(self) -> None:
@@ -727,6 +761,139 @@ def current_distributed_runtime() -> DistributedRuntime | None:
     return _ACTIVE_RUNTIME.get()
 
 
+@dataclass(frozen=True)
+class _ShardRowPlan:
+    """Cached destination split used by the automatic halo executor.
+
+    Interior rows reference owned sources only. Boundary rows may reference
+    ghosts and therefore depend on halo completion.  Row and edge index
+    tensors let the ordinary MessagePassing frontend consume both partitions;
+    no distributed-only kernel is introduced.
+    """
+
+    source_ids: tuple[int, ...]
+    local_rows: tuple[int, ...]
+    local_columns: tuple[int, ...]
+    local_edges: int
+    full_graph: Any
+    interior_graph: Any | None
+    interior_rows: Any | None
+    interior_edges: Any | None
+    interior_inverse: Any | None
+    boundary_graph: Any | None
+    boundary_rows: Any | None
+    boundary_edges: Any | None
+    boundary_inverse: Any | None
+
+
+def _shard_row_plan(graph, halo: HaloMap, local_rows, columns) -> _ShardRowPlan:
+    """Build and cache the physical interior/boundary CSR partition."""
+    from ..graph import Graph
+    from ..tensor import DType, int32, int64, tensor
+
+    cache = getattr(graph, "_distributed_row_plan_cache", None)
+    if cache is None:
+        cache = {}
+        graph._distributed_row_plan_cache = cache
+    topology_inputs = (
+        getattr(graph, "_row_ptr", None), getattr(graph, "_col_idx", None),
+    )
+    topology_versions = tuple(
+        (
+            id(value),
+            getattr(value, "version", getattr(value, "_version", None)),
+        )
+        for value in topology_inputs if value is not None
+    )
+    cache_key = (
+        halo.rank, halo.world_size, halo.owned_begin, halo.owned_end,
+        graph.schema.realization, str(graph.device), topology_versions,
+    )
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
+
+    local_rows = tuple(int(value) for value in local_rows)
+    columns = tuple(int(value) for value in columns)
+    source_ids = (
+        *range(halo.owned_begin, halo.owned_end), *halo.ghost_ids,
+    )
+    local_id = {entity: index for index, entity in enumerate(source_ids)}
+    local_columns = tuple(local_id[entity] for entity in columns)
+    interior = tuple(
+        row for row in range(halo.owned_entities)
+        if all(
+            column < halo.owned_entities
+            for column in local_columns[local_rows[row]:local_rows[row + 1]]
+        )
+    )
+    interior_set = set(interior)
+    boundary = tuple(
+        row for row in range(halo.owned_entities) if row not in interior_set
+    )
+    index_dtype = graph.schema.index_dtype
+    if not isinstance(index_dtype, DType):
+        index_dtype = int32 if "int32" in str(index_dtype) else int64
+    full_graph = Graph.from_csr(
+        tensor(local_rows, dtype=index_dtype, device=str(graph.device)),
+        tensor(local_columns, dtype=index_dtype, device=str(graph.device)),
+        num_src=len(source_ids), validate="basic",
+    )
+
+    def make_partition(rows: tuple[int, ...], *, num_src: int):
+        if not rows:
+            return None, None, None, None
+        row_ptr = [0]
+        partition_columns: list[int] = []
+        edge_ids: list[int] = []
+        for row in rows:
+            begin, end = local_rows[row], local_rows[row + 1]
+            partition_columns.extend(local_columns[begin:end])
+            edge_ids.extend(range(begin, end))
+            row_ptr.append(len(partition_columns))
+        partition_graph = Graph.from_csr(
+            tensor(row_ptr, dtype=index_dtype, device=str(graph.device)),
+            tensor(
+                partition_columns,
+                dtype=index_dtype,
+                device=str(graph.device),
+            ),
+            num_src=num_src,
+            validate="basic",
+        )
+        inverse = [-1] * halo.owned_entities
+        for source_row, destination_row in enumerate(rows):
+            inverse[destination_row] = source_row
+        return (
+            partition_graph,
+            tensor(rows, dtype=int64, device=str(graph.device)),
+            tensor(edge_ids, dtype=int64, device=str(graph.device)),
+            tensor(inverse, dtype=int64, device=str(graph.device)),
+        )
+
+    interior_graph, interior_rows, interior_edges, interior_inverse = make_partition(
+        interior, num_src=halo.owned_entities)
+    boundary_graph, boundary_rows, boundary_edges, boundary_inverse = make_partition(
+        boundary, num_src=len(source_ids))
+    result = _ShardRowPlan(
+        source_ids=tuple(source_ids),
+        local_rows=local_rows,
+        local_columns=local_columns,
+        local_edges=len(columns),
+        full_graph=full_graph,
+        interior_graph=interior_graph,
+        interior_rows=interior_rows,
+        interior_edges=interior_edges,
+        interior_inverse=interior_inverse,
+        boundary_graph=boundary_graph,
+        boundary_rows=boundary_rows,
+        boundary_edges=boundary_edges,
+        boundary_inverse=boundary_inverse,
+    )
+    cache[cache_key] = result
+    return result
+
+
 def execute_sharded_message_passing(
     kernel,
     *,
@@ -738,13 +905,15 @@ def execute_sharded_message_passing(
 ):
     """Execute one destination-sharded static CSR forward program.
 
-    This is the first end-to-end conformance path for the public Graph.halo
-    semantics.  It intentionally supports native CPU, one-hop forward fields
-    and rank-local edge arrays. Unsupported gradients/layouts/providers fail
-    before communication.
+    The compiler-derived destination split starts host/MPI halo progress,
+    realizes interior rows while communication is in flight, then evaluates
+    boundary rows and scatters both disjoint outputs into owner order. Native
+    autograd follows the same split and reverses ghost cotangents. Device-
+    direct transports retain their stream-ordered path; multi-GPU overlap is
+    a separate provider gate.
     """
     from ..graph import Graph
-    from ..runtime import Buffer, DeviceType, Stream
+    from ..runtime import Buffer, Device, DeviceType, Stream
     from ..tensor import Tensor, int64, tensor
     from ..tensor.core import _Expr
 
@@ -753,6 +922,7 @@ def execute_sharded_message_passing(
         raise NotImplementedError(
             "distributed MessagePassing needs an active DistributedRuntime")
     placement = graph.placement
+    graph_device = Device.parse(str(graph.device))
     if placement is None or placement.mesh.size != runtime.transport.world_size:
         raise ValueError("graph mesh and active transport topology disagree")
     if graph.schema.lifecycle != "static" or graph.schema.realization not in {
@@ -766,38 +936,61 @@ def execute_sharded_message_passing(
     fields = {**src, **dst, **edge}
     if any(not isinstance(value, Tensor) for value in fields.values()):
         raise TypeError("sharded MessagePassing fields must be graphforge.Tensor values")
-    if any(value.device != graph.device or not value.is_contiguous
+    if any(value.device != graph_device or not value.is_contiguous
            for value in fields.values()):
         raise NotImplementedError(
             "sharded fields must be contiguous native storage on the graph device")
 
-    if graph.schema.realization == "paged_csr":
-        halos = collective_paged_halo_maps(
-            graph, world_size=runtime.transport.world_size)
-        halo = halos[runtime.transport.rank]
-        local_rows, columns = graph.paged_rows(
-            halo.owned_begin, halo.owned_end)
-        local_edges = len(columns)
-    else:
-        rows_tensor, columns_tensor = graph.resolve_csr()
-        rows = tuple(int(value) for value in rows_tensor.tolist())
-        global_columns = tuple(int(value) for value in columns_tensor.tolist())
-        halos = collective_halo_maps(
-            rows, global_columns, num_entities=graph.schema.num_dst,
-            world_size=runtime.transport.world_size,
+    topology_inputs = (
+        getattr(graph, "_row_ptr", None), getattr(graph, "_col_idx", None),
+    )
+    topology_versions = tuple(
+        (
+            id(value),
+            getattr(value, "version", getattr(value, "_version", None)),
         )
-        halo = halos[runtime.transport.rank]
-        edge_begin, edge_end = rows[halo.owned_begin], rows[halo.owned_end]
-        local_edges = edge_end - edge_begin
-        local_rows = tuple(
-            rows[row] - edge_begin
-            for row in range(halo.owned_begin, halo.owned_end + 1)
-        )
-        columns = global_columns[edge_begin:edge_end]
-    source_ids = (*range(halo.owned_begin, halo.owned_end), *halo.ghost_ids)
-    local_id = {entity: index for index, entity in enumerate(source_ids)}
-    local_columns = tuple(
-        local_id[entity] for entity in columns)
+        for value in topology_inputs if value is not None
+    )
+    topology_cache = getattr(graph, "_distributed_topology_cache", None)
+    if topology_cache is None:
+        topology_cache = {}
+        graph._distributed_topology_cache = topology_cache
+    topology_key = (
+        runtime.transport.rank, runtime.transport.world_size,
+        graph.schema.realization, topology_versions,
+    )
+    topology = topology_cache.get(topology_key)
+    if topology is None:
+        if graph.schema.realization == "paged_csr":
+            halos = collective_paged_halo_maps(
+                graph, world_size=runtime.transport.world_size)
+            halo = halos[runtime.transport.rank]
+            local_rows, columns = graph.paged_rows(
+                halo.owned_begin, halo.owned_end)
+        else:
+            rows_tensor, columns_tensor = graph.resolve_csr()
+            rows = tuple(int(value) for value in rows_tensor.tolist())
+            global_columns = tuple(
+                int(value) for value in columns_tensor.tolist())
+            halos = collective_halo_maps(
+                rows, global_columns, num_entities=graph.schema.num_dst,
+                world_size=runtime.transport.world_size,
+            )
+            halo = halos[runtime.transport.rank]
+            edge_begin, edge_end = rows[halo.owned_begin], rows[halo.owned_end]
+            local_rows = tuple(
+                rows[row] - edge_begin
+                for row in range(halo.owned_begin, halo.owned_end + 1)
+            )
+            columns = global_columns[edge_begin:edge_end]
+        topology = (halo, tuple(local_rows), tuple(columns))
+        topology_cache[topology_key] = topology
+    halo, local_rows, columns = topology
+    row_plan = _shard_row_plan(graph, halo, local_rows, columns)
+    source_ids = row_plan.source_ids
+    local_rows = row_plan.local_rows
+    local_columns = row_plan.local_columns
+    local_edges = row_plan.local_edges
 
     def runtime_buffer(value: Tensor) -> tuple[Buffer, bool]:
         value.realize()
@@ -823,10 +1016,19 @@ def execute_sharded_message_passing(
                 buffer.close()
 
     device_direct = (
-        graph.device.type == DeviceType.CUDA
+        graph_device.type == DeviceType.CUDA
         and isinstance(runtime.transport, DeviceBufferTransport)
     )
-    communication_stream = Stream(graph.device) if device_direct else None
+    prefer_overlap = bool(getattr(
+        runtime.transport, "prefer_compute_overlap", False))
+    if runtime._force_serialized is not None:
+        prefer_overlap = not runtime._force_serialized
+    host_overlap = (
+        graph_device.type == DeviceType.CPU
+        and not device_direct
+        and prefer_overlap
+    )
+    communication_stream = Stream(graph_device) if device_direct else None
 
     def device_direct_halo(value: Tensor) -> Buffer:
         assert communication_stream is not None
@@ -853,7 +1055,7 @@ def execute_sharded_message_passing(
                     )
                 else:
                     indices = tensor(
-                        local_ids, dtype=int64, device=graph.device)
+                        local_ids, dtype=int64, device=graph_device)
                     packed = value.gather(indices)
                     packed.realize()
                     packed_values.append(packed)
@@ -869,7 +1071,7 @@ def execute_sharded_message_passing(
 
             receives: list[tuple[int, DeviceBufferSlice]] = []
             for peer, ids in halo.receive_from:
-                buffer = Buffer(len(ids) * row_bytes, device=graph.device)
+                buffer = Buffer(len(ids) * row_bytes, device=graph_device)
                 receive_buffers.append((ids, buffer))
                 receives.append(
                     (peer, DeviceBufferSlice(buffer, 0, buffer.nbytes)))
@@ -878,7 +1080,7 @@ def execute_sharded_message_passing(
                 tuple(sends), tuple(receives), stream=communication_stream))
             combined = Buffer(
                 value.nbytes + len(halo.ghost_ids) * row_bytes,
-                device=graph.device,
+                device=graph_device,
             )
             completions.append(source.copy_to(
                 combined,
@@ -932,16 +1134,90 @@ def execute_sharded_message_passing(
             if source_temporary:
                 source.close()
 
+    for name, value in src.items():
+        if value.shape[0] != halo.owned_entities:
+            raise ValueError(
+                f"src.{name} must contain {halo.owned_entities} owned rows")
+    for name, value in dst.items():
+        if value.shape[0] != halo.owned_entities:
+            raise ValueError(
+                f"dst.{name} must contain {halo.owned_entities} owned rows")
+    for name, value in edge.items():
+        if value.shape[0] != local_edges:
+            raise ValueError(
+                f"edge.{name} must contain {local_edges} rank-local edges")
+
+    def launch_partition(partition_graph, row_index, edge_index, source_fields):
+        if partition_graph is None:
+            return None
+        return kernel(
+            graph=partition_graph,
+            src=source_fields,
+            dst={name: value.gather(row_index) for name, value in dst.items()},
+            edge={name: value.gather(edge_index) for name, value in edge.items()},
+            **dict(params),
+        )
+
+    # Host transports progress in the runtime worker while the main thread
+    # compiles/executes rows whose sources are entirely owned.  Starting every
+    # field before the first interior launch preserves overlap even when one
+    # kernel consumes multiple source fields.
+    pending_halos: dict[str, tuple[Tensor, bytes, DistributedCompletion]] = {}
+    interior_output = None
+    interior_started_ns: int | None = None
+    interior_finished_ns: int | None = None
+    if host_overlap:
+        for name in sorted(src):
+            value = src[name]
+            owned = physical_bytes(value)
+            element_bytes = (
+                value.dtype.itemsize * value.numel // value.shape[0]
+                if value.shape[0] else value.dtype.itemsize
+            )
+            pending_halos[name] = (
+                value,
+                owned,
+                runtime.exchange_halo(
+                    halo, owned, element_bytes=element_bytes),
+            )
+        try:
+            interior_output = launch_partition(
+                row_plan.interior_graph,
+                row_plan.interior_rows,
+                row_plan.interior_edges,
+                src,
+            )
+            if interior_output is not None:
+                # Tensor execution is lazy.  Realization here is the ordering
+                # point that makes this a real compute/communication overlap,
+                # rather than merely an optimistic Task IR dependency.
+                interior_started_ns = time.perf_counter_ns()
+                interior_output.realize()
+                interior_finished_ns = time.perf_counter_ns()
+        except BaseException:
+            # Drain peer communication before propagating a compute failure so
+            # the opposite rank cannot remain blocked in its exchange.
+            for _value, _owned, completion in pending_halos.values():
+                try:
+                    completion.wait()
+                except Exception:
+                    pass
+            raise
+
     local_src = {}
     try:
         for name in sorted(src):
             value = src[name]
-            if value.shape[0] != halo.owned_entities:
-                raise ValueError(
-                    f"src.{name} must contain {halo.owned_entities} owned rows")
             if device_direct:
                 combined = device_direct_halo(value)
                 transport_kind = "device-direct"
+            elif host_overlap:
+                _pending_value, owned, completion = pending_halos[name]
+                ghosts = completion.result()
+                combined = Buffer(
+                    len(owned) + len(ghosts.data), device=graph_device)
+                combined.write(owned + ghosts.data)
+                transport_kind = "host-staged"
             else:
                 owned = physical_bytes(value)
                 ghosts = exchange_halo(
@@ -952,12 +1228,12 @@ def execute_sharded_message_passing(
                     transport=runtime.transport,
                 )
                 combined = Buffer(
-                    len(owned) + len(ghosts.data), device=graph.device)
+                    len(owned) + len(ghosts.data), device=graph_device)
                 combined.write(owned + ghosts.data)
                 transport_kind = "host-staged"
             local_src[name] = Tensor(
                 (len(source_ids), *value.shape[1:]), dtype=value.dtype,
-                device=graph.device, buffer=combined,
+                device=graph_device, buffer=combined,
                 requires_grad=value.requires_grad,
                 expression=(
                     _Expr(
@@ -975,27 +1251,91 @@ def execute_sharded_message_passing(
         if communication_stream is not None:
             communication_stream.close()
 
-    local_dst = {}
-    for name, value in dst.items():
-        if value.shape[0] != halo.owned_entities:
-            raise ValueError(
-                f"dst.{name} must contain {halo.owned_entities} owned rows")
-        local_dst[name] = value
-    local_edge = {}
-    for name, value in edge.items():
-        if value.shape[0] != local_edges:
-            raise ValueError(
-                f"edge.{name} must contain {local_edges} rank-local edges")
-        local_edge[name] = value
-    local_graph = Graph.from_csr(
-        tensor(local_rows, dtype=int64, device=graph.device),
-        tensor(local_columns, dtype=int64, device=graph.device),
-        num_src=len(source_ids),
-        validate="full",
-    )
+    if host_overlap:
+        communication_starts = [
+            completion.started_ns
+            for _value, _owned, completion in pending_halos.values()
+            if completion.started_ns is not None
+        ]
+        communication_ends = [
+            completion.finished_ns
+            for _value, _owned, completion in pending_halos.values()
+            if completion.finished_ns is not None
+        ]
+        communication_started_ns = (
+            min(communication_starts) if communication_starts else None)
+        communication_finished_ns = (
+            max(communication_ends) if communication_ends else None)
+        overlap_ns = 0
+        if (communication_started_ns is not None
+                and communication_finished_ns is not None
+                and interior_started_ns is not None
+                and interior_finished_ns is not None):
+            overlap_ns = max(
+                0,
+                min(communication_finished_ns, interior_finished_ns)
+                - max(communication_started_ns, interior_started_ns),
+            )
+        runtime._last_execution_trace = {
+            "schema": "graphforge.distributed-execution-trace.v1",
+            "schedule": "interior||halo->boundary",
+            "interior_rows": (
+                0 if row_plan.interior_rows is None
+                else row_plan.interior_rows.shape[0]
+            ),
+            "boundary_rows": (
+                0 if row_plan.boundary_rows is None
+                else row_plan.boundary_rows.shape[0]
+            ),
+            "communication_started_ns": communication_started_ns,
+            "communication_finished_ns": communication_finished_ns,
+            "interior_started_ns": interior_started_ns,
+            "interior_finished_ns": interior_finished_ns,
+            "measured_overlap_ms": overlap_ns / 1e6,
+        }
+    else:
+        runtime._last_execution_trace = {
+            "schema": "graphforge.distributed-execution-trace.v1",
+            "schedule": (
+                "device-direct-serialized" if device_direct
+                else "host-staged-serialized"
+            ),
+            "interior_rows": 0,
+            "boundary_rows": halo.owned_entities,
+            "measured_overlap_ms": 0.0,
+        }
+
+    if host_overlap:
+        boundary_output = launch_partition(
+            row_plan.boundary_graph,
+            row_plan.boundary_rows,
+            row_plan.boundary_edges,
+            local_src,
+        )
+        if interior_output is None:
+            assert boundary_output is not None
+            return boundary_output
+        if boundary_output is None:
+            return interior_output
+        # The two row sets are disjoint. The redundant destination/inverse maps
+        # let the compiler emit a linear forward placement and a linear gather
+        # VJP, avoiding the generic O(num_rows * partition_rows) segment path.
+        return (
+            interior_output._scatter_rows(
+                row_plan.interior_rows,
+                row_plan.interior_inverse,
+                halo.owned_entities,
+            )
+            + boundary_output._scatter_rows(
+                row_plan.boundary_rows,
+                row_plan.boundary_inverse,
+                halo.owned_entities,
+            )
+        )
+
     return kernel(
-        graph=local_graph, src=local_src, dst=local_dst,
-        edge=local_edge, **dict(params),
+        graph=row_plan.full_graph, src=local_src, dst=dict(dst),
+        edge=dict(edge), **dict(params),
     )
 
 

@@ -96,11 +96,66 @@ def _topological_inputs(output: Tensor) -> tuple[Tensor, ...]:
     return tuple(ordered)
 
 
+def _physicalize_materialized_operands(output: Tensor) -> Tensor:
+    """Cut already-realized non-root values at the executable ABI.
+
+    ``Tensor.realize()`` intentionally retains the semantic expression so
+    Python autograd and IR inspection can still see how a value was produced.
+    A later executable must, however, consume that realized storage as an ABI
+    input instead of recursively recomputing the expression.  Clone only the
+    executable DAG and replace materialized operands by zero-copy leaves; the
+    user-visible/autograd DAG remains untouched.
+    """
+    from ..tensor.core import Tensor, _Expr
+
+    memo: dict[int, Tensor] = {}
+
+    def visit(value: Tensor, *, root: bool = False) -> Tensor:
+        found = memo.get(id(value))
+        if found is not None:
+            return found
+        if not root and value._buffer is not None:
+            physical = Tensor(
+                value.shape,
+                dtype=value.dtype,
+                device=value.device,
+                buffer=value._buffer,
+                offset=value.offset,
+                strides=value.strides,
+                requires_grad=False,
+                version=value.version,
+                ready_event=value.ready_event,
+            )
+            memo[id(value)] = physical
+            return physical
+        expression = value._expr
+        if expression is None:
+            memo[id(value)] = value
+            return value
+        physical = Tensor(
+            value.shape,
+            dtype=value.dtype,
+            device=value.device,
+            requires_grad=value.requires_grad,
+            expression=_Expr(
+                expression.op,
+                tuple(visit(operand) for operand in expression.operands),
+                expression.attrs,
+            ),
+            version=value.version,
+        )
+        memo[id(value)] = physical
+        return physical
+
+    return visit(output, root=True)
+
+
 def compile_tensor(output: Tensor) -> CPUExecutable:
     if output.device.type.name != "CPU":
         raise NotImplementedError("the native CPU JIT only accepts CPU tensors")
 
-    identity = (_PIPELINE_VERSION, output._jit_key)
+    physical_output = _physicalize_materialized_operands(output)
+    identity = (_PIPELINE_VERSION, physical_output._jit_key)
     cached = _IDENTITY_EXECUTABLES.get(identity)
     if cached is not None:
         return replace(cached, compile_ms=0.0, cache_hit=True)
@@ -110,10 +165,10 @@ def compile_tensor(output: Tensor) -> CPUExecutable:
     # the same executable.
     from .tensor_mlir import tensor_mlir
 
-    semantic_ir = tensor_mlir(output, function_name="graphforge_run")
+    semantic_ir = tensor_mlir(physical_output, function_name="graphforge_run")
     semantic_hash = hashlib.sha256(semantic_ir.encode()).hexdigest()
     structure = (_PIPELINE_VERSION, semantic_hash)
-    inputs = _topological_inputs(output)
+    inputs = _topological_inputs(physical_output)
     cached = _STRUCTURE_EXECUTABLES.get(structure)
     if cached is not None:
         rebound = replace(
@@ -127,7 +182,7 @@ def compile_tensor(output: Tensor) -> CPUExecutable:
         return rebound
 
     start = time.perf_counter_ns()
-    capsule, captured_ir, cpu_loop_ir, llvm_ir = compile_cpu(output)
+    capsule, captured_ir, cpu_loop_ir, llvm_ir = compile_cpu(physical_output)
     compile_ms = (time.perf_counter_ns() - start) / 1e6
     # Both paths use the same native builder.  Treat disagreement as a compiler
     # bug instead of caching an executable under the wrong semantic identity.
