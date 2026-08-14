@@ -17,14 +17,14 @@ import graphforge as gf
 print(gf.__version__)
 ```
 
-Binary wheels are not published yet. Until the release pipeline exists, build
-from source with the pinned LLVM/MLIR toolchain.
+Binary wheels are not published yet. Until the first release is published,
+build from source with the pinned LLVM/MLIR toolchain.
 
 ## Source build
 
 ```bash
-git clone <repository-url>
-cd graphforgev2
+git clone https://github.com/walkerchi/graphforge.git
+cd graphforge
 export CMAKE_ARGS="-DMLIR_DIR=/path/to/llvm-22.1.8/lib/cmake/mlir"
 python -m pip install -e ".[cuda,dev]"
 python -m graphforge

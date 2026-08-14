@@ -88,15 +88,15 @@ unsupported 或选择经过语义证明的外部 library dispatch，不能伪装
 - shared-SDK 构建所需的真实 `libMLIR`/`libLLVM` SONAME 文件；
 - extension/tool 的相对 RPATH。
 
-本地 wheel 已在全新 venv 中验证 native Tensor capture 和 bundled tools。正式发布仍须在
-manylinux/macOS CI 使用 pinned SDK 重建，执行 dependency audit、lit、Python、docs 与
-clean-install smoke test；本机 compatibility SDK 结果不能冒充发布认证。
+本地 wheel 已在全新 venv 中验证 native Tensor capture 和 bundled tools。当前 sdist 也已在
+独立目录用 pinned SDK 重建 native wheel，完成 manylinux_2_38 repair、strict twine，以及
+无 Torch clean-venv 的 METADATA/compiler/runtime smoke。正式发布仍须由 hosted
+manylinux/macOS matrix 重建并配置 PyPI trusted publishing；本机 compatibility SDK 结果不能
+冒充发布认证。
 
-## 当前缺口
+## 当前外部门槛
 
-- multi-output apply 与通用 vector field capture；
-- vector tuple-state reducer 的通用 TTIR lowering，以及 generic algebra 到并行 tile 的优化；
-- Tensor/graph CPU vectorization 与 parallel mapping；
-- CUDA Driver runtime plugin，以及 ROCm/DCU/Metal/PPU provider；
-- distributed task graph 的 owner/ghost map、真实 transport、byte sizing 与执行；
-- manylinux/macOS release CI 和 trusted publishing。
+- 两张以上真实 GPU 的 NCCL/RCCL correctness、profiler overlap timeline 与 peer-link artifact；
+- ROCm/DCU、Metal、PPU 的 vendor lowering/runtime plugin 和对应真机性能 CI；
+- CPython 3.10–3.12 × manylinux/macOS hosted release matrix、PyPI environment 与首次 trusted
+  publishing。其余 compiler/runtime 状态以 `PROJECT.md` §15.3 为唯一台账。

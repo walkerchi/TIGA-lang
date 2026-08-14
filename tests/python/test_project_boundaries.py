@@ -53,6 +53,26 @@ class ProjectBoundaryTest(unittest.TestCase):
         self.assertNotIn("torch>=2.1", project["project"]["dependencies"])
         self.assertIn("torch>=2.1", project["project"]["optional-dependencies"]["torch"])
 
+    def test_release_metadata_names_the_real_repository_and_maintainer(self):
+        project = tomllib.loads((ROOT / "pyproject.toml").read_text())["project"]
+        self.assertEqual(project["name"], "graphforge-compiler")
+        self.assertEqual(project["authors"], [{"name": "walkerchi"}])
+        self.assertEqual(project["maintainers"], [{"name": "walkerchi"}])
+        self.assertEqual(
+            project["urls"]["Repository"],
+            "https://github.com/walkerchi/graphforge.git",
+        )
+        self.assertEqual(
+            project["urls"]["Issues"],
+            "https://github.com/walkerchi/graphforge/issues",
+        )
+        getting_started = (ROOT / "docs" / "getting-started.md").read_text()
+        self.assertNotIn("<repository-url>", getting_started)
+        self.assertIn(
+            "git clone https://github.com/walkerchi/graphforge.git",
+            getting_started,
+        )
+
     def test_reducer_semantics_do_not_embed_torch_execution(self):
         core = (CORE / "reducer" / "core.py").read_text()
         self.assertNotRegex(core, r"(^|\n)import torch\b")

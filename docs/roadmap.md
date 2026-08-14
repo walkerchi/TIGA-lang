@@ -37,7 +37,7 @@ inspection、cold/warm compile、roofline 和 matched-peer gate 都在目标硬�
 - typed halo overlap DAG、owner/ghost map 和真实两进程 Torch-free exact exchange；
 - persistent isolated vendor compile worker、content-addressed cache；
 - optional functional `torch.library` adapter、FakeTensor/meta/autograd/Inductor tests；
-- LLVM 22.1.8 clean build、56/56 lit、211 Python tests + 10 subtests；
+- LLVM 22.1.8 pinned-SDK clean build；当前 57/57 lit、213 Python tests + 10 subtests；
 - `gf.kernel` 的 provider-neutral machine-schedule ABI 已由选择 pass 生成、dialect
   verifier 校验，并通过 native binding 暴露为 `kernel.schedules` 与 structured findings；
 - manylinux/macOS release workflow、本地 manylinux_2_38 wheel audit、两次独立 no-Torch
@@ -87,11 +87,13 @@ Graph/Tensor，不暴露 send/recv。
 
 ### C0/P0 — hosted reproducibility and release
 
-本地已使用校验 SHA256 的官方 LLVM/MLIR 22.1.8 SDK 完成 clean build；当前为 57/57 lit、212 个
+本地已使用校验 SHA256 的官方 LLVM/MLIR 22.1.8 SDK 完成 clean build；当前为 57/57 lit、213 个
 Python tests、strict docs、manylinux_2_38 wheel audit、无 Torch smoke 和 sdist→wheel rebuild。
 hosted compiler run `31793915112` 的 clean-build 与独立 Torch compatibility jobs 均已通过。
-仍不能由本机替代的是完整 CPython 3.10–3.12 Linux/macOS release matrix、PyPI
-trusted-publishing environment，以及由维护者确认 repository URL 和 maintainer metadata。
+repository、issue 和 maintainer metadata 已进入 PEP 621，并由安装后的 wheel smoke 读取校验；
+当前 sdist 也已在独立目录重建、repair、strict twine 并通过无 Torch clean-venv smoke。仍不能由
+本机替代的是完整 CPython 3.10–3.12 Linux/macOS release matrix、PyPI trusted-publishing
+environment 与首次发布。
 
 ### B0/B1/B2 — vendor plugins
 

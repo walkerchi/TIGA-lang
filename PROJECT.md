@@ -85,7 +85,7 @@ kernel。
 - 本地 wheel 已捆绑 `gf-opt`、`gf-translate` 和 runtime，并在两个全新、无 Torch 的 venv
   验证相对 RPATH、native Tensor IR 和工具启动；manylinux_2_38 修复产物及从 sdist 独立重建
   也已通过。正式 PyPI wheel 仍须由 hosted trusted-publishing workflow 发布。当前本机 Python
-  suite 为 212 passed、0 skip、10 subtests，LLVM/MLIR 22.1.8 lit 为 57/57；这不是
+  suite 为 213 passed、0 skip、10 subtests，LLVM/MLIR 22.1.8 lit 为 57/57；这不是
   ROCm/DCU/Metal/PPU 支持声明。
 
 ### 文档权属
@@ -3012,7 +3012,7 @@ dependency 与 version mismatch 保留 unfused program。
 Tensor、scalar CSR/dense/generated-radius 以及 structured dense online reducer frontend 已由
 C++ OpBuilder 原生构造；Torch compatibility bridge 只保留 typed capture 和显式 tool/provider
 进程边界。native Domain→Iter→Kernel→Task 已改为同一 MLIRContext 内的 pass pipeline；
-serialized TTIR 只保留在 vendor provider ABI 边界。当前 Python suite 为 212 passed、
+serialized TTIR 只保留在 vendor provider ABI 边界。当前 Python suite 为 213 passed、
 0 skip、10 个参数化子测通过；LLVM/MLIR 22.1.8 lit 57/57。以下编号是实现审计，不是第二份
 TODO 台账；所有未完成项只在 §15.3 登记：
 
@@ -3065,7 +3065,8 @@ TODO 台账；所有未完成项只在 §15.3 登记：
     C4 gate 关闭，未登记的跨 CTA/max 组合不进入当前覆盖声明；
 14. 本地 `graphforge-compiler` native wheel 已完成 bundled tools/runtime、相对 RPATH、
     manylinux_2_38 dependency audit、两次 clean-venv no-Torch smoke 与 sdist→wheel rebuild；
-    hosted Linux/macOS、repository/maintainer metadata 和 trusted publishing 仅在 C0/P0 登记；
+    repository/maintainer/issue URL metadata 已写入 sdist/wheel 并由 clean-install smoke 校验；
+    hosted Linux/macOS matrix 和 trusted publishing 仅在 C0/P0 登记；
 15. provider-neutral `ExecutableBundle`/Completion/PreparedBundle、`gf-task-to-bundle`、
     runtime-owned CUDA Driver、stream event 与 module/binary cache 已由 R0/J0 关闭；
 16. hierarchy memory 的 async transfer/version legality、capacity/peak liveness、pinned↔HBM DMA、
@@ -3136,7 +3137,7 @@ benchmark artifact 的能力，`PARTIAL` 不得用于发布声明。每关闭一
 | B1 | PENDING | Metal provider | provider ABI、MSL/Metal lowering、Apple 真机 CI |
 | B2 | PENDING | PPU provider | vendor compiler/runtime plugin 与真机 CI |
 | J0 | DONE | persistent isolated vendor compile/cache worker | out-of-process JSON protocol、content-addressed vendor cache warmup、worker crash/PID recovery test；RTX 5070 Ti artifact：cold 248.994 ms、warm-worker 2.751 ms、runtime disk-load 2.455 ms |
-| P0 | PARTIAL | PyPI release engineering | compiler CI 的 hosted Linux clean-build/audit/smoke 已通过；CPython 3.10–3.12 × manylinux_2_38 x86_64/macOS arm64 release workflow、pinned LLVM SDK SHA、auditwheel/delocate、no-Torch smoke、strict twine、sdist 与 trusted publishing 已提交，本地 repaired wheel、sdist 及 sdist→wheel 均验证。待完整 hosted release matrix、PyPI environment 及维护者提供 repository/maintainer metadata |
+| P0 | PARTIAL | PyPI release engineering | compiler CI 的 hosted Linux clean-build/audit/smoke 已通过；CPython 3.10–3.12 × manylinux_2_38 x86_64/macOS arm64 release workflow、pinned LLVM SDK SHA、auditwheel/delocate、no-Torch smoke、strict twine、sdist 与 trusted publishing 已提交。repository/maintainer/issue URL 已进入 PEP 621 metadata；增强后的 smoke 会从安装后 METADATA 校验它们。当前源码重新生成 sdist 后在独立目录完成 native wheel rebuild、auditwheel manylinux_2_38 repair、strict twine、无 Torch clean-venv compiler/runtime/metadata smoke。两份 SDK URL 和 workflow actionlint 通过，PyPI JSON 当前为 404（只说明尚未发布，不构成名称保留）。待完整 hosted release matrix、PyPI trusted-publishing environment 与首次发布 |
 | A0 | DONE | optional Torch adapter productization | zero-copy/current-stream；CSR topology 与 UDF fields 均为显式 functional `torch.library` operands，FakeTensor/meta、registered autograd、四项 `opcheck` 与 Inductor fullgraph forward+backward test/example |
 | V0 | DONE | GPU-native visualization parallel track | 独立 `gf.visualize.heatmap` 只组合通用 Tensor IR，返回可查看 MLIR/TTIR 的 lazy `Raster`；`Tensor.prepare()` 绑定稳定动画 buffer，`to_numpy/save/show` 位于可选 interop/encoding 边界。2048² FP32 scalar→RGB 对 matched torch.compile/Inductor 为 1.153x（CI low 1.140），cold JIT 与 PNG encoding 分开报告；core 无 heatmap/render op |
 

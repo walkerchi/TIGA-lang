@@ -8,6 +8,8 @@ version = "0.1.0a1"
 description = "A relation-oriented MLIR compiler for sparse, dense, and generated graph computations"
 readme = "README.md"
 license = "Apache-2.0"
+authors = [{ name = "walkerchi" }]
+maintainers = [{ name = "walkerchi" }]
 requires-python = ">=3.10"
 dependencies = []
 keywords = ["compiler", "MLIR", "GPU", "sparse", "graph", "scientific-computing"]
@@ -24,6 +26,12 @@ classifiers = [
   "Topic :: Software Development :: Compilers",
   "Typing :: Typed",
 ]
+
+[project.urls]
+Homepage = "https://github.com/walkerchi/graphforge"
+Documentation = "https://github.com/walkerchi/graphforge#readme"
+Repository = "https://github.com/walkerchi/graphforge.git"
+Issues = "https://github.com/walkerchi/graphforge/issues"
 
 [project.optional-dependencies]
 torch = ["torch>=2.1"]
