@@ -1140,9 +1140,13 @@ DONE:
         self.assertEqual(gradient.tolist(), [4.0, 8.0])
 
     def test_tensor_runtime_imports_without_torch(self):
-        repository = Path(__file__).resolve().parents[2]
+        # Exercise the package under test.  In an editable source run this is
+        # ``<repo>/python``; in installed-wheel CI it is site-packages.  Pointing
+        # unconditionally at the checkout would mix source Python with the
+        # wheel-only native extension and would not test either installation.
+        package_parent = Path(gf.__file__).resolve().parent.parent
         environment = {
-            "PYTHONPATH": str(repository / "python"),
+            "PYTHONPATH": str(package_parent),
             "GRAPHFORGE_RUNTIME_LIBRARY": str(gf.runtime._library()._name),
             "GRAPHFORGE_TENSOR_BACKEND": "native",
         }
