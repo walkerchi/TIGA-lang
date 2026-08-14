@@ -1,6 +1,6 @@
 <div align="center">
   <img src="docs/assets/graphforge-logo.svg" alt="GraphForge" width="560">
-  <p><strong>Compile relations, messages, and reducers—not hand-written workload kernels.</strong></p>
+  <p><strong>Compile sparse relations, messages, and reducers—not hand-written workload kernels.</strong></p>
   <p>
     <a href="https://github.com/walkerchi/graphforge/actions/workflows/compiler-ci.yml"><img alt="compiler CI" src="https://github.com/walkerchi/graphforge/actions/workflows/compiler-ci.yml/badge.svg?branch=main"></a>
     <img alt="Python 3.10–3.12" src="https://img.shields.io/badge/Python-3.10–3.12-3776AB?logo=python&logoColor=white">
@@ -9,10 +9,11 @@
   </p>
 </div>
 
-GraphForge is an experimental relation-oriented compiler for sparse, dense,
-and generated graph computation. A user defines a graph, an edge UDF, and a
-reducer. The first call captures and JIT-compiles a guarded variant; later calls
-reuse it. The same program can participate in compiler-generated autograd,
+GraphForge is an experimental sparse-first, relation-oriented compiler. A user
+defines a graph, an edge UDF, and a reducer; the compiler chooses how to traverse
+and lower static CSR, irregular ragged, generated-neighborhood, or dense implicit
+relations. The first call JIT-compiles a guarded variant and later calls reuse
+it. The same program can participate in compiler-generated autograd,
 hierarchical storage planning, and halo-overlapped distributed execution.
 
 > **Alpha software.** The measured paths below are real, but coverage is still
@@ -62,11 +63,88 @@ and stable online softmax; users may subclass `gf.Reducer` and define
 `identity`, `lift`, `combine`, and `finalize`. See
 [the custom reducer example](examples/custom_reducer.py).
 
+## Sparse computation is first-class
+
+Sparse computation is not represented as a call to one fixed `spmv()` operator.
+The relation, edge UDF, reducer algebra, field roles, index width, and degree
+distribution remain visible in `gf.domain` IR. This lets the compiler fuse
+`gather → message → reduce → node` and choose a physical traversal after seeing
+the actual graph and target.
+
+| Sparse relation | Logical meaning | Possible physical strategy |
+|---|---|---|
+| Static CSR | Given row pointers and source indices | destination-row tile, edge tile, warp/CTA row, or sparse-library dispatch |
+| Ragged / power-law CSR | Highly skewed degree distribution | degree bucketing, split high-degree rows, chunked edge worklists |
+| Radius graph | Neighbors selected from positions at runtime | cell-list build, materialized CSR, or generated build-consume fusion |
+| Exact kNN | `k` selected sources per destination | dynamic index snapshot plus compiled consumer reuse |
+| Paged `.gfg` relation | Graph exceeds device or host memory | destination-sharded page stream through NVMe/RAM/HBM instances |
+| Distributed relation | Sources cross ownership boundaries | compiler-derived halo plus interior/communication/boundary overlap |
+
+```text
+relation + fields + edge UDF + reducer
+                  │
+                  ├─ degree histogram / locality / index-width analysis
+                  ├─ reducer algebra and deterministic-order analysis
+                  └─ storage ownership and halo analysis
+                                   │
+                                   ▼
+       row tile │ edge tile │ chunked worklist │ generated traversal
+                                   │
+                                   ▼
+             fused gather → message → reduce → node kernel
+```
+
+Dynamic sparsity uses the same `MessagePassing` interface; the graph builder is
+part of relation semantics rather than an unrelated preprocessing API:
+
+```python
+class DistanceWeightedSum(gf.MessagePassing):
+    reducer = gf.sum()
+
+    def edge(self, src, dst, edge):
+        return edge.distance * src.x
+
+
+positions = gf.tensor([[0.0, 0.0], [0.3, 0.0], [0.8, 0.0]])
+x = gf.tensor([2.0, 3.0, 5.0], requires_grad=True)
+radius_graph = gf.Graph.radius(positions, cutoff=0.6)
+out = DistanceWeightedSum()(
+    graph=radius_graph,
+    src={"x": x},
+    dst={"x": x},
+)
+```
+
+Stable online softmax and user-defined associative reducers are also sparse
+row reductions, not special attention operators. Their forward state and VJP
+remain compiler IR, so a sparse UDF does not require a user-written backward.
+
+### Registered sparse evidence
+
+These RTX 5070 Ti results use matched sparse semantics and timing boundaries.
+`>1.00×` means GraphForge is faster than the named peer.
+
+| Sparse workload | Registered case | GraphForge | Matched peer | Result |
+|---|---|---:|---:|---:|
+| Scalar CSR weighted sum, random gather | 131,072 rows, degree 4, FP32 | 0.0183 ms | Triton CSR 0.0222 ms | **1.21×** |
+| Scalar CSR weighted sum, local/hot | 131,072 rows, degree 16, FP32 | 0.0186 ms | `torch.sparse.mm` 0.0310 ms | **1.67×** |
+| Social power-law CSR | 90% degree 8 / 9% degree 64 / 1% degree 256; i32/i64; local/random; hot/cold | auto row/worklist schedule | fastest registered peer per bucket | **8/8 gates pass**, CI-low 1.255–2.015× |
+| Sparse online-softmax reducer | 131,072 rows, degree 32 | compiler-generated TTIR | hand-written Triton | **1.007×**, CI-low 1.005 |
+| Product-reducer backward | 131,072 rows, degree 16 | compiler-generated zero-safe VJP | hand-written Triton | **1.021×**, CI-low 1.016 |
+
+The scalar CSR rows above are compiler-generated. Registered F=16/F=64 SpMM
+cases currently use an explicit external sparse-library dispatch and are labeled
+as dispatch results; GraphForge does not present them as generated SpMM kernels.
+The [benchmark results](docs/benchmark-results.md) separate sparse consume,
+dynamic graph build, build+consume, backward, and cache regimes.
+
 ## What is implemented
 
 | Area | Current path | Status |
 |---|---|---|
-| Relations | Static/bounded-ragged CSR, dense Cartesian/triangular, radius, exact kNN | Implemented; coverage varies by shape |
+| Sparse relations | Static/bounded-ragged CSR and power-law load balancing | Executable and benchmarked |
+| Generated sparse relations | Radius and exact kNN build/consume boundaries | Executable; registered coverage is narrow |
+| Dense implicit relations | Cartesian and triangular traversal without stored edges | Executable and benchmarked |
 | User kernels | Captured edge/node UDF plus built-in or user reducer algebra | Implemented |
 | Autograd | Compiler-derived Tensor and relation VJP; no user-written backward in examples | Implemented for registered UDF/reducer families |
 | NVIDIA GPU | `gf.domain → gf.iter → gf.kernel → TTIR → vendor Triton → PTX/cubin` | Executable and benchmarked |
@@ -81,7 +159,7 @@ library. Workload programs and hand-written comparison kernels live in
 `examples/` and `benchmarks/`; no `@triton.jit` workload kernel is imported by
 the core package.
 
-## Measured comparison
+## Dense and generated comparison
 
 Registered results below were measured on the repository's RTX 5070 Ti host.
 Each row compares matched semantics, dtype, shape, and timing boundary. A value
