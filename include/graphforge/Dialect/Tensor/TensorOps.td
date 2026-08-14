@@ -192,7 +192,9 @@ def GraphForge_CSRExpandRowsOp : GraphForge_TensorOp<"csr_expand_rows"> {
 def GraphForge_CSRSegmentSumOp : GraphForge_TensorOp<"csr_segment_sum"> {
   let summary = "Sum edge messages into CSR destination rows";
   let arguments = (ins AnyRankedTensor:$input, AnyRankedTensor:$row_ptr,
-                       ConfinedAttr<I64Attr, [IntNonNegative]>:$num_rows);
+                       ConfinedAttr<I64Attr, [IntNonNegative]>:$num_rows,
+                       ConfinedAttr<I64Attr, [IntNonNegative]>:$degree_min,
+                       ConfinedAttr<I64Attr, [IntNonNegative]>:$degree_max);
   let results = (outs AnyRankedTensor:$result);
   let hasVerifier = 1;
 }

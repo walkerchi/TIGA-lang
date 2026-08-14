@@ -5,6 +5,7 @@ add_mlir_library(GraphForgeTargetTriton
   ${PROJECT_SOURCE_DIR}/include/graphforge/Target/Triton
 
   LINK_LIBS PUBLIC
+  GraphForgeControl
   GraphForgeDomain
   GraphForgeKernel
   GraphForgeStorage

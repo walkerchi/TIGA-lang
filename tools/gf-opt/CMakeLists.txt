@@ -4,6 +4,7 @@ set_target_properties(gf-opt PROPERTIES
   INSTALL_RPATH "${GRAPHFORGE_TOOL_RPATH}")
 
 target_link_libraries(gf-opt PRIVATE
+  GraphForgeControl
   GraphForgeDomain
   GraphForgeIter
   GraphForgeKernel

@@ -2,6 +2,7 @@ find_package(Python3 REQUIRED COMPONENTS Development.Module)
 
 Python3_add_library(_graphforge_compiler MODULE compiler_module.cpp WITH_SOABI)
 target_link_libraries(_graphforge_compiler PRIVATE
+  GraphForgeControl
   GraphForgeDomain
   GraphForgeIter
   GraphForgeKernel

@@ -387,6 +387,8 @@ LogicalResult CSRSegmentSumOp::verify() {
   expected.append(input.getShape().begin() + 1, input.getShape().end());
   if (ArrayRef<int64_t>(expected) != result.getShape())
     return emitOpError("result shape must begin with num_rows");
+  if (getDegreeMax() < getDegreeMin())
+    return emitOpError("degree_max must be at least degree_min");
   return success();
 }
 

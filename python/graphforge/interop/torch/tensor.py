@@ -23,6 +23,76 @@ class TorchBuffer:
     def address(self) -> int:
         return int(self.tensor.data_ptr())  # type: ignore[attr-defined]
 
+    def adjacent_difference_bounds(
+        self, *, offset: int, stride: int, count: int
+    ) -> tuple[int, int]:
+        """Reduce a one-dimensional integer view without host materialization.
+
+        This is a storage-provider analysis hook, not a graph or Torch op in
+        the compiler core. Only the two extrema cross the device boundary.
+        """
+        if count < 2:
+            return 0, 0
+        import torch
+
+        owner = self.tensor
+        view = torch.as_strided(
+            owner,
+            (count,),
+            (stride,),
+            storage_offset=owner.storage_offset() + offset,
+        )
+        differences = view[1:] - view[:-1]
+        extrema = torch.stack((differences.min(), differences.max())).cpu()
+        return int(extrema[0]), int(extrema[1])
+
+    def csr_source_index_span_ratio(
+        self,
+        *,
+        row_ptr,
+        offset: int,
+        stride: int,
+        count: int,
+        num_src: int,
+        num_dst: int,
+        samples: int,
+    ) -> float:
+        """Estimate CSR source locality from a bounded device sample."""
+        if count == 0:
+            return 0.0
+        import torch
+
+        row_buffer = row_ptr._buffer
+        if not getattr(row_buffer, "_graphforge_torch_buffer", False):
+            raise TypeError("row_ptr must use the same Torch storage provider")
+        column_owner = self.tensor
+        columns = torch.as_strided(
+            column_owner,
+            (count,),
+            (stride,),
+            storage_offset=column_owner.storage_offset() + offset,
+        )
+        row_owner = row_buffer.tensor
+        rows = torch.as_strided(
+            row_owner,
+            (row_ptr.numel,),
+            (row_ptr.strides[0],),
+            storage_offset=row_owner.storage_offset() + row_ptr.offset,
+        )
+        sample_count = min(samples, count)
+        slots = torch.arange(
+            sample_count, dtype=torch.int64, device=columns.device)
+        if sample_count > 1:
+            slots = torch.div(
+                slots * (count - 1), sample_count - 1,
+                rounding_mode="floor")
+        destinations = torch.searchsorted(
+            rows[1:].contiguous(), slots, right=True)
+        selected = columns.gather(0, slots).to(torch.int64)
+        ratio = (selected - destinations).abs().to(torch.float64).mean()
+        ratio = ratio / max(1, num_src, num_dst)
+        return float(ratio.cpu())
+
 
 def torch_dtype(dtype):
     import torch

@@ -21,7 +21,7 @@ if TYPE_CHECKING:
     from ..tensor import Tensor
 
 
-_PIPELINE_VERSION = 1
+_PIPELINE_VERSION = 2
 
 
 @dataclass(frozen=True)
@@ -154,7 +154,14 @@ def compile_tensor(output: Tensor) -> CPUExecutable:
     if output.device.type.name != "CPU":
         raise NotImplementedError("the native CPU JIT only accepts CPU tensors")
 
-    physical_output = _physicalize_materialized_operands(output)
+    # A control region owns references to its captured leaves. Rewriting only
+    # the outer operand list would break that region's explicit capture ABI;
+    # control physicalization therefore happens in its dedicated lowering.
+    physical_output = (
+        output
+        if output._expr is not None and output._expr.op == "repeat"
+        else _physicalize_materialized_operands(output)
+    )
     identity = (_PIPELINE_VERSION, physical_output._jit_key)
     cached = _IDENTITY_EXECUTABLES.get(identity)
     if cached is not None:

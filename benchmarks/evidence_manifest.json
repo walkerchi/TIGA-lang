@@ -115,6 +115,11 @@
       "cases": ["regular_permuted_i32_n131072_degree16_t16"],
       "note": "A native MessagePassing gather/UDF/CSR-reduce DAG fuses into nested LLVM loops and partitions independent destination ranges. This hot regular i32 bucket passes the fastest installed provider-native CSR peer at 6.318x with 95% CI low 5.540; no claim is extrapolated to ragged or power-law CPU graphs."
     },
+    "pagerank": {
+      "status": "measured-fixed-iteration-compiler-probe",
+      "cases": ["cuda_fp32_iter20"],
+      "note": "One gf_control.repeat captures the recurrence and launches one structurally fused CSR-message/reduction/node-epilogue TTIR kernel per iteration with two ping-pong buffers. Each degree/size bucket is confidence-gated against an identical fixed-iteration torch.sparse.mm recurrence; device-side convergence and cuGraph/GraphBLAS comparisons remain pending."
+    },
     "visualization_heatmap": {
       "status": "performance-ready-registered-case",
       "cases": ["h2048_w2048_rgb_f32"],

@@ -1,5 +1,6 @@
 #include <Python.h>
 
+#include "graphforge/Dialect/Control/ControlDialect.h"
 #include "graphforge/Dialect/Domain/DomainDialect.h"
 #include "graphforge/Dialect/Iter/IterDialect.h"
 #include "graphforge/Dialect/Kernel/KernelDialect.h"
@@ -49,6 +50,7 @@
 namespace {
 using namespace mlir;
 namespace gf = mlir::graphforge;
+namespace gfc = mlir::graphforge::control;
 namespace gft = mlir::graphforge::tensor;
 
 struct PyOwned {
@@ -282,7 +284,76 @@ struct TensorBuilder {
         return failure();
       inputs.push_back(*input);
     }
-    if (*operation == "add")
+    if (*operation == "repeat") {
+      PyOwned attrs(attribute(expression.value, "attrs"));
+      PyOwned regionObject(attribute(expression.value, "region"));
+      if (!attrs || !regionObject || regionObject.value == Py_None)
+        return failure();
+      PyOwned attrsSequence(PySequence_Fast(attrs.value, "expected attrs"));
+      PyObject *iterationsObject = nullptr;
+      for (Py_ssize_t index = 0;
+           index < PySequence_Fast_GET_SIZE(attrsSequence.value); ++index) {
+        PyObject *pair = PySequence_Fast_GET_ITEM(attrsSequence.value, index);
+        PyObject *name = PyTuple_GetItem(pair, 0);
+        if (name && PyUnicode_CompareWithASCIIString(name, "iterations") == 0)
+          iterationsObject = PyTuple_GetItem(pair, 1);
+      }
+      FailureOr<int64_t> iterations = iterationsObject
+          ? integer(iterationsObject) : FailureOr<int64_t>(failure());
+      PyOwned argumentsObject(attribute(regionObject.value, "arguments"));
+      PyOwned outputObject(attribute(regionObject.value, "output"));
+      PyOwned arguments(argumentsObject
+          ? PySequence_Fast(argumentsObject.value, "expected region arguments")
+          : nullptr);
+      if (failed(iterations) || !arguments || !outputObject ||
+          PySequence_Fast_GET_SIZE(arguments.value) !=
+              static_cast<Py_ssize_t>(inputs.size()))
+        return failure();
+
+      OperationState state(location, gfc::RepeatOp::getOperationName());
+      state.addOperands(inputs);
+      state.addTypes(*resultType);
+      state.addAttribute("iterations", builder.getI64IntegerAttr(*iterations));
+      state.addRegion();
+      auto repeat = cast<gfc::RepeatOp>(builder.create(state));
+      Block *body = new Block();
+      repeat.getBody().push_back(body);
+      for (Value input : inputs)
+        body->addArgument(input.getType(), location);
+
+      struct SavedValue {
+        void *key;
+        Value value;
+        bool existed;
+      };
+      SmallVector<SavedValue> saved;
+      saved.reserve(inputs.size());
+      for (auto [index, argument] : llvm::enumerate(body->getArguments())) {
+        PyObject *object = PySequence_Fast_GET_ITEM(arguments.value, index);
+        auto found = values.find(object);
+        saved.push_back({object, found == values.end() ? Value() : found->second,
+                         found != values.end()});
+        values[object] = argument;
+      }
+      {
+        OpBuilder::InsertionGuard guard(builder);
+        builder.setInsertionPointToStart(body);
+        FailureOr<Value> bodyResult = emit(outputObject.value);
+        if (failed(bodyResult)) return failure();
+        builder.create<gfc::ControlYieldOp>(location, *bodyResult);
+      }
+      for (const SavedValue &item : saved) {
+        if (item.existed) values[item.key] = item.value;
+        else values.erase(item.key);
+      }
+      cached = repeat.getResult();
+    }
+    else if (*operation == "loop_argument") {
+      PyErr_SetString(PyExc_RuntimeError,
+                      "loop argument escaped gf_control.repeat capture");
+      return failure();
+    }
+    else if (*operation == "add")
       cached = builder.create<gft::AddOp>(location, *resultType, inputs[0], inputs[1]);
     else if (*operation == "mul")
       cached = builder.create<gft::MulOp>(location, *resultType, inputs[0], inputs[1]);
@@ -390,6 +461,7 @@ struct TensorBuilder {
       if (!sequence) return failure();
       const char *key = *operation == "csr_expand_rows" ? "num_edges" : "num_rows";
       PyObject *count = nullptr;
+      PyObject *degreeMin = nullptr;
       PyObject *degree = nullptr;
       PyObject *uniform = nullptr;
       for (Py_ssize_t index = 0;
@@ -401,6 +473,10 @@ struct TensorBuilder {
         }
         if (name && PyUnicode_CompareWithASCIIString(name, "max_degree") == 0)
           degree = PyTuple_GetItem(pair, 1);
+        if (name && PyUnicode_CompareWithASCIIString(name, "degree_min") == 0)
+          degreeMin = PyTuple_GetItem(pair, 1);
+        if (name && PyUnicode_CompareWithASCIIString(name, "degree_max") == 0)
+          degree = PyTuple_GetItem(pair, 1);
         if (name && PyUnicode_CompareWithASCIIString(name, "uniform_degree") == 0)
           uniform = PyTuple_GetItem(pair, 1);
       }
@@ -411,10 +487,18 @@ struct TensorBuilder {
         cached = builder.create<gft::CSRExpandRowsOp>(
             location, *resultType, inputs[0], inputs[1],
             builder.getI64IntegerAttr(*value));
-      else if (*operation == "csr_segment_sum")
+      else if (*operation == "csr_segment_sum") {
+        FailureOr<int64_t> minimum = degreeMin
+            ? integer(degreeMin) : FailureOr<int64_t>(failure());
+        FailureOr<int64_t> maximum = degree
+            ? integer(degree) : FailureOr<int64_t>(failure());
+        if (failed(minimum) || failed(maximum)) return failure();
         cached = builder.create<gft::CSRSegmentSumOp>(
             location, *resultType, inputs[0], inputs[1],
-            builder.getI64IntegerAttr(*value));
+            builder.getI64IntegerAttr(*value),
+            builder.getI64IntegerAttr(*minimum),
+            builder.getI64IntegerAttr(*maximum));
+      }
       else if (*operation == "csr_segment_product" ||
                *operation == "csr_segment_product_vjp") {
         if (!degree || !uniform) return failure();
@@ -544,7 +628,8 @@ struct TensorBuilder {
 
 static void initializeContext(MLIRContext &context) {
   DialectRegistry registry;
-  registry.insert<gf::GraphForgeDomainDialect, gf::iter::GraphForgeIterDialect,
+  registry.insert<gfc::GraphForgeControlDialect,
+                  gf::GraphForgeDomainDialect, gf::iter::GraphForgeIterDialect,
                   gf::kernel::GraphForgeKernelDialect,
                   gf::storage::GraphForgeStorageDialect,
                   gf::task::GraphForgeTaskDialect,
@@ -1704,10 +1789,10 @@ struct CPUState {
   using PackedFunction = void (*)(void **);
 
   CPUState(std::unique_ptr<ExecutionEngine> engine, PackedFunction function,
-           int64_t vectorWidth, unsigned threadCount)
+           int64_t vectorWidth, unsigned threadCount, bool serialControl)
       : engine(std::move(engine)), function(function),
         vectorWidth(std::max<int64_t>(1, vectorWidth)),
-        threadCount(std::max(1u, threadCount)) {}
+        threadCount(std::max(1u, threadCount)), serialControl(serialControl) {}
 
   ~CPUState() {
     {
@@ -1748,6 +1833,7 @@ struct CPUState {
   PackedFunction function;
   int64_t vectorWidth;
   unsigned threadCount;
+  bool serialControl;
 
 private:
   void workerLoop(unsigned worker) {
@@ -1943,11 +2029,14 @@ static PyObject *compileCPU(PyObject *, PyObject *output) {
   }
   std::string loops = printOperation(*module);
   int64_t vectorWidth = 1;
+  bool serialControl = false;
   module->walk([&](func::FuncOp function) {
-    if (function.getName() == "graphforge_run")
+    if (function.getName() == "graphforge_run") {
       if (auto width = function->getAttrOfType<IntegerAttr>(
               "graphforge.cpu.vector_width"))
         vectorWidth = width.getInt();
+      serialControl = function->hasAttr("graphforge.cpu.serial_control");
+    }
   });
 
   PassManager llvmLowering(&context);
@@ -1979,7 +2068,8 @@ static PyObject *compileCPU(PyObject *, PyObject *output) {
     return nullptr;
   }
   auto *state = new CPUState(
-      std::move(*expected), *packed, vectorWidth, cpuThreadCount());
+      std::move(*expected), *packed, vectorWidth, cpuThreadCount(),
+      serialControl);
   PyObject *capsule = PyCapsule_New(
       state, "graphforge.cpu.executable", destroyCPUState);
   if (!capsule) {
@@ -2044,7 +2134,7 @@ static PyObject *launchCPU(PyObject *, PyObject *args) {
   for (MemRef1D &descriptor : descriptors)
     descriptorPointers.push_back(&descriptor);
 
-  unsigned requestedThreads = outputElements >= 4096
+  unsigned requestedThreads = !state->serialControl && outputElements >= 4096
       ? state->threadCount : 1;
   int64_t alignment = state->vectorWidth;
   int64_t rawChunk = (outputElements + requestedThreads - 1) /

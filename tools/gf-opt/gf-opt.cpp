@@ -1,3 +1,4 @@
+#include "graphforge/Dialect/Control/ControlDialect.h"
 #include "graphforge/Dialect/Domain/DomainDialect.h"
 #include "graphforge/Dialect/Iter/IterDialect.h"
 #include "graphforge/Dialect/Kernel/KernelDialect.h"
@@ -21,7 +22,8 @@ int main(int argc, char **argv) {
   mlir::graphforge::registerGraphForgePasses();
   mlir::registerTransformsPasses();
   mlir::DialectRegistry registry;
-  registry.insert<mlir::graphforge::GraphForgeDomainDialect,
+  registry.insert<mlir::graphforge::control::GraphForgeControlDialect,
+                  mlir::graphforge::GraphForgeDomainDialect,
                   mlir::graphforge::iter::GraphForgeIterDialect,
                   mlir::graphforge::kernel::GraphForgeKernelDialect,
                   mlir::graphforge::storage::GraphForgeStorageDialect,

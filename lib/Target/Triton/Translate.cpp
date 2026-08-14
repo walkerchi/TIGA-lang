@@ -1,5 +1,6 @@
 #include "graphforge/Target/Triton/Translate.h"
 
+#include "graphforge/Dialect/Control/ControlDialect.h"
 #include "graphforge/Dialect/Domain/DomainDialect.h"
 #include "graphforge/Dialect/Kernel/KernelDialect.h"
 #include "graphforge/Dialect/Storage/StorageDialect.h"
@@ -6221,6 +6222,650 @@ private:
   DenseMap<Value, Pair> names;
 };
 
+/// Fuse a CSR row reduction with its elementwise node epilogue.  One program
+/// owns one destination row and walks an arbitrary-length row in fixed-size
+/// tiles, so correctness does not depend on a host-known maximum degree.  The
+/// producer and epilogue are matched structurally; there are deliberately no
+/// PageRank- or workload-named cases here.
+class TensorCSRSumEpilogueTTIREmitter {
+public:
+  TensorCSRSumEpilogueTTIREmitter(tensor::CSRSegmentSumOp reduction,
+                                  func::FuncOp function, Value result,
+                                  int64_t blockSize,
+                                  llvm::raw_ostream &output)
+      : reduction(reduction), function(function), result(result),
+        blockSize(blockSize), output(output) {}
+
+  LogicalResult emit() {
+    auto messageType = dyn_cast<RankedTensorType>(
+        reduction.getInput().getType());
+    auto rowType = dyn_cast<RankedTensorType>(reduction.getRowPtr().getType());
+    auto resultType = dyn_cast<RankedTensorType>(result.getType());
+    auto rowPtr = reduction.getRowPtr().getDefiningOp<tensor::InputOp>();
+    if (!messageType || !rowType || !resultType || !rowPtr ||
+        messageType.getRank() != 1 || rowType.getRank() != 1 ||
+        resultType.getRank() != 1 || !messageType.hasStaticShape() ||
+        !rowType.hasStaticShape() || !resultType.hasStaticShape() ||
+        !messageType.getElementType().isF32() ||
+        !resultType.getElementType().isF32() ||
+        (!rowType.getElementType().isInteger(32) &&
+         !rowType.getElementType().isInteger(64)))
+      return reduction.emitError(
+          "GPU fused CSR sum currently requires rank-one FP32 messages/results "
+          "and a direct i32/i64 row_ptr input");
+    rows = reduction.getNumRows();
+    edges = messageType.getDimSize(0);
+    if (rows <= 0 || edges <= 0 || rowType.getDimSize(0) != rows + 1 ||
+        resultType.getDimSize(0) != rows)
+      return reduction.emitError("fused CSR sum static extents are inconsistent");
+
+    function.walk([&](tensor::InputOp input) {
+      argumentIndex[input.getResult()] = inputs.size();
+      inputs.push_back(input);
+    });
+    if (inputs.empty()) return function.emitError("requires gf_tensor.input");
+    for (tensor::InputOp input : inputs) {
+      auto type = dyn_cast<RankedTensorType>(input.getResult().getType());
+      if (!type || !type.hasStaticShape() || type.getRank() > 1 ||
+          (!type.getElementType().isF32() &&
+           !type.getElementType().isInteger(32) &&
+           !type.getElementType().isInteger(64)))
+        return input.emitError(
+            "fused CSR sum ABI supports static rank-zero/rank-one FP32/i32/i64");
+    }
+
+    // A fixed-degree weighted gather is the dominant low-degree graph case.
+    // Preserve the generic arbitrary-row loop below as the correctness path,
+    // but batch rows here when typed degree bounds prove that one rectangular
+    // relation tile is safe.
+    if (succeeded(emitUniformWeighted())) return success();
+
+    StringRef indexName = rowType.getElementType().isInteger(32) ? "i32" : "i64";
+    int64_t numWarps = std::max<int64_t>(1, blockSize / 32);
+    output << "// graphforge.tensor entry=gf_tensor_csr_sum_epilogue "
+              "block_rows=1 block_elements="
+           << blockSize << " num_warps=" << numWarps << " abi=";
+    for (auto [ordinal, input] : llvm::enumerate(inputs)) {
+      if (ordinal) output << ",";
+      output << "arg" << ordinal;
+    }
+    output << ",out\nmodule {\n  tt.func public @gf_tensor_csr_sum_epilogue(";
+    for (auto [ordinal, input] : llvm::enumerate(inputs)) {
+      if (ordinal) output << ", ";
+      output << "%arg" << ordinal << ": !tt.ptr<"
+             << spelling(cast<RankedTensorType>(input.getResult().getType())
+                             .getElementType())
+             << ">";
+    }
+    output << ", %out: !tt.ptr<f32>) attributes {noinline = false} {\n"
+           << "    %c0 = arith.constant 0 : i64\n"
+           << "    %c1 = arith.constant 1 : i64\n"
+           << "    %tile_step = arith.constant " << blockSize << " : i64\n"
+           << "    %zero_scalar = arith.constant 0.000000e+00 : f32\n"
+           << "    %zero_vector = arith.constant dense<0.000000e+00> : tensor<"
+           << blockSize << "xf32>\n"
+           << "    %zero_i32 = arith.constant dense<0> : tensor<" << blockSize
+           << "xi32>\n"
+           << "    %zero_i64 = arith.constant dense<0> : tensor<" << blockSize
+           << "xi64>\n"
+           << "    %lane_i32 = tt.make_range {end = " << blockSize
+           << " : i32, start = 0 : i32} : tensor<" << blockSize << "xi32>\n"
+           << "    %lane = arith.extsi %lane_i32 : tensor<" << blockSize
+           << "xi32> to tensor<" << blockSize << "xi64>\n"
+           << "    %row_i32 = tt.get_program_id x : i32\n"
+           << "    %row = arith.extsi %row_i32 : i32 to i64\n";
+
+    unsigned rowArgument = argumentIndex.lookup(rowPtr.getResult());
+    int64_t rowStride = rowPtr.getStrides()[0];
+    int64_t rowOffset = rowPtr.getOffsetAttr().getInt();
+    output << "    %row_stride = arith.constant " << rowStride << " : i64\n"
+           << "    %row_offset = arith.constant " << rowOffset << " : i64\n"
+           << "    %row_scaled = arith.muli %row, %row_stride : i64\n"
+           << "    %begin_index = arith.addi %row_scaled, %row_offset : i64\n"
+           << "    %end_index = arith.addi %begin_index, %row_stride : i64\n"
+           << "    %begin_ptr = tt.addptr %arg" << rowArgument
+           << ", %begin_index : !tt.ptr<" << indexName << ">, i64\n"
+           << "    %end_ptr = tt.addptr %arg" << rowArgument
+           << ", %end_index : !tt.ptr<" << indexName << ">, i64\n"
+           << "    %begin_raw = tt.load %begin_ptr : !tt.ptr<" << indexName
+           << ">\n"
+           << "    %end_raw = tt.load %end_ptr : !tt.ptr<" << indexName
+           << ">\n";
+    StringRef begin = "%begin_raw", end = "%end_raw";
+    if (rowType.getElementType().isInteger(32)) {
+      output << "    %begin = arith.extsi %begin_raw : i32 to i64\n"
+             << "    %end = arith.extsi %end_raw : i32 to i64\n";
+      begin = "%begin";
+      end = "%end";
+    }
+    output << "    %sum = scf.for %tile = " << begin << " to " << end
+           << " step %tile_step iter_args(%acc = %zero_scalar) -> (f32) : i64 {\n"
+           << "      %tile_v = tt.splat %tile : i64 -> tensor<" << blockSize
+           << "xi64>\n"
+           << "      %candidate = arith.addi %tile_v, %lane : tensor<"
+           << blockSize << "xi64>\n"
+           << "      %end_v = tt.splat " << end << " : i64 -> tensor<"
+           << blockSize << "xi64>\n"
+           << "      %active = arith.cmpi slt, %candidate, %end_v : tensor<"
+           << blockSize << "xi64>\n";
+    auto message = emitVector(reduction.getInput(), "%candidate", "%active");
+    if (failed(message)) return failure();
+    output << "      %tile_sum = \"tt.reduce\"(" << *message
+           << ") <{axis = 0 : i32}> ({\n"
+           << "      ^bb0(%a: f32, %b: f32):\n"
+           << "        %combined = arith.addf %a, %b : f32\n"
+           << "        tt.reduce.return %combined : f32\n"
+           << "      }) : (tensor<" << blockSize << "xf32>) -> f32\n"
+           << "      %next = arith.addf %acc, %tile_sum : f32\n"
+           << "      scf.yield %next : f32\n"
+           << "    }\n";
+    scalarNames[reduction.getResult()] = "%sum";
+    auto final = emitScalar(result);
+    if (failed(final)) return failure();
+    output << "    %out_ptr = tt.addptr %out, %row : !tt.ptr<f32>, i64\n"
+           << "    tt.store %out_ptr, " << *final << " : !tt.ptr<f32>\n"
+           << "    tt.return\n  }\n}\n";
+    return success();
+  }
+
+private:
+  bool supportsUniformEpilogue(Value value) {
+    if (value == reduction.getResult()) return true;
+    Operation *operation = value.getDefiningOp();
+    if (auto input = dyn_cast_or_null<tensor::InputOp>(operation)) {
+      auto type = cast<RankedTensorType>(input.getResult().getType());
+      return type.getElementType().isF32() &&
+             (type.getNumElements() == 1 ||
+              (type.getRank() == 1 && type.getDimSize(0) == rows));
+    }
+    if (auto reshape = dyn_cast_or_null<tensor::ReshapeOp>(operation))
+      return supportsUniformEpilogue(reshape.getInput());
+    if (auto broadcast = dyn_cast_or_null<tensor::BroadcastOp>(operation))
+      return supportsUniformEpilogue(broadcast.getInput());
+    if (auto add = dyn_cast_or_null<tensor::AddOp>(operation))
+      return supportsUniformEpilogue(add.getLhs()) &&
+             supportsUniformEpilogue(add.getRhs());
+    if (auto mul = dyn_cast_or_null<tensor::MulOp>(operation))
+      return supportsUniformEpilogue(mul.getLhs()) &&
+             supportsUniformEpilogue(mul.getRhs());
+    if (auto div = dyn_cast_or_null<tensor::DivOp>(operation))
+      return supportsUniformEpilogue(div.getLhs()) &&
+             supportsUniformEpilogue(div.getRhs());
+    return false;
+  }
+
+  FailureOr<std::string> emitUniformEpilogue(Value value, int64_t blockM) {
+    auto found = uniformNames.find(value);
+    if (found != uniformNames.end()) return found->second;
+    if (value == reduction.getResult()) return std::string("%gf_sum");
+    Operation *operation = value.getDefiningOp();
+    if (auto input = dyn_cast_or_null<tensor::InputOp>(operation)) {
+      auto type = cast<RankedTensorType>(input.getResult().getType());
+      unsigned ordinal = argumentIndex.lookup(input.getResult());
+      std::string loaded = next("uniform_input");
+      if (type.getNumElements() == 1) {
+        std::string offset = next("uniform_scalar_offset");
+        std::string pointer = next("uniform_scalar_ptr");
+        std::string scalar = next("uniform_scalar");
+        output << "    " << offset << " = arith.constant "
+               << input.getOffsetAttr().getInt() << " : i64\n"
+               << "    " << pointer << " = tt.addptr %arg" << ordinal
+               << ", " << offset << " : !tt.ptr<f32>, i64\n"
+               << "    " << scalar << " = tt.load " << pointer
+               << " : !tt.ptr<f32>\n"
+               << "    " << loaded << " = tt.splat " << scalar
+               << " : f32 -> tensor<" << blockM << "xf32>\n";
+      } else {
+        std::string base = next("uniform_node_base");
+        std::string pointer = next("uniform_node_ptr");
+        std::string logical = "%gf_rows";
+        if (input.getStrides()[0] != 1 ||
+            input.getOffsetAttr().getInt() != 0) {
+          std::string stride = next("uniform_node_stride");
+          std::string scaled = next("uniform_node_scaled");
+          output << "    " << stride << " = arith.constant dense<"
+                 << input.getStrides()[0] << "> : tensor<" << blockM
+                 << "xi32>\n"
+                 << "    " << scaled << " = arith.muli %gf_rows, " << stride
+                 << " : tensor<" << blockM << "xi32>\n";
+          logical = scaled;
+          if (input.getOffsetAttr().getInt() != 0) {
+            std::string offset = next("uniform_node_offset");
+            std::string shifted = next("uniform_node_shifted");
+            output << "    " << offset << " = arith.constant dense<"
+                   << input.getOffsetAttr().getInt() << "> : tensor<" << blockM
+                   << "xi32>\n"
+                   << "    " << shifted << " = arith.addi " << logical << ", "
+                   << offset << " : tensor<" << blockM << "xi32>\n";
+            logical = shifted;
+          }
+        }
+        output << "    " << base << " = tt.splat %arg" << ordinal
+               << " : !tt.ptr<f32> -> tensor<" << blockM
+               << "x!tt.ptr<f32>>\n"
+               << "    " << pointer << " = tt.addptr " << base << ", "
+               << logical << " : tensor<" << blockM
+               << "x!tt.ptr<f32>>, tensor<" << blockM << "xi32>\n"
+               << "    " << loaded << " = tt.load " << pointer
+               << ", %gf_row_mask, %gf_row_zero : tensor<" << blockM
+               << "x!tt.ptr<f32>>\n";
+      }
+      uniformNames[value] = loaded;
+      return loaded;
+    }
+    if (auto reshape = dyn_cast_or_null<tensor::ReshapeOp>(operation)) {
+      auto emitted = emitUniformEpilogue(reshape.getInput(), blockM);
+      if (succeeded(emitted)) uniformNames[value] = *emitted;
+      return emitted;
+    }
+    if (auto broadcast = dyn_cast_or_null<tensor::BroadcastOp>(operation)) {
+      auto emitted = emitUniformEpilogue(broadcast.getInput(), blockM);
+      if (succeeded(emitted)) uniformNames[value] = *emitted;
+      return emitted;
+    }
+    Value lhs, rhs;
+    StringRef mnemonic;
+    if (auto add = dyn_cast_or_null<tensor::AddOp>(operation)) {
+      lhs = add.getLhs(); rhs = add.getRhs(); mnemonic = "arith.addf";
+    } else if (auto mul = dyn_cast_or_null<tensor::MulOp>(operation)) {
+      lhs = mul.getLhs(); rhs = mul.getRhs(); mnemonic = "arith.mulf";
+    } else if (auto div = dyn_cast_or_null<tensor::DivOp>(operation)) {
+      lhs = div.getLhs(); rhs = div.getRhs(); mnemonic = "arith.divf";
+    } else {
+      return failure();
+    }
+    auto left = emitUniformEpilogue(lhs, blockM);
+    auto right = emitUniformEpilogue(rhs, blockM);
+    if (failed(left) || failed(right)) return failure();
+    std::string emitted = next("uniform_epilogue");
+    output << "    " << emitted << " = " << mnemonic << " " << *left << ", "
+           << *right << " : tensor<" << blockM << "xf32>\n";
+    uniformNames[value] = emitted;
+    return emitted;
+  }
+
+  LogicalResult emitUniformWeighted() {
+    int64_t degreeMin = reduction.getDegreeMin();
+    int64_t degreeMax = reduction.getDegreeMax();
+    if (degreeMin <= 0 || degreeMin != degreeMax || degreeMax > 64 ||
+        rows > std::numeric_limits<int32_t>::max() ||
+        !supportsUniformEpilogue(result))
+      return failure();
+    auto multiply = reduction.getInput().getDefiningOp<tensor::MulOp>();
+    if (!multiply) return failure();
+    auto gather = multiply.getLhs().getDefiningOp<tensor::GatherOp>();
+    auto weight = multiply.getRhs().getDefiningOp<tensor::InputOp>();
+    if (!gather) {
+      gather = multiply.getRhs().getDefiningOp<tensor::GatherOp>();
+      weight = multiply.getLhs().getDefiningOp<tensor::InputOp>();
+    }
+    auto source = gather
+                      ? gather.getInput().getDefiningOp<tensor::InputOp>()
+                      : tensor::InputOp();
+    auto column = gather
+                      ? gather.getIndex().getDefiningOp<tensor::InputOp>()
+                      : tensor::InputOp();
+    if (!gather || !weight || !source || !column) return failure();
+    auto sourceType = cast<RankedTensorType>(source.getResult().getType());
+    auto columnType = cast<RankedTensorType>(column.getResult().getType());
+    auto weightType = cast<RankedTensorType>(weight.getResult().getType());
+    if (sourceType.getRank() != 1 || columnType.getRank() != 1 ||
+        weightType.getRank() != 1 || !sourceType.getElementType().isF32() ||
+        !weightType.getElementType().isF32() ||
+        (!columnType.getElementType().isInteger(32) &&
+         !columnType.getElementType().isInteger(64)) ||
+        columnType.getDimSize(0) != edges || weightType.getDimSize(0) != edges ||
+        source.getStrides()[0] != 1 || column.getStrides()[0] != 1 ||
+        weight.getStrides()[0] != 1 || source.getOffsetAttr().getInt() != 0 ||
+        column.getOffsetAttr().getInt() != 0 ||
+        weight.getOffsetAttr().getInt() != 0)
+      return failure();
+
+    // Bound the rectangular relation tile rather than selecting by workload.
+    // The local schedule sweep shows that 16xD is best for short rows, while
+    // keeping the product near 256 lanes avoids register pressure once D is
+    // 32 or 64. Two warps also hide the extra indirect-load latency there.
+    // These are degree-class decisions and remain valid for any structurally
+    // matched weighted gather + associative sum + pointwise epilogue.
+    int64_t blockM = degreeMax <= 16 ? 16 : 8;
+    int64_t blockD = nextPowerOfTwo(degreeMax);
+    int64_t numWarps = degreeMax <= 16 ? 1 : 2;
+    StringRef index = spelling(columnType.getElementType());
+    unsigned columnArg = argumentIndex.lookup(column.getResult());
+    unsigned sourceArg = argumentIndex.lookup(source.getResult());
+    unsigned weightArg = argumentIndex.lookup(weight.getResult());
+    std::string tileI32 = "tensor<" + std::to_string(blockM) + "x" +
+                          std::to_string(blockD) + "xi32>";
+    std::string tileIndex = "tensor<" + std::to_string(blockM) + "x" +
+                            std::to_string(blockD) + "x" + index.str() + ">";
+    std::string tileF32 = "tensor<" + std::to_string(blockM) + "x" +
+                          std::to_string(blockD) + "xf32>";
+    std::string tileI1 = "tensor<" + std::to_string(blockM) + "x" +
+                         std::to_string(blockD) + "xi1>";
+    std::string rowsI32 = "tensor<" + std::to_string(blockM) + "xi32>";
+    std::string rowsI1 = "tensor<" + std::to_string(blockM) + "xi1>";
+    std::string rowsF32 = "tensor<" + std::to_string(blockM) + "xf32>";
+
+    output << "// graphforge.tensor entry=gf_tensor_csr_sum_epilogue "
+              "block_rows=" << blockM << " block_elements=" << blockD
+           << " num_warps=" << numWarps << " abi=";
+    for (auto [ordinal, input] : llvm::enumerate(inputs)) {
+      if (ordinal) output << ",";
+      output << "arg" << ordinal;
+    }
+    output << ",out\nmodule {\n  tt.func public @gf_tensor_csr_sum_epilogue(";
+    for (auto [ordinal, input] : llvm::enumerate(inputs)) {
+      if (ordinal) output << ", ";
+      output << "%arg" << ordinal << ": !tt.ptr<"
+             << spelling(cast<RankedTensorType>(input.getResult().getType())
+                             .getElementType()) << ">";
+    }
+    output << ", %out: !tt.ptr<f32>) attributes {noinline = false} {\n"
+           << "    %gf_source_zero = arith.constant dense<0> : " << tileIndex
+           << "\n    %gf_value_zero = arith.constant dense<0.000000e+00> : "
+           << tileF32
+           << "\n    %gf_row_zero = arith.constant dense<0.000000e+00> : "
+           << rowsF32
+           << "\n    %gf_nrows = arith.constant dense<" << rows << "> : "
+           << rowsI32
+           << "\n    %gf_degree = arith.constant dense<" << degreeMax << "> : "
+           << rowsI32
+           << "\n    %gf_degree2 = arith.constant dense<" << degreeMax
+           << "> : tensor<1x" << blockD << "xi32>\n"
+           << "    %gf_cbm = arith.constant " << blockM << " : i32\n"
+           << "    %gf_pid = tt.get_program_id x : i32\n"
+           << "    %gf_base = arith.muli %gf_pid, %gf_cbm : i32\n"
+           << "    %gf_range_m = tt.make_range {end = " << blockM
+           << " : i32, start = 0 : i32} : " << rowsI32 << "\n"
+           << "    %gf_base_v = tt.splat %gf_base : i32 -> " << rowsI32
+           << "\n    %gf_rows = arith.addi %gf_base_v, %gf_range_m : "
+           << rowsI32
+           << "\n    %gf_range_d = tt.make_range {end = " << blockD
+           << " : i32, start = 0 : i32} : tensor<" << blockD << "xi32>\n"
+           << "    %gf_edge_base = arith.muli %gf_rows, %gf_degree : "
+           << rowsI32
+           << "\n    %gf_edge_base2 = tt.expand_dims %gf_edge_base {axis = 1 : i32} : "
+           << rowsI32 << " -> tensor<" << blockM << "x1xi32>\n"
+           << "    %gf_neighbors = tt.expand_dims %gf_range_d {axis = 0 : i32} : tensor<"
+           << blockD << "xi32> -> tensor<1x" << blockD << "xi32>\n"
+           << "    %gf_edge_base_b = tt.broadcast %gf_edge_base2 : tensor<"
+           << blockM << "x1xi32> -> " << tileI32
+           << "\n    %gf_neighbors_b = tt.broadcast %gf_neighbors : tensor<1x"
+           << blockD << "xi32> -> " << tileI32
+           << "\n    %gf_edges = arith.addi %gf_edge_base_b, %gf_neighbors_b : "
+           << tileI32
+           << "\n    %gf_row_mask = arith.cmpi slt, %gf_rows, %gf_nrows : "
+           << rowsI32
+           << "\n    %gf_degree_mask1 = arith.cmpi slt, %gf_neighbors, %gf_degree2 : tensor<1x"
+           << blockD << "xi32>\n"
+           << "    %gf_row_mask2 = tt.expand_dims %gf_row_mask {axis = 1 : i32} : "
+           << rowsI1 << " -> tensor<" << blockM << "x1xi1>\n"
+           << "    %gf_row_mask_b = tt.broadcast %gf_row_mask2 : tensor<"
+           << blockM << "x1xi1> -> " << tileI1
+           << "\n    %gf_degree_mask = tt.broadcast %gf_degree_mask1 : tensor<1x"
+           << blockD << "xi1> -> " << tileI1
+           << "\n    %gf_mask = arith.andi %gf_row_mask_b, %gf_degree_mask : "
+           << tileI1
+           << "\n    %gf_col_base = tt.splat %arg" << columnArg << " : !tt.ptr<"
+           << index << "> -> tensor<" << blockM << "x" << blockD
+           << "x!tt.ptr<" << index << ">>\n"
+           << "    %gf_col_ptr = tt.addptr %gf_col_base, %gf_edges : tensor<"
+           << blockM << "x" << blockD << "x!tt.ptr<" << index << ">>, "
+           << tileI32
+           << "\n    %gf_src = tt.load %gf_col_ptr, %gf_mask, %gf_source_zero : tensor<"
+           << blockM << "x" << blockD << "x!tt.ptr<" << index << ">>\n"
+           << "    %gf_x_base = tt.splat %arg" << sourceArg
+           << " : !tt.ptr<f32> -> tensor<" << blockM << "x" << blockD
+           << "x!tt.ptr<f32>>\n"
+           << "    %gf_x_ptr = tt.addptr %gf_x_base, %gf_src : tensor<"
+           << blockM << "x" << blockD << "x!tt.ptr<f32>>, " << tileIndex
+           << "\n    %gf_x = tt.load %gf_x_ptr, %gf_mask, %gf_value_zero : tensor<"
+           << blockM << "x" << blockD << "x!tt.ptr<f32>>\n"
+           << "    %gf_w_base = tt.splat %arg" << weightArg
+           << " : !tt.ptr<f32> -> tensor<" << blockM << "x" << blockD
+           << "x!tt.ptr<f32>>\n"
+           << "    %gf_w_ptr = tt.addptr %gf_w_base, %gf_edges : tensor<"
+           << blockM << "x" << blockD << "x!tt.ptr<f32>>, " << tileI32
+           << "\n    %gf_w = tt.load %gf_w_ptr, %gf_mask, %gf_value_zero : tensor<"
+           << blockM << "x" << blockD << "x!tt.ptr<f32>>\n"
+           << "    %gf_message = arith.mulf %gf_x, %gf_w : " << tileF32
+           << "\n    %gf_sum = \"tt.reduce\"(%gf_message) <{axis = 1 : i32}> ({\n"
+           << "    ^bb0(%gf_a: f32, %gf_b: f32):\n"
+           << "      %gf_combined = arith.addf %gf_a, %gf_b : f32\n"
+           << "      tt.reduce.return %gf_combined : f32\n"
+           << "    }) : (" << tileF32 << ") -> " << rowsF32 << "\n";
+    uniformNames[reduction.getResult()] = "%gf_sum";
+    auto final = emitUniformEpilogue(result, blockM);
+    if (failed(final)) return failure();
+    output << "    %gf_out_base = tt.splat %out : !tt.ptr<f32> -> tensor<"
+           << blockM << "x!tt.ptr<f32>>\n"
+           << "    %gf_out_ptr = tt.addptr %gf_out_base, %gf_rows : tensor<"
+           << blockM << "x!tt.ptr<f32>>, " << rowsI32 << "\n"
+           << "    tt.store %gf_out_ptr, " << *final
+           << ", %gf_row_mask : tensor<" << blockM << "x!tt.ptr<f32>>\n"
+           << "    tt.return\n  }\n}\n";
+    return success();
+  }
+
+  static StringRef spelling(Type type) {
+    if (type.isF32()) return "f32";
+    if (type.isInteger(32)) return "i32";
+    return "i64";
+  }
+
+  FailureOr<std::string> emitVector(Value value, StringRef indices,
+                                    StringRef mask) {
+    auto found = vectorNames.find(value);
+    if (found != vectorNames.end()) return found->second;
+    Operation *operation = value.getDefiningOp();
+    if (auto input = dyn_cast_or_null<tensor::InputOp>(operation))
+      return emitVectorInput(input, indices, mask);
+    if (auto gather = dyn_cast_or_null<tensor::GatherOp>(operation)) {
+      auto indexInput = gather.getIndex().getDefiningOp<tensor::InputOp>();
+      auto sourceInput = gather.getInput().getDefiningOp<tensor::InputOp>();
+      if (!indexInput || !sourceInput)
+        return gather.emitError("fused CSR gather requires direct ABI inputs");
+      auto indexType = cast<RankedTensorType>(indexInput.getResult().getType());
+      auto loadedIndex = emitVectorInput(indexInput, indices, mask);
+      if (failed(loadedIndex)) return failure();
+      std::string sourceIndex = *loadedIndex;
+      if (indexType.getElementType().isInteger(32)) {
+        std::string extended = next("source_index");
+        output << "      " << extended << " = arith.extsi " << sourceIndex
+               << " : tensor<" << blockSize << "xi32> to tensor<" << blockSize
+               << "xi64>\n";
+        sourceIndex = extended;
+      }
+      auto loaded = emitVectorInput(sourceInput, sourceIndex, mask);
+      if (failed(loaded)) return failure();
+      vectorNames[value] = *loaded;
+      return *loaded;
+    }
+    if (auto reshape = dyn_cast_or_null<tensor::ReshapeOp>(operation))
+      return aliasVector(value, reshape.getInput(), indices, mask);
+    if (auto broadcast = dyn_cast_or_null<tensor::BroadcastOp>(operation))
+      return aliasVector(value, broadcast.getInput(), indices, mask);
+    if (auto add = dyn_cast_or_null<tensor::AddOp>(operation))
+      return emitVectorBinary(value, add.getLhs(), add.getRhs(), "arith.addf",
+                              indices, mask);
+    if (auto mul = dyn_cast_or_null<tensor::MulOp>(operation))
+      return emitVectorBinary(value, mul.getLhs(), mul.getRhs(), "arith.mulf",
+                              indices, mask);
+    if (auto div = dyn_cast_or_null<tensor::DivOp>(operation))
+      return emitVectorBinary(value, div.getLhs(), div.getRhs(), "arith.divf",
+                              indices, mask);
+    if (operation)
+      operation->emitError(
+          "fused CSR message supports input/gather/broadcast/reshape/add/mul/div");
+    return failure();
+  }
+
+  FailureOr<std::string> emitVectorInput(tensor::InputOp input,
+                                         StringRef indices, StringRef mask) {
+    auto type = cast<RankedTensorType>(input.getResult().getType());
+    Type element = type.getElementType();
+    StringRef elementName = spelling(element);
+    std::string effective = indices.str();
+    if (type.getNumElements() == 1) {
+      effective = next("scalar_indices");
+      output << "      " << effective << " = arith.constant dense<"
+             << input.getOffsetAttr().getInt() << "> : tensor<" << blockSize
+             << "xi64>\n";
+    } else {
+      int64_t stride = input.getStrides()[0];
+      if (stride != 1) {
+        std::string strideValue = next("stride");
+        std::string scaled = next("scaled_indices");
+        output << "      " << strideValue << " = arith.constant dense<"
+               << stride << "> : tensor<" << blockSize << "xi64>\n"
+               << "      " << scaled << " = arith.muli " << effective << ", "
+               << strideValue << " : tensor<" << blockSize << "xi64>\n";
+        effective = scaled;
+      }
+      if (input.getOffsetAttr().getInt() != 0) {
+        std::string offset = next("offset");
+        std::string shifted = next("shifted_indices");
+        output << "      " << offset << " = arith.constant dense<"
+               << input.getOffsetAttr().getInt() << "> : tensor<" << blockSize
+               << "xi64>\n"
+               << "      " << shifted << " = arith.addi " << effective << ", "
+               << offset << " : tensor<" << blockSize << "xi64>\n";
+        effective = shifted;
+      }
+    }
+    unsigned ordinal = argumentIndex.lookup(input.getResult());
+    std::string base = next("input_base");
+    std::string pointer = next("input_ptr");
+    std::string loaded = next("input");
+    output << "      " << base << " = tt.splat %arg" << ordinal
+           << " : !tt.ptr<" << elementName << "> -> tensor<" << blockSize
+           << "x!tt.ptr<" << elementName << ">>\n"
+           << "      " << pointer << " = tt.addptr " << base << ", "
+           << effective << " : tensor<" << blockSize << "x!tt.ptr<"
+           << elementName << ">>, tensor<" << blockSize << "xi64>\n"
+           << "      " << loaded << " = tt.load " << pointer << ", " << mask
+           << ", " << (element.isF32() ? "%zero_vector" :
+                        element.isInteger(32) ? "%zero_i32" : "%zero_i64")
+           << " : tensor<" << blockSize << "x!tt.ptr<" << elementName
+           << ">>\n";
+    return loaded;
+  }
+
+  FailureOr<std::string> aliasVector(Value resultValue, Value input,
+                                     StringRef indices, StringRef mask) {
+    auto value = emitVector(input, indices, mask);
+    if (succeeded(value)) vectorNames[resultValue] = *value;
+    return value;
+  }
+
+  FailureOr<std::string> emitVectorBinary(Value resultValue, Value lhs,
+                                          Value rhs, StringRef mnemonic,
+                                          StringRef indices, StringRef mask) {
+    auto left = emitVector(lhs, indices, mask);
+    auto right = emitVector(rhs, indices, mask);
+    if (failed(left) || failed(right)) return failure();
+    std::string name = next("message");
+    output << "      " << name << " = " << mnemonic << " " << *left << ", "
+           << *right << " : tensor<" << blockSize << "xf32>\n";
+    vectorNames[resultValue] = name;
+    return name;
+  }
+
+  FailureOr<std::string> emitScalar(Value value) {
+    auto found = scalarNames.find(value);
+    if (found != scalarNames.end()) return found->second;
+    Operation *operation = value.getDefiningOp();
+    if (auto input = dyn_cast_or_null<tensor::InputOp>(operation)) {
+      auto type = cast<RankedTensorType>(input.getResult().getType());
+      if (!type.getElementType().isF32())
+        return input.emitError("CSR epilogue inputs must be FP32");
+      std::string index = "%row";
+      if (type.getNumElements() == 1) {
+        index = next("scalar_index");
+        output << "    " << index << " = arith.constant "
+               << input.getOffsetAttr().getInt() << " : i64\n";
+      } else {
+        int64_t stride = input.getStrides()[0];
+        std::string scale = next("node_stride");
+        std::string scaled = next("node_index");
+        output << "    " << scale << " = arith.constant " << stride
+               << " : i64\n"
+               << "    " << scaled << " = arith.muli %row, " << scale
+               << " : i64\n";
+        index = scaled;
+        if (input.getOffsetAttr().getInt() != 0) {
+          std::string offset = next("node_offset");
+          std::string shifted = next("node_shifted");
+          output << "    " << offset << " = arith.constant "
+                 << input.getOffsetAttr().getInt() << " : i64\n"
+                 << "    " << shifted << " = arith.addi " << index << ", "
+                 << offset << " : i64\n";
+          index = shifted;
+        }
+      }
+      unsigned ordinal = argumentIndex.lookup(input.getResult());
+      std::string pointer = next("node_ptr");
+      std::string loaded = next("node_value");
+      output << "    " << pointer << " = tt.addptr %arg" << ordinal << ", "
+             << index << " : !tt.ptr<f32>, i64\n"
+             << "    " << loaded << " = tt.load " << pointer
+             << " : !tt.ptr<f32>\n";
+      scalarNames[value] = loaded;
+      return loaded;
+    }
+    if (auto reshape = dyn_cast_or_null<tensor::ReshapeOp>(operation))
+      return aliasScalar(value, reshape.getInput());
+    if (auto broadcast = dyn_cast_or_null<tensor::BroadcastOp>(operation))
+      return aliasScalar(value, broadcast.getInput());
+    if (auto add = dyn_cast_or_null<tensor::AddOp>(operation))
+      return emitScalarBinary(value, add.getLhs(), add.getRhs(), "arith.addf");
+    if (auto mul = dyn_cast_or_null<tensor::MulOp>(operation))
+      return emitScalarBinary(value, mul.getLhs(), mul.getRhs(), "arith.mulf");
+    if (auto div = dyn_cast_or_null<tensor::DivOp>(operation))
+      return emitScalarBinary(value, div.getLhs(), div.getRhs(), "arith.divf");
+    if (operation)
+      operation->emitError(
+          "fused CSR epilogue supports reduction/input/broadcast/reshape/add/mul/div");
+    return failure();
+  }
+
+  FailureOr<std::string> aliasScalar(Value resultValue, Value input) {
+    auto value = emitScalar(input);
+    if (succeeded(value)) scalarNames[resultValue] = *value;
+    return value;
+  }
+
+  FailureOr<std::string> emitScalarBinary(Value resultValue, Value lhs,
+                                          Value rhs, StringRef mnemonic) {
+    auto left = emitScalar(lhs);
+    auto right = emitScalar(rhs);
+    if (failed(left) || failed(right)) return failure();
+    std::string name = next("epilogue");
+    output << "    " << name << " = " << mnemonic << " " << *left << ", "
+           << *right << " : f32\n";
+    scalarNames[resultValue] = name;
+    return name;
+  }
+
+  std::string next(StringRef stem) {
+    return (Twine("%") + stem + Twine(nextId++)).str();
+  }
+
+  tensor::CSRSegmentSumOp reduction;
+  func::FuncOp function;
+  Value result;
+  int64_t blockSize;
+  llvm::raw_ostream &output;
+  int64_t rows = 0;
+  int64_t edges = 0;
+  unsigned nextId = 0;
+  SmallVector<tensor::InputOp> inputs;
+  DenseMap<Value, unsigned> argumentIndex;
+  DenseMap<Value, std::string> vectorNames;
+  DenseMap<Value, std::string> scalarNames;
+  DenseMap<Value, std::string> uniformNames;
+};
+
 class TensorPointwiseTTIREmitter {
 public:
   TensorPointwiseTTIREmitter(func::FuncOp function, Value result,
@@ -7349,6 +7994,7 @@ static LogicalResult translateTensorToTriton(Operation *root,
                                              llvm::raw_ostream &output) {
   SmallVector<tensor::ReduceSumOp> reductions;
   SmallVector<tensor::SegmentSumOp> segmentReductions;
+  SmallVector<tensor::CSRSegmentSumOp> csrSumReductions;
   SmallVector<tensor::CSRSegmentProductOp> productReductions;
   SmallVector<tensor::CSRSegmentProductVJPOp> productVJPs;
   SmallVector<tensor::MatmulOp> matmuls;
@@ -7360,6 +8006,9 @@ static LogicalResult translateTensorToTriton(Operation *root,
   });
   root->walk([&](tensor::SegmentSumOp reduction) {
     segmentReductions.push_back(reduction);
+  });
+  root->walk([&](tensor::CSRSegmentSumOp reduction) {
+    csrSumReductions.push_back(reduction);
   });
   root->walk([&](tensor::CSRSegmentProductOp reduction) {
     productReductions.push_back(reduction);
@@ -7376,6 +8025,30 @@ static LogicalResult translateTensorToTriton(Operation *root,
   if (!gradients.empty())
     return gradients.front().emitError(
         "run gf-tensor-vjp before provider translation");
+  if (!csrSumReductions.empty()) {
+    if (csrSumReductions.size() != 1 || !reductions.empty() ||
+        !segmentReductions.empty() || !productReductions.empty() ||
+        !productVJPs.empty() || !matmuls.empty() || !scans.empty() ||
+        !euclideanVJPs.empty())
+      return root->emitError(
+          "gf-tensor-to-ttir requires one fused CSR sum reduction");
+    auto reduction = csrSumReductions.front();
+    auto function = reduction->getParentOfType<func::FuncOp>();
+    auto returnOp = function && !function.empty()
+                        ? dyn_cast<func::ReturnOp>(
+                              function.front().getTerminator())
+                        : func::ReturnOp();
+    if (!returnOp || returnOp.getNumOperands() != 1)
+      return reduction.emitError("fused CSR sum requires one returned tensor");
+    auto messageType = cast<RankedTensorType>(reduction.getInput().getType());
+    int64_t rows = std::max<int64_t>(1, reduction.getNumRows());
+    int64_t averageDegree = std::max<int64_t>(
+        1, (messageType.getDimSize(0) + rows - 1) / rows);
+    int64_t blockSize = std::clamp<int64_t>(
+        nextPowerOfTwo(averageDegree), 32, 256);
+    return TensorCSRSumEpilogueTTIREmitter(
+        reduction, function, returnOp.getOperand(0), blockSize, output).emit();
+  }
   if (!scans.empty()) {
     if (scans.size() == 1 && reductions.size() == 1 &&
         segmentReductions.empty() && productReductions.empty() &&
@@ -7542,7 +8215,8 @@ void registerTensorToTritonTranslation() {
       "gf-tensor-to-ttir",
       "lower a supported canonical gf_tensor module to serialized Triton IR",
       translateTensorToTriton, [](DialectRegistry &registry) {
-        registry.insert<tensor::GraphForgeTensorDialect,
+        registry.insert<control::GraphForgeControlDialect,
+                        tensor::GraphForgeTensorDialect,
                         func::FuncDialect>();
       });
 }

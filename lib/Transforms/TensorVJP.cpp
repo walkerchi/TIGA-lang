@@ -393,6 +393,11 @@ static LogicalResult lowerGrad(GradOp grad, IRRewriter &rewriter) {
         state.addTypes(inputType);
         state.addAttribute("num_rows", rewriter.getI64IntegerAttr(
             inputType.getDimSize(0)));
+        // CSRExpandRows does not itself carry a degree proof. Preserve the
+        // semantic VJP and let a later relation analysis refine these unknown
+        // bounds instead of inventing uniformity.
+        state.addAttribute("degree_min", rewriter.getI64IntegerAttr(0));
+        state.addAttribute("degree_max", rewriter.getI64IntegerAttr(0));
         Value contribution = rewriter.create(state)->getResult(0);
         accumulate(rewriter, location, adjoints, expand.getInput(), contribution);
       }

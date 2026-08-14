@@ -592,7 +592,11 @@ class MessagePassing(Kernel):
             if not isinstance(message, Tensor):
                 raise TypeError(
                     "native sum MessagePassing edge() must return one gf.Tensor")
-            aggregate = message.csr_segment_sum(row_ptr, graph.schema.num_dst)
+            aggregate = message.csr_segment_sum(
+                row_ptr,
+                graph.schema.num_dst,
+                degree_bounds=graph.degree_bounds(),
+            )
             reducer_lowering = "builtin-additive-state"
         elif isinstance(self.reducer, OnlineSoftmaxReducer):
             if self.reducer.block_prune_threshold is not None:

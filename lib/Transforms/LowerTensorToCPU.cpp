@@ -1,3 +1,4 @@
+#include "graphforge/Dialect/Control/ControlDialect.h"
 #include "graphforge/Dialect/Tensor/TensorDialect.h"
 #include "graphforge/Transforms/Passes.h"
 
@@ -17,6 +18,7 @@ namespace mlir::graphforge {
 #include "graphforge/Transforms/Passes.h.inc"
 
 namespace {
+namespace gfc = mlir::graphforge::control;
 namespace gft = mlir::graphforge::tensor;
 
 static int64_t elementCount(RankedTensorType type) {
@@ -143,10 +145,26 @@ private:
 
 class ScalarEmitter {
 public:
-  ScalarEmitter(func::FuncOp source, func::FuncOp target, OpBuilder &builder)
-      : source(source), target(target), builder(builder), location(source.getLoc()) {}
+  ScalarEmitter(func::FuncOp source, func::FuncOp target, OpBuilder &builder,
+                DenseMap<Value, Value> tensorBuffers = {},
+                DenseMap<Value, Value> tensorAliases = {})
+      : source(source), target(target), builder(builder),
+        tensorBuffers(std::move(tensorBuffers)),
+        tensorAliases(std::move(tensorAliases)), location(source.getLoc()) {}
 
   FailureOr<Value> emit(Value value, ArrayRef<Value> coordinates) {
+    if (auto argument = dyn_cast<BlockArgument>(value)) {
+      auto buffer = tensorBuffers.find(argument);
+      if (buffer != tensorBuffers.end())
+        return Value(builder.create<memref::LoadOp>(
+            location, buffer->second,
+            ValueRange{linearize(coordinates,
+                                 cast<RankedTensorType>(value.getType()).getShape())}));
+      auto alias = tensorAliases.find(argument);
+      if (alias != tensorAliases.end())
+        return emit(alias->second, coordinates);
+      return failure();
+    }
     Operation *operation = value.getDefiningOp();
     if (auto input = dyn_cast_or_null<gft::InputOp>(operation))
       return emitInput(input, coordinates);
@@ -770,6 +788,8 @@ private:
   func::FuncOp source;
   func::FuncOp target;
   OpBuilder &builder;
+  DenseMap<Value, Value> tensorBuffers;
+  DenseMap<Value, Value> tensorAliases;
   Location location;
 };
 
@@ -840,6 +860,112 @@ public:
       for (int64_t axis = outputType.getRank() - 1; axis >= 0; --axis) {
         strides[axis] = stride;
         stride *= outputType.getDimSize(axis);
+      }
+
+      if (auto repeat = dyn_cast_or_null<gfc::RepeatOp>(
+              returnOp.getOperand(0).getDefiningOp())) {
+        if (!llvm::hasSingleElement(repeat.getBody())) {
+          repeat.emitError("CPU lowering requires one repeat body block");
+          return signalPassFailure();
+        }
+        auto yield = dyn_cast<gfc::ControlYieldOp>(
+            repeat.getBody().front().getTerminator());
+        if (!yield) {
+          repeat.emitError("CPU lowering requires gf_control.yield");
+          return signalPassFailure();
+        }
+        target->setAttr("graphforge.cpu.serial_control", builder.getUnitAttr());
+        target->setAttr("graphforge.cpu.loop_buffers",
+                        builder.getI64IntegerAttr(2));
+        auto scratchType = MemRefType::get(
+            {ShapedType::kDynamic}, outputType.getElementType());
+        Value extent = constantIndex(elements);
+        Value first = builder.create<memref::AllocOp>(
+            source.getLoc(), scratchType, ValueRange{extent});
+        Value second = builder.create<memref::AllocOp>(
+            source.getLoc(), scratchType, ValueRange{extent});
+
+        auto coordinatesFor = [&](Value linear) {
+          SmallVector<Value> coordinates(outputType.getRank());
+          for (int64_t axis = 0; axis < outputType.getRank(); ++axis) {
+            Value coordinate = linear;
+            if (strides[axis] != 1)
+              coordinate = builder.create<arith::DivUIOp>(
+                  source.getLoc(), coordinate, constantIndex(strides[axis]));
+            if (axis != 0)
+              coordinate = builder.create<arith::RemUIOp>(
+                  source.getLoc(), coordinate,
+                  constantIndex(outputType.getDimSize(axis)));
+            coordinates[axis] = coordinate;
+          }
+          return coordinates;
+        };
+
+        auto initialize = builder.create<scf::ForOp>(
+            source.getLoc(), constantIndex(0), extent, constantIndex(1));
+        builder.setInsertionPoint(initialize.getBody()->getTerminator());
+        {
+          ScalarEmitter emitter(source, target, builder);
+          FailureOr<Value> item = emitter.emit(
+              repeat.getInputs().front(),
+              coordinatesFor(initialize.getInductionVar()));
+          if (failed(item)) return signalPassFailure();
+          builder.create<memref::StoreOp>(
+              source.getLoc(), *item, first,
+              ValueRange{initialize.getInductionVar()});
+        }
+        builder.setInsertionPointAfter(initialize);
+
+        auto iterations = builder.create<scf::ForOp>(
+            source.getLoc(), constantIndex(0),
+            constantIndex(repeat.getIterations()), constantIndex(1),
+            ValueRange{first, second});
+        if (iterations.getBody()->empty()) {
+          builder.setInsertionPointToEnd(iterations.getBody());
+          builder.create<scf::YieldOp>(
+              source.getLoc(), iterations.getRegionIterArgs());
+        }
+        Operation *iterationYield = iterations.getBody()->getTerminator();
+        builder.setInsertionPoint(iterationYield);
+        Value current = iterations.getRegionIterArgs()[0];
+        Value next = iterations.getRegionIterArgs()[1];
+        auto compute = builder.create<scf::ForOp>(
+            source.getLoc(), constantIndex(0), extent, constantIndex(1));
+        builder.setInsertionPoint(compute.getBody()->getTerminator());
+        DenseMap<Value, Value> buffers;
+        DenseMap<Value, Value> aliases;
+        Block &semanticBody = repeat.getBody().front();
+        buffers[semanticBody.getArgument(0)] = current;
+        for (unsigned index = 1; index < semanticBody.getNumArguments(); ++index)
+          aliases[semanticBody.getArgument(index)] = repeat.getInputs()[index];
+        ScalarEmitter emitter(
+            source, target, builder, std::move(buffers), std::move(aliases));
+        FailureOr<Value> item = emitter.emit(
+            yield.getValue(), coordinatesFor(compute.getInductionVar()));
+        if (failed(item)) return signalPassFailure();
+        builder.create<memref::StoreOp>(
+            source.getLoc(), *item, next,
+            ValueRange{compute.getInductionVar()});
+        builder.setInsertionPoint(iterationYield);
+        iterationYield->setOperands(ValueRange{next, current});
+        builder.setInsertionPointAfter(iterations);
+
+        Value finalState = iterations.getResult(0);
+        auto copy = builder.create<scf::ForOp>(
+            source.getLoc(), target.getArgument(outputArgument + 1),
+            target.getArgument(outputArgument + 2), constantIndex(1));
+        builder.setInsertionPoint(copy.getBody()->getTerminator());
+        Value finalItem = builder.create<memref::LoadOp>(
+            source.getLoc(), finalState, ValueRange{copy.getInductionVar()});
+        builder.create<memref::StoreOp>(
+            source.getLoc(), finalItem, target.getArgument(outputArgument),
+            ValueRange{copy.getInductionVar()});
+        builder.setInsertionPointAfter(copy);
+        builder.create<memref::DeallocOp>(source.getLoc(), first);
+        builder.create<memref::DeallocOp>(source.getLoc(), second);
+        builder.create<func::ReturnOp>(source.getLoc());
+        source.erase();
+        continue;
       }
 
       auto emitScalarRange = [&](Value lower, Value upper) -> LogicalResult {

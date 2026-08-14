@@ -6,6 +6,7 @@ from collections.abc import Callable, Sequence
 from typing import Any
 
 from ..tensor import Tensor, ones_like
+from ..tensor.core import _Expr
 
 
 class _RealizeTensor:
@@ -91,6 +92,118 @@ def _topological_sort(output: Tensor) -> list[Tensor]:
     return ordered
 
 
+def _expand_fixed_repeats(output: Tensor) -> tuple[Tensor, dict[int, Tensor]]:
+    """Inline fixed control regions for the correctness-first VJP path.
+
+    Forward capture stays as one bounded ``gf_control.repeat``. Reverse-mode
+    currently reuses the existing per-operation VJP rules by specializing the
+    body at each logical state. The returned replacement map keeps requests
+    for a repeated value itself well-defined. A later control-autodiff pass can
+    replace this O(iterations) transformation without changing public APIs.
+    """
+    inspected: set[int] = set()
+
+    def contains_repeat(value: Tensor) -> bool:
+        if id(value) in inspected:
+            return False
+        inspected.add(id(value))
+        expression = value._expr
+        if expression is None:
+            return False
+        if expression.op == "repeat":
+            return True
+        return any(contains_repeat(operand) for operand in expression.operands) or (
+            expression.region is not None
+            and contains_repeat(expression.region.output)
+        )
+
+    if not contains_repeat(output):
+        return output, {}
+
+    memo: dict[int, Tensor] = {}
+    replacements: dict[int, Tensor] = {}
+
+    def rebuild(value: Tensor) -> Tensor:
+        cached = memo.get(id(value))
+        if cached is not None:
+            return cached
+        expression = value._expr
+        if expression is None:
+            memo[id(value)] = value
+            return value
+        if expression.op == "loop_argument":
+            raise RuntimeError("a loop argument escaped its repeat region")
+        if expression.op == "repeat":
+            region = expression.region
+            if region is None or not region.arguments:
+                raise RuntimeError("repeat expression is missing its body region")
+            operands = tuple(rebuild(operand) for operand in expression.operands)
+            current = operands[0]
+            captures = operands[1:]
+
+            def instantiate(region_value: Tensor, local: dict[int, Tensor]) -> Tensor:
+                found = local.get(id(region_value))
+                if found is not None:
+                    return found
+                nested = region_value._expr
+                if nested is None:
+                    resolved = rebuild(region_value)
+                elif nested.op == "repeat":
+                    raise NotImplementedError(
+                        "autograd of nested gf.repeat regions is not supported yet")
+                elif nested.region is not None:
+                    raise NotImplementedError(
+                        "autograd supports only flat fixed repeat regions")
+                else:
+                    resolved = Tensor(
+                        region_value.shape,
+                        dtype=region_value.dtype,
+                        device=region_value.device,
+                        requires_grad=region_value.requires_grad,
+                        expression=_Expr(
+                            nested.op,
+                            tuple(instantiate(item, local)
+                                  for item in nested.operands),
+                            nested.attrs,
+                        ),
+                        version=region_value.version,
+                    )
+                local[id(region_value)] = resolved
+                return resolved
+
+            iterations = int(expression.attr("iterations"))
+            for _ in range(iterations):
+                local = {
+                    id(argument): operand
+                    for argument, operand in zip(
+                        region.arguments, (current, *captures), strict=True)
+                }
+                current = instantiate(region.output, local)
+            memo[id(value)] = current
+            replacements[id(value)] = current
+            return current
+        if expression.region is not None:
+            raise NotImplementedError(
+                f"autograd cannot expand control op {expression.op!r}")
+        rebuilt = Tensor(
+            value.shape,
+            dtype=value.dtype,
+            device=value.device,
+            requires_grad=value.requires_grad,
+            expression=_Expr(
+                expression.op,
+                tuple(rebuild(operand) for operand in expression.operands),
+                expression.attrs,
+            ),
+            version=value.version,
+        )
+        memo[id(value)] = rebuilt
+        replacements[id(value)] = rebuilt
+        return rebuilt
+
+    return rebuild(output), replacements
+
+
 def _reduce_to_shape(value: Tensor, shape: tuple[int, ...]) -> Tensor:
     if value.shape == shape:
         return value
@@ -162,7 +275,8 @@ def grad(
     if grad_output.dtype is not output.dtype or grad_output.device != output.device:
         raise ValueError("grad_output dtype and device must match output")
 
-    adjoints: dict[int, Tensor] = {id(output): grad_output}
+    differentiated_output, control_replacements = _expand_fixed_repeats(output)
+    adjoints: dict[int, Tensor] = {id(differentiated_output): grad_output}
 
     primal_cache: dict[int, Tensor] = {}
 
@@ -186,7 +300,7 @@ def grad(
         primal_cache[id(value)] = selected
         return selected
 
-    for value in reversed(_topological_sort(output)):
+    for value in reversed(_topological_sort(differentiated_output)):
         upstream = adjoints.get(id(value))
         expression = value._expr
         if upstream is None or expression is None:
@@ -315,7 +429,8 @@ def grad(
 
     results: list[Tensor] = []
     for value in requested:
-        result = adjoints.get(id(value))
+        differentiated_value = control_replacements.get(id(value), value)
+        result = adjoints.get(id(differentiated_value))
         if result is None:
             if allow_unused:
                 results.append(None)  # type: ignore[arg-type]

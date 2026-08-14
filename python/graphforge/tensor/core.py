@@ -76,12 +76,21 @@ class _Expr:
     op: str
     operands: tuple[Tensor, ...]
     attrs: tuple[tuple[str, object], ...] = ()
+    region: _Region | None = None
 
     def attr(self, name: str) -> object:
         for key, value in self.attrs:
             if key == name:
                 return value
         raise KeyError(name)
+
+
+@dataclass(frozen=True)
+class _Region:
+    """One captured semantic region with explicit Tensor arguments."""
+
+    arguments: tuple[Tensor, ...]
+    output: Tensor
 
 
 def _normalize_shape(shape: int | Sequence[int]) -> tuple[int, ...]:
@@ -304,9 +313,16 @@ class Tensor:
                 self.dtype.name, str(self.device),
             )
         else:
+            region_key = None
+            if expression.region is not None:
+                region_key = (
+                    tuple(argument._jit_key for argument in expression.region.arguments),
+                    expression.region.output._jit_key,
+                )
             self._jit_key = (
                 expression.op, self.shape, self.dtype.name, expression.attrs,
                 tuple(operand._jit_key for operand in expression.operands),
+                region_key,
             )
         if expression is None and buffer is None and self.device.type == DeviceType.CPU:
             self._buffer = Buffer(self.nbytes, device=self.device, _pooled=True)
@@ -780,7 +796,13 @@ class Tensor:
             version=max(self.version, row_ptr.version),
         )
 
-    def csr_segment_sum(self, row_ptr: Tensor, num_rows: int) -> Tensor:
+    def csr_segment_sum(
+        self,
+        row_ptr: Tensor,
+        num_rows: int,
+        *,
+        degree_bounds: tuple[int, int] | None = None,
+    ) -> Tensor:
         """Sum edge messages within each CSR destination row."""
         if not isinstance(row_ptr, Tensor) or row_ptr.ndim != 1 or \
                 row_ptr.dtype.kind != "int":
@@ -789,11 +811,21 @@ class Tensor:
             raise ValueError("row_ptr extent must equal num_rows plus one")
         if self.device != row_ptr.device:
             raise ValueError("message and row_ptr must share a device")
+        degree_min, degree_max = degree_bounds or (0, 0)
+        if (not isinstance(degree_min, int) or
+                not isinstance(degree_max, int) or
+                degree_min < 0 or degree_max < degree_min):
+            raise ValueError("degree_bounds must be non-negative (minimum, maximum)")
         return Tensor(
             (num_rows, *self.shape[1:]), dtype=self.dtype, device=self.device,
             requires_grad=self.requires_grad,
             expression=_Expr(
-                "csr_segment_sum", (self, row_ptr), (("num_rows", num_rows),)),
+                "csr_segment_sum",
+                (self, row_ptr),
+                (("num_rows", num_rows),
+                 ("degree_min", degree_min),
+                 ("degree_max", degree_max)),
+            ),
             version=max(self.version, row_ptr.version),
         )
 
@@ -988,7 +1020,9 @@ class Tensor:
                 elif self.device.type == DeviceType.CUDA:
                     from ..compiler.gpu_tensor import compile_tensor
                     executable = compile_tensor(self)
-                    if executable.uses_torch_storage:
+                    if getattr(executable, "aliases_output", False):
+                        self._buffer = None
+                    elif executable.uses_torch_storage:
                         from ..interop.torch.tensor import allocate_buffer
 
                         self._buffer = allocate_buffer(
@@ -1039,7 +1073,9 @@ class Tensor:
                     self._prepared_launch = prepare(self)
                 return self
             except Exception as error:
-                if requested_backend == "native":
+                if (requested_backend == "native" or
+                        (self._expr is not None and self._expr.op == "repeat" and
+                         self.device.type == DeviceType.CUDA)):
                     raise
                 native_error = str(error)
         else:
@@ -1091,6 +1127,8 @@ class Tensor:
             if value._expr is not None:
                 for operand in value._expr.operands:
                     visit(operand)
+                if value._expr.region is not None:
+                    visit(value._expr.region.output)
             ordered.append(value)
 
         visit(self)
@@ -1153,7 +1191,28 @@ class Tensor:
 
         expression = self._expr
         values = [operand._evaluate_flat(cache) for operand in expression.operands]
-        if expression.op == "reshape":
+        if expression.op == "repeat":
+            region = expression.region
+            if region is None or not region.arguments:
+                raise RuntimeError("repeat expression is missing its body region")
+            iterations = int(expression.attr("iterations"))
+            current = values[0]
+            captured_values = values[1:]
+            for _ in range(iterations):
+                iteration_cache = {
+                    id(region.arguments[0]): current,
+                    **{
+                        id(argument): value
+                        for argument, value in zip(
+                            region.arguments[1:], captured_values
+                        )
+                    },
+                }
+                current = region.output._evaluate_flat(iteration_cache)
+            result = current
+        elif expression.op == "loop_argument":
+            raise RuntimeError("a loop argument escaped its control region")
+        elif expression.op == "reshape":
             result = values[0]
         elif expression.op == "broadcast":
             source = expression.operands[0]
@@ -1603,6 +1662,8 @@ class Tensor:
                     f"{key}={item}" for key, item in value._expr.attrs
                 )
                 suffix = f" {{{attributes}}}" if attributes else ""
+                if value._expr.region is not None:
+                    suffix += " {region=1}"
                 lines.append(
                     f"{name} = {value._expr.op}({', '.join(operands)}){suffix} "
                     f"shape={value.shape} dtype={value.dtype.name}"

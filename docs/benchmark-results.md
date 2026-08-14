@@ -50,6 +50,7 @@ evidence of a broad advantage across shapes.
 | Online-softmax reducer | 131,072 rows, degree 32 | compiler schedule, stable tuple state | **1.007×**, CI low 1.005 vs matched hand-written Triton |
 | Product reducer backward | 131,072 rows, degree 16 | zero-safe compiler-generated VJP | **1.021×**, CI low 1.016 vs matched hand-written Triton |
 | Radius distance backward | fixed selected snapshot, N32768/D3/degree≈32 | generated geometry VJP | **1.079×**, CI low 1.073 vs matched hand-written Triton; 4.36× vs Torch autograd |
+| Fixed-iteration PageRank | N65536/262144, degree 4/16/32, 20 iterations | one `gf_control.repeat`, two device buffers, one fused CSR+node TTIR launch/iteration | **1.049–2.337×** vs the same `torch.sparse.mm` recurrence; CI-low 1.043–2.312 |
 
 Fixed-degree and bounded-ragged vector CSR use compiler-generated TTIR in the
 registered rows above. Shapes beyond the proven bounds that dispatch to an
@@ -109,6 +110,7 @@ export GRAPHFORGE_TRANSLATE="$PWD/build/bin/gf-translate"
 
 python -m benchmarks.compiler.provider_gate --fail-on-gate
 python -m benchmarks.sparse_compute.weighted_aggregation
+python -m benchmarks.graph_algorithms.pagerank
 python -m benchmarks.graph_operations.radius_pipeline --fail-on-gate
 python -m benchmarks.graph_operations.knn_build --fail-on-gate
 python -m benchmarks.neural_networks.dense_attention --fail-on-gate
@@ -133,5 +135,7 @@ gate.
 - exact kNN performance outside N8192/D3/k32;
 - multi-GPU NCCL overlap or throughput from a one-GPU binding test;
 - universal sparse performance from one degree distribution or feature width.
+- PageRank convergence-mode SOTA until device-side termination and a matched
+  cuGraph/GraphBLAS peer are implemented; the registered row is fixed iteration.
 
 Those exclusions are part of the result, not footnotes to hide.

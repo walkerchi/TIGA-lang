@@ -10,13 +10,14 @@ from __future__ import annotations
 from importlib import import_module
 
 from ._version import __version__
-from . import autograd, compiler, math, runtime, visualize
+from . import autograd, compiler, control, math, runtime, visualize
 from .distributed import (
     ByDestination, DeviceMesh, GraphPlacement, HaloMap, derive_halo_map,
     collective_halo_maps, exchange_halo,
 )
 from .runtime import Device, DeviceType
 from .program import GraphProgram, ProgramValue, program
+from .control import repeat
 from .tensor import (
     DType,
     Tensor,
@@ -118,6 +119,7 @@ __all__ = [
     "complex64",
     "complex128",
     "compiler",
+    "control",
     "collective_halo_maps",
     "derive_halo_map",
     "empty",
@@ -133,6 +135,7 @@ __all__ = [
     "ones_like",
     "online_softmax",
     "program",
+    "repeat",
     "runtime",
     "visualize",
     "save",

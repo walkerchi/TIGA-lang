@@ -40,6 +40,20 @@ class _Weighted(gf.MessagePassing):
 
 
 class TorchProviderOutputTest(unittest.TestCase):
+    def test_graph_degree_analysis_uses_strided_storage_provider_hook(self):
+        storage = torch.tensor([0, -9, 2, -9, 5], dtype=torch.int64)
+        row_ptr = gf.from_torch(storage[::2])
+        col_idx = gf.from_torch(torch.tensor(
+            [0, 1, 1, 2, 0], dtype=torch.int64))
+        graph = gf.Graph.from_csr(row_ptr, col_idx, num_src=3)
+
+        self.assertEqual(graph.degree_bounds(), (2, 3))
+        self.assertEqual(graph.degree_bounds(), (2, 3))
+        self.assertAlmostEqual(
+            graph.source_index_span_ratio(samples=5),
+            (0 + 1 + 0 + 1 + 1) / 5 / 3,
+        )
+
     def test_vector_reuses_unobserved_output(self):
         owner = _VectorOwner()
         reference = torch.empty(5)

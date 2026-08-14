@@ -142,6 +142,7 @@ These RTX 5070 Ti results use matched sparse semantics and timing boundaries.
 | Social power-law CSR | 90% degree 8 / 9% degree 64 / 1% degree 256; i32/i64; local/random; hot/cold | auto row/worklist schedule | fastest registered peer per bucket | **8/8 gates pass**, CI-low 1.255–2.015× |
 | Sparse online-softmax reducer | 131,072 rows, degree 32 | compiler-generated TTIR | hand-written Triton | **1.007×**, CI-low 1.005 |
 | Product-reducer backward | 131,072 rows, degree 16 | compiler-generated zero-safe VJP | hand-written Triton | **1.021×**, CI-low 1.016 |
+| Fixed-iteration PageRank | N=65,536/262,144, degree 4/16/32, 20 iterations | one fused CSR+node TTIR launch/iteration | matched `torch.sparse.mm` loop | **1.049–2.337×**, CI-low 1.043–2.312 |
 
 The scalar, fixed-degree vector, and bounded-ragged vector rows above are
 compiler-generated TTIR. Vector shapes beyond the proven degree/feature bounds
@@ -158,7 +159,8 @@ dynamic graph build, build+consume, backward, and cache regimes.
 | Generated sparse relations | Radius and exact kNN build/consume boundaries | Executable; registered coverage is narrow |
 | Dense implicit relations | Cartesian and triangular traversal without stored edges | Executable and benchmarked |
 | User kernels | Captured edge/node UDF plus built-in or user reducer algebra | Implemented |
-| Autograd | Compiler-derived Tensor and relation VJP; no user-written backward in examples | Implemented for registered UDF/reducer families |
+| Structured control | `gf_control.repeat`, bounded IR and two-buffer CPU/CUDA execution | Fixed iteration implemented; device-side convergence pending |
+| Autograd | Compiler-derived Tensor and relation VJP; fixed repeat reuses them automatically | Registered UDF/reducer families implemented; reverse control-loop optimization pending |
 | NVIDIA GPU | `gf.domain → gf.iter → gf.kernel → TTIR → vendor Triton → PTX/cubin` | Executable and benchmarked |
 | CPU | `gf_tensor → Vector/SCF/MemRef → LLVM → ExecutionEngine` | Executable and benchmarked |
 | Memory hierarchy | Logical regions, physical HBM/RAM/NVMe instances, async transfer/event DAG | Executable single-node paths |

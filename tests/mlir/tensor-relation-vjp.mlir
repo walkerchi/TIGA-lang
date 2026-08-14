@@ -39,7 +39,7 @@ func.func @csr_segment_vjp(
   %1 = "gf_tensor.input"(%row_ptr) {
     offset = 0 : i64, strides = array<i64: 1>
   } : (tensor<4xi64>) -> tensor<4xi64>
-  %2 = "gf_tensor.csr_segment_sum"(%0, %1) <{num_rows = 3 : i64}>
+  %2 = "gf_tensor.csr_segment_sum"(%0, %1) <{num_rows = 3 : i64, degree_min = 0 : i64, degree_max = 0 : i64}>
     : (tensor<5xf32>, tensor<4xi64>) -> tensor<3xf32>
   %3 = "gf_tensor.grad"(%2, %0, %cot)
     : (tensor<3xf32>, tensor<5xf32>, tensor<3xf32>) -> tensor<5xf32>

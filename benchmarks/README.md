@@ -8,6 +8,7 @@ they are not top-level benchmark categories.
 |---|---|---|
 | `sparse_compute/` | SpMV/SpMM, sparse reductions, diffusion, fusion | `weighted_aggregation`, `cpu_relation`, `diffusion_roofline`, `fusion` |
 | `graph_operations/` | topology build/rebuild and generated relations | `radius_build`, `radius_pipeline`, `radius_roofline`, `knn_build` |
+| `graph_algorithms/` | representative compiler probes, not NetworkX coverage | PageRank (loop/convergence), BFS (frontier), triangle counting (intersection) |
 | `neural_networks/` | NN workloads expressed with generic GraphForge semantics | `dense_attention`, `linear_attention`, `sparse_attention`, `online_softmax`, `dense_matmul` |
 | `compiler/` | compile/JIT/cache/provider translation—not an algorithm result | `provider_gate`, `jit_latency`, `tensor_fusion`, `cpu_pointwise` |
 | `memory_hierarchy/` | register/shared/HBM/RAM/NVMe placement and pipeline | pinned↔HBM DMA and RAM↔NVMe spill |

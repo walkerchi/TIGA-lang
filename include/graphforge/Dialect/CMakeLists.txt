@@ -1,3 +1,4 @@
+add_subdirectory(Control)
 add_subdirectory(Domain)
 add_subdirectory(Iter)
 add_subdirectory(Kernel)

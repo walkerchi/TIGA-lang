@@ -19,6 +19,7 @@ add_mlir_library(GraphForgeTransforms
   GraphForgePassesIncGen
 
   LINK_LIBS PUBLIC
+  GraphForgeControl
   GraphForgeDomain
   GraphForgeIter
   GraphForgeKernel

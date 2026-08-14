@@ -24,6 +24,7 @@ OPERATIONS = {
     "cpu_pointwise_fusion": "CPU vector/parallel pointwise fusion",
     "cpu_relation": "CPU fused CSR relation traversal and reduction",
     "visualization_heatmap": "Fused Tensor-to-RGB heatmap raster preparation",
+    "pagerank": "Fixed-iteration PageRank with fused CSR and node epilogue",
 }
 
 

@@ -23,6 +23,7 @@ python3 examples/joint_autograd.py
 python3 examples/distributed_halo.py
 python3 examples/knn_message_passing.py
 python3 examples/gpu_heatmap.py --device cuda
+python3 examples/compiler_probes/pagerank.py
 ```
 
 - `tensor_autograd.py`: Torch-independent native CPU storage, canonical
@@ -80,6 +81,10 @@ python3 examples/gpu_heatmap.py --device cuda
 - `knn_message_passing.py`: keeps exact kNN procedural, rebuilds the current
   position snapshot lazily, and rebinds its fixed-k CSR ABI to one generated
   MessagePassing TTIR consumer.
+- `compiler_probes/pagerank.py`: expresses fixed-iteration PageRank, including
+  dangling-node mass, with ordinary Tensor and MessagePassing operations. It
+  captures the body once in `gf_control.repeat` and prints the canonical loop
+  count; it is not a workload-specific core operator or a performance claim.
 
 ## Current native example boundary
 

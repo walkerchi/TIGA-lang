@@ -212,8 +212,211 @@ class GPULibraryExecutable:
         return launch
 
 
+@dataclass
+class GPULoopExecutable:
+    """Runtime realization of one compiler-captured control repeat region."""
+
+    initial: Tensor
+    iterations: int
+    first: tuple[GPUExecutable | GPULibraryExecutable, Tensor] | None
+    odd: tuple[GPUExecutable | GPULibraryExecutable, Tensor] | None
+    even: tuple[GPUExecutable | GPULibraryExecutable, Tensor] | None
+    ir: str
+    semantic_hash: str
+    compile_ms: float
+    cache_hit: bool
+    artifacts: Mapping[str, str | bytes]
+    uses_torch_storage: bool
+    materialize_ms: float = 0.0
+    saved_bytes: int = 0
+    saved_compile_ms: float = 0.0
+    checkpoint_plan: Mapping[str, object] | None = None
+    fast_math: bool = False
+    aliases_output: bool = True
+
+    @property
+    def backend(self) -> str:
+        return "cuda-control-loop-ttir-triton"
+
+    @property
+    def source(self) -> str:
+        return str(self.artifacts.get("ttir", self.ir))
+
+    @property
+    def artifact(self) -> Path:
+        return Path("control-loop-cache") / self.semantic_hash[:24]
+
+    @staticmethod
+    def _launch(pair):
+        executable, target = pair
+        completion = executable.launch(target)
+        target.ready_event = completion
+        return completion, target
+
+    def launch(self, output: Tensor):
+        if self.iterations == 0:
+            self.initial.realize()
+            output._buffer = self.initial._buffer
+            output.ready_event = self.initial.ready_event
+            return output.ready_event
+        assert self.first is not None
+        completion, final = self._launch(self.first)
+        for iteration in range(1, self.iterations):
+            pair = self.even if iteration % 2 else self.odd
+            assert pair is not None
+            completion, final = self._launch(pair)
+        output._buffer = final._buffer
+        output.ready_event = final.ready_event
+        return completion
+
+    def prepare(self, output: Tensor):
+        if self.iterations == 0:
+            def launch_zero():
+                output._buffer = self.initial._buffer
+                output.ready_event = self.initial.ready_event
+                return output.ready_event
+
+            return launch_zero
+        assert self.first is not None and self.odd is not None and self.even is not None
+        first_executable, first_target = self.first
+        odd_executable, odd_target = self.odd
+        even_executable, even_target = self.even
+        first_launch = first_executable.prepare(first_target)
+        odd_launch = odd_executable.prepare(odd_target)
+        even_launch = even_executable.prepare(even_target)
+
+        def launch():
+            completion = first_launch()
+            final = first_target
+            for iteration in range(1, self.iterations):
+                if iteration % 2:
+                    completion = even_launch()
+                    final = even_target
+                else:
+                    completion = odd_launch()
+                    final = odd_target
+            output._buffer = final._buffer
+            output.ready_event = getattr(final, "ready_event", None)
+            return completion
+
+        return launch
+
+
 _EXECUTABLES: dict[tuple[object, ...], GPUExecutable] = {}
 _LIBRARY_EXECUTABLES: dict[tuple[object, ...], GPULibraryExecutable] = {}
+
+
+def _clone_loop_body(output: Tensor, state: Tensor, replacement: Tensor) -> Tensor:
+    from ..tensor.core import Tensor, _Expr
+
+    memo: dict[int, Tensor] = {id(state): replacement}
+
+    def visit(value: Tensor) -> Tensor:
+        found = memo.get(id(value))
+        if found is not None:
+            return found
+        expression = value._expr
+        if expression is None:
+            memo[id(value)] = value
+            return value
+        if expression.region is not None:
+            raise NotImplementedError("nested GPU control regions are unsupported")
+        cloned = Tensor(
+            value.shape,
+            dtype=value.dtype,
+            device=value.device,
+            requires_grad=False,
+            expression=_Expr(
+                expression.op,
+                tuple(visit(operand) for operand in expression.operands),
+                expression.attrs,
+            ),
+            version=value.version,
+        )
+        memo[id(value)] = cloned
+        return cloned
+
+    return visit(output)
+
+
+def _compile_repeat(output: Tensor) -> GPULoopExecutable:
+    from ..runtime import Buffer
+    from ..tensor.core import Tensor
+    from .tensor_mlir import tensor_mlir
+
+    expression = output._expr
+    assert expression is not None and expression.op == "repeat"
+    region = expression.region
+    if region is None or not region.arguments:
+        raise RuntimeError("gf_control.repeat is missing its captured body")
+    iterations = int(expression.attr("iterations"))
+    initial = expression.operands[0]
+    if initial._buffer is None:
+        initial.realize()
+    captures = expression.operands[1:]
+    uses_torch_storage = any(
+        getattr(value._buffer, "_graphforge_torch_buffer", False)
+        for value in (initial, *captures)
+    )
+
+    def allocate_state() -> Tensor:
+        if uses_torch_storage:
+            from ..interop.torch.tensor import allocate_buffer
+
+            buffer = allocate_buffer(output.shape, output.dtype, output.device)
+        else:
+            buffer = Buffer(output.nbytes, device=output.device)
+        return Tensor(
+            output.shape, dtype=output.dtype, device=output.device,
+            buffer=buffer, requires_grad=False,
+        )
+
+    canonical_ir = tensor_mlir(output)
+    semantic_hash = hashlib.sha256(canonical_ir.encode()).hexdigest()
+    if iterations == 0:
+        return GPULoopExecutable(
+            initial, iterations, None, None, None, canonical_ir,
+            semantic_hash, 0.0, True, {"gf_control": canonical_ir},
+            uses_torch_storage,
+        )
+
+    first_target = allocate_state()
+    second_target = allocate_state()
+    state = region.arguments[0]
+    first_body = _clone_loop_body(region.output, state, initial)
+    odd_body = _clone_loop_body(region.output, state, second_target)
+    even_body = _clone_loop_body(region.output, state, first_target)
+    first_executable = compile_tensor(first_body, _control_body=True)
+    odd_executable = compile_tensor(odd_body, _control_body=True)
+    even_executable = compile_tensor(even_body, _control_body=True)
+    body_artifacts = dict(first_executable.artifacts)
+    artifacts: dict[str, str | bytes] = {
+        "gf_control": canonical_ir,
+        "provider_ttir": first_executable.source,
+        **{f"body.{name}": value for name, value in body_artifacts.items()},
+    }
+    ttir = body_artifacts.get("ttir")
+    if isinstance(ttir, (str, bytes)):
+        artifacts["ttir"] = ttir
+    return GPULoopExecutable(
+        initial=initial,
+        iterations=iterations,
+        first=(first_executable, first_target),
+        odd=(odd_executable, first_target),
+        even=(even_executable, second_target),
+        ir=canonical_ir,
+        semantic_hash=semantic_hash,
+        compile_ms=sum(
+            executable.compile_ms for executable in (
+                first_executable, odd_executable, even_executable)
+        ),
+        cache_hit=all(
+            executable.cache_hit for executable in (
+                first_executable, odd_executable, even_executable)
+        ),
+        artifacts=artifacts,
+        uses_torch_storage=uses_torch_storage,
+    )
 
 
 def _topological_sort(output: Tensor) -> list[Tensor]:
@@ -831,21 +1034,41 @@ def _translate(module: str) -> tuple[str, str, int, int, int]:
     )
 
 
-def compile_tensor(output: Tensor) -> GPUExecutable | GPULibraryExecutable:
+def compile_tensor(
+    output: Tensor,
+    *,
+    _control_body: bool = False,
+) -> GPUExecutable | GPULibraryExecutable | GPULoopExecutable:
     from ..runtime import DeviceType
     from ..codegen.ttir import compile_ttir
     from .tensor_mlir import tensor_mlir
 
     if output.device.type != DeviceType.CUDA:
         raise ValueError("GPU Tensor compiler requires a CUDA output")
+    if output._expr is not None and output._expr.op == "repeat":
+        return _compile_repeat(output)
     if output.dtype.name not in {
         "float16", "float32", "float64", "complex64", "complex128"
     }:
         raise NotImplementedError(
             "CUDA Tensor codegen supports FP16/FP32/FP64 and complex64/complex128"
         )
-    physical_output, materialize_ms, saved_bytes, saved_compile_ms, checkpoint_plan = \
-        _physicalize_storage(output)
+    if _control_body:
+        # A loop-carried dependency may not be checkpointed outside the loop.
+        # The control planner will later hoist only values proven invariant;
+        # until then, keeping the complete body is the correctness-first rule.
+        physical_output = output
+        materialize_ms = saved_bytes = saved_compile_ms = 0
+        checkpoint_plan = {
+            "candidate_count": 0,
+            "delegated_candidate_count": 0,
+            "decisions": (),
+            "tiers": (),
+            "control_body": True,
+        }
+    else:
+        physical_output, materialize_ms, saved_bytes, saved_compile_ms, checkpoint_plan = \
+            _physicalize_storage(output)
     nodes = _topological_sort(physical_output)
     inputs = tuple(value for value in nodes if value._expr is None)
     if any(value.device != output.device for value in inputs):
@@ -1059,4 +1282,4 @@ def compile_tensor(output: Tensor) -> GPUExecutable | GPULibraryExecutable:
     return executable
 
 
-__all__ = ["GPUExecutable", "compile_tensor"]
+__all__ = ["GPUExecutable", "GPULoopExecutable", "compile_tensor"]

@@ -3,7 +3,7 @@
 > 非规范实现笔记。唯一规范性设计是仓库根目录 `PROJECT.md`；冲突时以其为准。
 
 状态：architecture draft  
-日期：2026-08-06
+日期：2026-08-14
 
 本文定义 GraphForge 从 lazy Python/Torch program 到 CPU/GPU/distributed executable 的
 IR 边界。目标不是立刻实现所有 op，而是让 M0 的最小 dialect 不锁死 generated relation、
@@ -624,6 +624,41 @@ gf.kernel.launch @radius_tile mapping(#gf.workgroup) {
 
 这些 op 由 compiler/autotuner 生成，不进入 coarse public API。CPU lowering 可删除 GPU
 mapping，将 WorkTile 变为 cache-blocked/vectorized loops。
+
+### 6.1 `gf_tensor` 与 `gf_control`：可微数据流和有界迭代
+
+`gf_tensor` 是 runtime Tensor DAG、自动 VJP 与 provider codegen 共用的 typed SSA 层；它不
+是用 Python 字符串拼接出来的第二套 IR。静态 CSR 的 relation lowering 保留
+`gather → edge algebra → csr_segment_sum → node algebra`，其中
+`csr_segment_sum` 携带由 Graph analysis 证明的 `degree_min/degree_max`。这些属性只决定后期
+schedule；数值语义仍然是 CSR 行归约。未知度数使用 `(0, 0)` 并进入任意长行的 tiled-loop
+fallback，绝不根据 `E/N` 猜测 uniform relation。
+
+`gf_control.repeat` 表达固定次数的 loop-carried Tensor state：
+
+```mlir
+%rank1 = "gf_control.repeat"(%rank0, %row_ptr, %col_idx, %weight) <{
+  iterations = 20 : i64
+}> ({
+^bb0(%rank: tensor<Nxf32>, %row: tensor<?xi64>,
+     %col: tensor<Exi64>, %w: tensor<Exf32>):
+  %next = ... : tensor<Nxf32>
+  "gf_control.yield"(%next) : (tensor<Nxf32>) -> ()
+}) : (...) -> tensor<Nxf32>
+```
+
+循环体只 capture 一次，iteration count 不增加 compiler IR 节点。CPU lowering 产生 `scf.for`
+和两个 ping-pong MemRef；CUDA runtime 复用两个 device buffer 和 prepared executable。当前
+fixed-degree weighted CSR + 逐节点 epilogue 会结构匹配到二维 row×neighbor TTIR tile，每次
+迭代一次 launch；未知/长尾 CSR 使用一行一 program、任意长度分块循环。这里没有
+PageRank-named op 或 codegen case。设备侧 `repeat_until`/convergence 尚未实现，因此
+fixed-iteration PageRank 只能作为 `G0` 的 partial evidence。
+
+Reverse mode 对 fixed repeat 已有自动 correctness fallback：autograd transform 将 body 按
+iteration 特化，并直接复用已有 pointwise、CSR relation 和 reducer VJP，用户不写 backward。
+这条路径的反向 IR/compile work 为 O(iterations)，还不是反向 `gf_control.repeat`；因此只作为
+语义覆盖，不登记性能。后续 control-autodiff pass 需要依据 save/recompute budget 生成反向循环
+和 state tape，再与 checkpoint/hierarchy planner 合并。
 
 ---
 

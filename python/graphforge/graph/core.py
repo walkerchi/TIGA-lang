@@ -840,6 +840,15 @@ class Graph:
             return self._degree_bounds_cache
         else:
             row_ptr, _ = self.resolve_csr()
+            analyze = getattr(
+                row_ptr._buffer, "adjacent_difference_bounds", None)
+            if callable(analyze):
+                self._degree_bounds_cache = analyze(
+                    offset=row_ptr.offset,
+                    stride=row_ptr.strides[0],
+                    count=row_ptr.numel,
+                )
+                return self._degree_bounds_cache
             rows = row_ptr.tolist()
             degrees = [right - left for left, right in zip(rows, rows[1:])]
         self._degree_bounds_cache = (
@@ -892,6 +901,21 @@ class Graph:
         if self._schema.realization == "implicit_dense":
             return 1.0 / 3.0
         row_ptr, col_idx = self.resolve_csr()
+        analyze = getattr(
+            col_idx._buffer, "csr_source_index_span_ratio", None)
+        if callable(analyze):
+            ratio = analyze(
+                row_ptr=row_ptr,
+                offset=col_idx.offset,
+                stride=col_idx.strides[0],
+                count=col_idx.numel,
+                num_src=self._schema.num_src,
+                num_dst=self._schema.num_dst,
+                samples=samples,
+            )
+            self._source_index_span_ratio_cache = min(
+                1.0, max(0.0, ratio))
+            return self._source_index_span_ratio_cache
         rows = row_ptr.tolist()
         columns = col_idx.tolist()
         edges = len(columns)
