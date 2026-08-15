@@ -68,6 +68,7 @@ The current implementation is alpha software. See the
 
 - [Install and run the first program](getting-started.md)
 - [Understand Graph, MessagePassing and reducers](programming-model.md)
+- [See how dynamic relations are generated, cached and partitioned](dynamic-graphs.md)
 - [Walk through the compiler IR](compiler-pipeline.md)
 - [Understand the minimal Tensor runtime and autograd](runtime-and-autograd.md)
 - [See how memory hierarchy and distributed execution fit](memory-and-distributed.md)

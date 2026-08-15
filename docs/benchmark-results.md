@@ -14,27 +14,52 @@ claim?
 
 ![Registered benchmark overview](assets/benchmark-overview.svg)
 
-## Headline comparison
+## Compiler transformations
 
 For latency rows, speedup is `peer latency / GraphForge latency`. For throughput
-rows, it is `GraphForge throughput / peer throughput`. Higher is better.
+rows, it is `GraphForge throughput / peer throughput`. Higher is better. The
+headline table contains cases where retained relation structure enables a
+different execution plan—not cases that merely dispatch the same mature dense
+primitive.
 
-| Family | Program submitted to GraphForge | Registered case | GraphForge | Fastest matched peer | Speedup / gate |
-|---|---|---|---:|---:|---:|
-| Exact dense attention | Cartesian relation + online-softmax reducer | B1/H16/N4096/D64 FP16 | 0.7720 ms | Flash SDPA 0.8288 ms | **1.074×**, CI low 1.069 |
-| Causal dense attention | Triangular relation + same reducer | B1/H16/N4096/D64 FP16 | 0.4459 ms | causal Flash SDPA | **1.117×**, CI low 1.100 |
-| Grouped-query attention | Dense relation with grouped source-lane mapping | Hq16/Hkv4/N4096/D64 FP16 | 0.7769 ms | Flash SDPA 0.8424 ms | **1.084×**, CI low 1.078 |
-| Sparse attention | Conditional tile admission inside online reducer | B1/H16/N4096/D64 FP16 | 0.9073 ms | official FSA 1.0724 ms | **1.182×**, CI low 1.177 |
-| Linear attention | broadcast × multiply × scan × contraction | L64/T512/K16/V16 FP32 | 0.1056 ms | official FLA 0.1095 ms | **1.037×**, CI low 1.025 |
-| Exact kNN pipeline | procedural exact kNN + weighted consume UDF | N8192/D3/k32 FP32 | 3.9072 ms | cdist/top-k/gather pipeline 3.9137 ms | **1.002×**, CI low 1.0005 |
-| Dense matmul | `gf_tensor.matmul` contraction | 2048³ FP16 | 89.29 TFLOP/s | torch.mm/cuBLAS 88.86 TFLOP/s | **1.005×**, CI low 1.004 |
-| GPU visualization prep | ordinary scalar→RGB Tensor expression | 2048² FP32 | 0.0996 ms | Inductor 0.1148 ms | **1.153×**, CI low 1.140 |
+| Transformation | Program submitted to GraphForge | Registered case | Removed or changed work | Speedup / gate |
+|---|---|---|---|---:|
+| Generated radius build + consume | radius relation + distance UDF + sum | N32768/D3/degree≈32 | CSR, distance and message materialization; modeled peak bytes ↓7.03× | **4.425×**, CI low 4.397 vs materialized pipeline |
+| Periodic generated radius rebuild | same program with box/skew minimum image | 2D/3D, N32768, degree≈32 | wrapped candidates are generated and consumed in-kernel | **3.861–6.064×**, CI low 3.769–5.909 across registered rebuild cases |
+| Fixed vector CSR traversal | weighted vector message + sum | N131072/degree16/F16/i32 random/hot | row × neighbor × feature tiling instead of generic sparse-library path | **4.322×**, CI low 4.245 vs `torch.sparse.mm` |
+| Bounded-ragged vector traversal | same UDF, degree 0–32 | N131072/F16/i32 random/hot | masked bounded row tiles | **4.213×**, CI low 4.153 vs `torch.sparse.mm` |
+| CPU fused relation loop | gather + edge UDF + CSR reduce | N131072/degree16/i32 random/hot | intermediate tensors and library boundary | **6.318×**, CI low 5.540 vs fastest installed provider-native CSR peer |
+| Fixed-iteration PageRank | `gf_control.repeat` around CSR message + node update | N262144/degree32/20 iterations | fused CSR+node launch and persistent two-buffer plan | up to **2.337×**, CI low 2.312 vs matched `torch.sparse.mm` recurrence |
+
+These numbers are deliberately not averaged into one cross-workload geomean:
+radius construction, SpMM and PageRank have different semantic work. The chart
+shows the registered high-water case for each transformation, and the tables
+below retain the full matrix and confidence bounds.
+
+## Mature primitive parity
+
+The following results demonstrate that the abstraction need not lose much to a
+mature specialized implementation. They are coverage/parity evidence, not the
+main reason to use the compiler.
+
+| Family | Registered case | GraphForge | Fastest matched peer | Result |
+|---|---|---:|---:|---:|
+| Exact dense attention | B1/H16/N4096/D64 FP16 | 0.7720 ms | Flash SDPA 0.8288 ms | **1.074×**, CI low 1.069 |
+| Causal dense attention | same shape | 0.4459 ms | causal Flash SDPA | **1.117×**, CI low 1.100 |
+| Grouped-query attention | Hq16/Hkv4/N4096/D64 FP16 | 0.7769 ms | Flash SDPA 0.8424 ms | **1.084×**, CI low 1.078 |
+| Tile-pruned sparse attention | B1/H16/N4096/D64 FP16 | 0.9073 ms | official FSA 1.0724 ms | **1.182×**, CI low 1.177 |
+| Linear attention | L64/T512/K16/V16 FP32 | 0.1056 ms | official FLA 0.1095 ms | **1.037×**, CI low 1.025 |
+| Exact kNN build + consume | N8192/D3/k32 FP32 | 3.9072 ms | cdist/top-k/gather 3.9137 ms | **1.002×**, CI low 1.0005 |
+| Dense matmul | 2048³ FP16 | 89.29 TFLOP/s | torch.mm/cuBLAS 88.86 TFLOP/s | **1.005×**, CI low 1.004 |
+| GPU visualization prep | 2048² FP32 | 0.0996 ms | Inductor 0.1148 ms | **1.153×**, CI low 1.140 |
+
+Exact kNN is the clearest unfinished performance path. It currently rebuilds
+the exhaustive distance matrix and invokes top-k, so there is little work for
+GraphForge to eliminate. The next general compiler mechanism is a partitioned
+ranked relation: candidate tiles → local top-k → hierarchical merge → fused
+selected-edge consume. Cache-reuse timing is not accepted as rebuild timing.
 
 ![Dense Cartesian streaming comparison](assets/dense-attention-performance.svg)
-
-The close kNN and matmul results are shown rather than rounded into a larger
-claim: both pass their pre-registered `1.00×` confidence gate, but neither is
-evidence of a broad advantage across shapes.
 
 ## Sparse relations and reducers
 
@@ -76,11 +101,17 @@ Dynamic graph reporting separates topology build from relation consume:
 | Build + consume | positions-to-output end to end | the fair number for changing geometry |
 | Rebind/reuse | reuse of a proven-valid topology snapshot | valid only when positions/topology version permits it |
 
-The registered Euclidean radius pipeline uses a tensorized uniform cell list
-rather than an `N×N` distance matrix. Periodic/skew rebuild remains slower than
-the current external peer in the full matrix, so GraphForge does **not** claim
-radius-build SOTA. This limitation is preserved even though consume/reuse and
-non-periodic registered gates pass.
+The registered Euclidean radius pipeline uses a generated cell directory
+rather than an `N×N` distance matrix. Its 24-case 2D/3D matrix separates
+non-periodic, periodic box and skew-cell consume/reuse/rebind/rebuild. All
+registered gates pass; periodic rebuild ranges from 3.861× to 6.064× because
+minimum-image filtering and the user reduction stay fused instead of emitting
+CSR, distance and message arrays. This result is not extrapolated to custom
+unbounded metrics, non-uniform occupancy or a different particle distribution.
+
+The [dynamic graph strategies](dynamic-graphs.md) page explains when the
+compiler chooses implicit tiles, spatial generation, incremental snapshots,
+ranked selection, or paged/distributed traversal.
 
 ## Attention comparisons are not interchangeable
 
@@ -139,7 +170,7 @@ gate.
 
 - performance portability to ROCm/Hygon, Metal, or PPU before real provider
   plugins and hardware artifacts exist;
-- radius-build SOTA for periodic/skew or non-uniform distributions;
+- radius-build SOTA for non-uniform distributions or custom unbounded metrics;
 - exact kNN performance outside N8192/D3/k32;
 - multi-GPU NCCL overlap or throughput from a one-GPU binding test;
 - universal sparse performance from one degree distribution or feature width.

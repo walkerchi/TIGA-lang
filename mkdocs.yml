@@ -39,6 +39,7 @@ nav:
   - Overview: index.md
   - Getting started: getting-started.md
   - Programming model: programming-model.md
+  - Dynamic graph strategies: dynamic-graphs.md
   - Compiler pipeline: compiler-pipeline.md
   - Tensor runtime & autograd: runtime-and-autograd.md
   - Memory & distributed: memory-and-distributed.md

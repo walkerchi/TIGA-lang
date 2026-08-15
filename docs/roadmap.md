@@ -114,8 +114,11 @@ ABI/conformance 已就绪，但厂商 toolchain 与真机不是当前工作区�
 - general strides/layouts、multi-output vector projection、high-degree vector
   SpMM 和 nonlinear/fused message family；fixed/bounded-ragged F16/F64 vector
   TTIR 已登记；
-- exact kNN 已关闭 N=8192/D3/k32 build+weighted-consume bucket：动态 column snapshot
-  重绑 compiler-generated TTIR 且严格 gate 通过；覆盖结论仍不外推更多 N/D/k；
+- exact kNN 的语义与 dynamic column snapshot rebind 已通过，但 N=8192/D3/k32
+  build+weighted-consume 只有 1.0017x，重新列为 K0 partial。关闭条件是 provider-neutral
+  ranked-relation IR、candidate tile local top-k、hierarchical merge、selected-edge consume
+  fusion，以及至少两个 N/D/k bucket 的端到端 gate；复用 spatial directory 的时间不能
+  记成完整 rebuild；
 - FLA/FSA 只作为 examples/benchmarks 中的匹配 workload，不成为 GraphForge core 算子；
 - dense Cartesian/lower-triangular relation 已覆盖 exact、causal 与 grouped-query lane
   映射；Hq=16/Hkv=4 的正式 case 对 external Flash SDPA 为 1.084x（CI low 1.078）；
