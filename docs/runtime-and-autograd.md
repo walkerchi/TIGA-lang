@@ -105,21 +105,20 @@ It times a result-ready boundary, records cold compilation separately and
 compares identical broadcast-multiply-add-axis-sum semantics. Relaxed math is
 explicit in the JSON; pass `--strict` to disable reassociation.
 
-## Current IR and next optimization work
+## Runtime provider status
 
-The current compiler constructs `gf_tensor` in-process, verifies
-broadcasting/views/reductions, runs reverse-mode AD, and has a functional
-SCF/MemRef/LLVM CPU lowering. The next CPU work is canonicalization,
-vectorization, parallel loop mapping and joint forward/backward fusion. Other
-runtime providers still need allocator/module/launch support:
+The compiler constructs `gf_tensor` in process, verifies
+broadcasting/views/reductions, runs reverse-mode AD and lowers executable CPU
+and CUDA subsets. CPU vectorization and range-parallel relation loops are
+implemented; they are no longer described as future work.
 
-| Provider | Required runtime implementation |
+| Provider | Current runtime implementation |
 |---|---|
 | CPU | native Vector/SCF/MemRef → LLVM JIT; contiguous pointwise vector+tail and fused relation destination-range parallelism have registered performance gates |
 | CUDA | native Driver allocation/stream/event/module/kernel and generated TTIR→PTX/cubin launch; `gf.Tensor` has a Torch-import-blocked native-storage test, while the optional Torch bridge only supplies zero-copy external storage/current-stream interop |
-| ROCm/DCU | HIP allocation, stream/event, hsaco load and launch |
-| Metal | `MTLBuffer`, command queue/event and metallib pipeline |
-| PPU | vendor allocator, event, binary loader and launch ABI |
+| ROCm/DCU | provider ABI only; HIP allocation, stream/event, hsaco load/launch plugin pending |
+| Metal | provider ABI only; `MTLBuffer`, command queue/event and metallib plugin pending |
+| PPU | provider ABI only; vendor allocator, event, binary loader and launch plugin pending |
 
 CPU and CUDA allocation are executable. Other provider device enums exist and
 fail explicitly until their vendor runtime plugins pass conformance.

@@ -223,7 +223,7 @@ def main() -> None:
         f"{gate.speedup_vs_sota:.3f}x, 95% CI "
         f"[{gate.speedup_ci_low:.3f}, {gate.speedup_ci_high:.3f}].\n\n"
         f"Cold compile + first execution: {cold_ms:.2f} ms.\n\n"
-        "![Roofline](roofline.png)\n\n![Latency](provider_latency.png)\n")
+        "![Roofline](roofline.svg)\n\n![Latency](provider_latency.svg)\n")
     print(output_dir)
     if args.fail_on_gate and not gate.passed:
         raise SystemExit(2)

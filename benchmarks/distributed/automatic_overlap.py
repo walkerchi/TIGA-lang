@@ -202,7 +202,8 @@ def _plot(result: dict[str, object], path: Path) -> None:
         loc="outside upper right",
     )
     path.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(path, dpi=180)
+    fig.savefig(path.with_suffix(".svg"))
+    fig.savefig(path.with_suffix(".png"), dpi=180)
     plt.close(fig)
 
 
@@ -305,7 +306,7 @@ def main() -> None:
     )
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
-    _plot(result, args.output.with_name("timeline.png"))
+    _plot(result, args.output.with_name("timeline.svg"))
     args.output.with_name("REPORT.md").write_text(
         "# Automatic CPU halo overlap\n\n"
         f"Two ranks, {args.entities:,} entities, degree {args.degree}, feature "

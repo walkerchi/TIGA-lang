@@ -956,11 +956,11 @@ def write_report(
         "",
         "## Hierarchical roofline",
         "",
-        "![Hierarchical roofline](roofline.png)",
+        "![Hierarchical roofline](roofline.svg)",
         "",
         "## Provider latency",
         "",
-        "![Provider latency](provider_latency.png)",
+        "![Provider latency](provider_latency.svg)",
     ]
     if jit is not None:
         lines.extend([

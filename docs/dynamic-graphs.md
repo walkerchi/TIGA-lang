@@ -6,7 +6,12 @@ in IR long enough to choose whether edges should be generated, cached,
 incrementally repaired, partitioned, or paged. Materializing CSR is one legal
 realization, not the default meaning of `Graph.radius` or `Graph.knn`.
 
-![Dynamic relation realizations](assets/dynamic-relation-strategies.svg)
+<figure class="gf-figure">
+  <object type="image/svg+xml" data="assets/dynamic-relation-strategies.svg" aria-label="Dynamic relation realization strategies">
+    <img src="assets/dynamic-relation-strategies.svg" alt="Dynamic relation realization strategies">
+  </object>
+  <figcaption><a href="assets/dynamic-relation-strategies.svg">Open the full-size SVG</a>. The realization is a compiler choice; it is not a different user Graph type.</figcaption>
+</figure>
 
 ## The realization matrix
 
@@ -55,9 +60,11 @@ A `select` UDF may remove candidates but cannot bypass the radius predicate.
 
 ## Exact kNN needs hierarchical selection
 
-The current public exact-kNN result is intentionally only 1.002×: both sides
-execute exhaustive distance construction and the same mature top-k family.
-The missing compiler transformation is a general ranked-relation lowering:
+The current exact-kNN result is parity only: 3.9076 ms for GraphForge versus
+3.9110 ms for the matched exhaustive cdist/top-k/gather pipeline (1.0009×, CI
+low 1.0003). GraphForge still dispatches exhaustive candidate selection and
+only compiles the selected-relation consumer. The missing compiler
+transformation is a general ranked-relation lowering:
 
 ```text
 query tile × candidate tile

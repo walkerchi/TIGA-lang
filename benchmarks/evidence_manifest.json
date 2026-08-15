@@ -6,7 +6,7 @@
     "distributed_automatic_cpu_overlap": {
       "status": "measured-two-process-controlled-link-model",
       "path": "output/distributed/automatic_cpu_overlap",
-      "required_artifacts": ["results.json", "timeline.png", "REPORT.md"],
+      "required_artifacts": ["results.json", "timeline.svg", "timeline.png", "REPORT.md"],
       "note": "Two CPU ranks, N=65536, degree=16, F=64, 25% boundary and an explicit 5 ms receive-delay model. The automatic interior||halo->boundary runtime measured 13.7224 ms median overlap and 38.2262 ms end-to-end versus 40.8632 ms serialized (1.069x). This is process/runtime evidence, not measured inter-node or multi-GPU performance."
     }
   },
@@ -237,9 +237,9 @@
       "note": "A benchmark-defined tuple-state UDF is structurally proven and reassociated to a 32-row max/exp/sum TTIR tile. N=131072, degree=32 passes the matched handwritten-Triton strict gate at 1.007x with 95% CI low 1.005."
     },
     "knn_graph": {
-      "status": "performance-ready-build-and-generated-consume",
+      "status": "measured-parity-ranked-lowering-partial",
       "cases": ["cuda_n8192_d3_k32", "cuda_n8192_d3_k32_consume"],
-      "note": "Graph.knn is a procedural exhaustive Euclidean relation. The build+weighted-consume case rebuilds exact cdist/top-k columns, reuses fixed row metadata, and rebinds them to one compiler-generated TTIR consumer without recompilation. Prepared GraphForge is 3.9072 ms versus matched cdist/top-k/gather-multiply-sum at 3.9137 ms: 1.0017x with CI low 1.0005. The older build-only artifact remains an auxiliary historical optimization result; no claim is extrapolated to other shapes or ANN."
+      "note": "Graph.knn has exact procedural semantics. The current build+consume path still dispatches exhaustive cdist/top-k, reuses fixed row metadata, and rebinds selected columns to a compiler-generated TTIR consumer. A clean N=8192/D3/k32 rerun is 3.9076 ms versus matched cdist/top-k/gather-multiply-sum at 3.9110 ms: 1.0009x with CI low 1.0003. This is parity evidence, not a ranked-relation compiler win; no result is extrapolated to other shapes or ANN."
     },
     "dense_matmul_calibration": {
       "status": "measured-compiler-library-dispatch-gate-passed",

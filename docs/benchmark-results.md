@@ -9,10 +9,14 @@ claim?
 
     GPU results are from the repository's NVIDIA RTX 5070 Ti environment. They
     are registered case results, not projections to other devices or shapes.
-    Raw JSON/PNG/REPORT artifacts are generated under
+    Raw JSON/SVG/HTML/REPORT artifacts are generated under
     `output/roofline/<operation>/<case>/` and intentionally remain out of Git.
 
-![Registered benchmark overview](assets/benchmark-overview.svg)
+<figure class="gf-figure gf-figure--chart">
+  <iframe src="assets/charts/compiler-performance-report.html" title="Interactive registered GraphForge compiler performance report" loading="lazy"></iframe>
+  <noscript><img src="assets/compiler-performance-report.svg" alt="Static GraphForge compiler performance report"></noscript>
+  <figcaption>Select any registered workload from the Plotly dropdown · <a href="assets/compiler-performance-report.svg">SVG fallback</a> · each panel uses its predeclared matched baseline.</figcaption>
+</figure>
 
 ## Compiler transformations
 
@@ -49,17 +53,23 @@ main reason to use the compiler.
 | Grouped-query attention | Hq16/Hkv4/N4096/D64 FP16 | 0.7769 ms | Flash SDPA 0.8424 ms | **1.084×**, CI low 1.078 |
 | Tile-pruned sparse attention | B1/H16/N4096/D64 FP16 | 0.9073 ms | official FSA 1.0724 ms | **1.182×**, CI low 1.177 |
 | Linear attention | L64/T512/K16/V16 FP32 | 0.1056 ms | official FLA 0.1095 ms | **1.037×**, CI low 1.025 |
-| Exact kNN build + consume | N8192/D3/k32 FP32 | 3.9072 ms | cdist/top-k/gather 3.9137 ms | **1.002×**, CI low 1.0005 |
+| Exact kNN build + consume | N8192/D3/k32 FP32 | 3.9076 ms | cdist/top-k/gather 3.9110 ms | **1.0009×**, CI low 1.0003; parity only |
 | Dense matmul | 2048³ FP16 | 89.29 TFLOP/s | torch.mm/cuBLAS 88.86 TFLOP/s | **1.005×**, CI low 1.004 |
 | GPU visualization prep | 2048² FP32 | 0.0996 ms | Inductor 0.1148 ms | **1.153×**, CI low 1.140 |
 
-Exact kNN is the clearest unfinished performance path. It currently rebuilds
-the exhaustive distance matrix and invokes top-k, so there is little work for
-GraphForge to eliminate. The next general compiler mechanism is a partitioned
+Exact kNN is the clearest unfinished performance path. It still dispatches an
+exhaustive cdist/top-k build and only compiles the selected-relation consumer,
+so the measured result is parity rather than an algorithmic win. The next
+general compiler mechanism is a partitioned
 ranked relation: candidate tiles → local top-k → hierarchical merge → fused
 selected-edge consume. Cache-reuse timing is not accepted as rebuild timing.
 
-![Dense Cartesian streaming comparison](assets/dense-attention-performance.svg)
+<figure class="gf-figure">
+  <object type="image/svg+xml" data="assets/dense-attention-performance.svg" aria-label="Dense Cartesian streaming comparison">
+    <img src="assets/dense-attention-performance.svg" alt="Dense Cartesian streaming comparison">
+  </object>
+  <figcaption>Exact, grouped-query and causal dense relation cases. Sparse and linear attention remain separate semantics.</figcaption>
+</figure>
 
 ## Sparse relations and reducers
 
@@ -160,8 +170,8 @@ python -m benchmarks.common.check_outputs
 ```
 
 Every formal case writes raw samples, median, bootstrap confidence interval,
-device/software metadata, arithmetic-intensity model, roof ceilings, and PNG
-plots. The [performance methodology](performance.md) defines the common artifact
+device/software metadata, arithmetic-intensity model, roof ceilings, and
+SVG-first plots with PNG fallbacks. The [performance methodology](performance.md) defines the common artifact
 layout and reproduction commands; the [benchmark protocol](BENCHMARKS.md)
 defines semantic matching, cache states, cold-JIT accounting, and the acceptance
 gate.

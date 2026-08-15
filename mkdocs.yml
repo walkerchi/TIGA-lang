@@ -1,5 +1,9 @@
 site_name: GraphForge Compiler
 site_description: Relation-oriented compilation for sparse, dense, and generated graph computations
+site_url: https://graphforge-docs.app.walkerchi.com/
+repo_url: https://github.com/walkerchi/graphforge
+repo_name: walkerchi/graphforge
+copyright: Copyright &copy; 2026 GraphForge contributors
 docs_dir: docs
 site_dir: site
 theme:
@@ -17,13 +21,21 @@ theme:
       accent: deep purple
   features:
     - navigation.instant
+    - navigation.instant.progress
+    - navigation.tabs
     - navigation.sections
+    - navigation.path
     - navigation.top
+    - toc.follow
     - content.code.copy
+    - content.code.annotate
     - content.tabs.link
+    - search.suggest
+    - search.highlight
 markdown_extensions:
   - admonition
   - attr_list
+  - md_in_html
   - tables
   - toc:
       permalink: true
@@ -35,21 +47,29 @@ markdown_extensions:
       base_path:
         - .
   - pymdownx.superfences
+plugins:
+  - search
+extra_css:
+  - stylesheets/graphforge.css
 nav:
   - Overview: index.md
-  - Getting started: getting-started.md
-  - Programming model: programming-model.md
-  - Dynamic graph strategies: dynamic-graphs.md
-  - Compiler pipeline: compiler-pipeline.md
-  - Tensor runtime & autograd: runtime-and-autograd.md
-  - Memory & distributed: memory-and-distributed.md
-  - Examples: examples.md
-  - Benchmark results: benchmark-results.md
-  - Performance methodology: performance.md
-  - API: api.md
-  - Roadmap: roadmap.md
-  - Development: development.md
-  - Research:
+  - Learn:
+      - Getting started: getting-started.md
+      - Programming model: programming-model.md
+      - Dynamic graph strategies: dynamic-graphs.md
+      - Examples: examples.md
+  - Compiler:
+      - Pipeline & IR: compiler-pipeline.md
+      - Tensor runtime & autograd: runtime-and-autograd.md
+      - Memory & distributed: memory-and-distributed.md
+  - Performance:
+      - Results: benchmark-results.md
+      - Methodology & reproduction: performance.md
+  - Reference:
+      - Python API: api.md
+      - Current status & roadmap: roadmap.md
+      - Development: development.md
+  - Internals:
       - Related work: RELATED_WORK.md
       - Benchmark protocol: BENCHMARKS.md
       - IR design: IR_DESIGN.md

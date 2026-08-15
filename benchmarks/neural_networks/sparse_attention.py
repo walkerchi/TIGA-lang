@@ -254,7 +254,7 @@ def main() -> None:
         f"repack: {repack_ms:.3f} ms; GraphForge cold compile + first launch: "
         f"{cold_ms:.2f} ms. All points use x={intensity:.6g} logical useful "
         "FLOP/common byte; admitted-tile hardware FLOPs are not fabricated.\n\n"
-        "![Roofline](roofline.png)\n\n![Latency](provider_latency.png)\n"
+        "![Roofline](roofline.svg)\n\n![Latency](provider_latency.svg)\n"
     )
     print(output_dir)
     if args.fail_on_gate and not gate.passed:

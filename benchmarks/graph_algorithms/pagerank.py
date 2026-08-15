@@ -246,6 +246,7 @@ def _roofline_plot(payload: dict, output: Path) -> None:
     fig.suptitle(
         "PageRank hierarchical roofline · numeric markers expose overlap",
         fontweight="bold")
+    fig.savefig(output / "roofline.svg", bbox_inches="tight")
     fig.savefig(output / "roofline.png", dpi=180, bbox_inches="tight")
     plt.close(fig)
 
@@ -261,7 +262,7 @@ def _report(payload: dict, output: Path) -> None:
         "",
         "![Matched latency](latency.png)",
         "",
-        "![Hierarchical roofline](roofline.png)",
+        "![Hierarchical roofline](roofline.svg)",
         "",
         "| N | Degree | GraphForge (ms) | Peer (ms) | Speedup | 95% CI | Gate |",
         "|---:|---:|---:|---:|---:|---:|---|",

@@ -74,7 +74,7 @@ def _intensity(item: dict) -> float:
 
 
 def plot_operation_summary(payloads: list[dict], output: Path) -> Path:
-    """Render all cases for one operation into a condition-faceted PNG."""
+    """Render all cases into condition-faceted SVG plus a PNG fallback."""
     if not payloads:
         raise ValueError("at least one roofline payload is required")
     operations = {payload["operation"] for payload in payloads}
@@ -203,7 +203,7 @@ def plot_operation_summary(payloads: list[dict], output: Path) -> Path:
         "Cases with the same semantics and different input sizes are connected. "
         "Condition changes use separate line styles; numeric markers identify "
         "providers without changing measured coordinates.\n\n"
-        "![Registered-case summary](summary.png)\n",
+        "![Registered-case summary](summary.svg)\n",
         encoding="utf-8",
     )
     return path
@@ -243,7 +243,7 @@ def plot_manifest_dashboard(manifest: dict, output: Path) -> Path:
     _save(fig, path.with_suffix(""))
     lines = [
         "# GraphForge benchmark dashboard", "",
-        "![Registered evidence coverage](dashboard.png)", "",
+        "![Registered evidence coverage](dashboard.svg)", "",
         ("Operation summaries connect only cases with matching semantics; each "
          "case directory remains the source-of-truth evidence boundary."), "",
     ]
@@ -519,3 +519,76 @@ def plot_compiler_report(manifest: dict, root: Path, output: Path) -> Path:
     output.parent.mkdir(parents=True, exist_ok=True)
     _save(fig, output.with_suffix(""))
     return output.with_suffix(".png")
+
+
+def write_interactive_compiler_report(
+    manifest: dict,
+    root: Path,
+    output: Path,
+    *,
+    fallback: str = "../compiler-performance-report.svg",
+) -> Path:
+    """Write a Plotly report from the same manifest cases as the static SVG.
+
+    Plotly is loaded by the browser, so regenerating documentation adds no
+    Python dependency. If JavaScript or the CDN is unavailable, the committed
+    SVG report remains the visible fallback.
+    """
+    records = _matched_panel_records(manifest, root, "report_panels")
+    panels = []
+    for panel, selected, baseline_ms in records:
+        providers = panel["providers"]
+        panels.append({
+            "title": panel["title"],
+            "detail": panel.get("detail", ""),
+            "baseline": _short_provider(panel["baseline"]),
+            "providers": [_short_provider(name) for name in providers],
+            "relative": [
+                baseline_ms / float(selected[name]["milliseconds"])
+                for name in providers
+            ],
+            "milliseconds": [
+                float(selected[name]["milliseconds"]) for name in providers
+            ],
+            "colors": [_report_method_color(name) for name in providers],
+        })
+    payload = json.dumps(panels, ensure_ascii=True).replace("<", "\\u003c")
+    document = f"""<!doctype html>
+<html lang=\"en\"><head><meta charset=\"utf-8\">
+<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">
+<title>GraphForge interactive compiler performance report</title>
+<style>
+html,body{{height:100%;margin:0;background:#f8fafc;font-family:Inter,ui-sans-serif,system-ui,sans-serif}}
+#chart{{width:100%;height:100%;min-height:620px}}#fallback{{display:none;width:100%;height:100%;align-items:flex-start;justify-content:center}}
+#fallback img{{display:block;width:100%;height:auto}}@media(max-width:640px){{#chart{{min-height:700px}}}}
+</style></head><body>
+<div id=\"chart\" role=\"img\" aria-label=\"Interactive GraphForge compiler performance report\"></div>
+<div id=\"fallback\"><img src=\"{fallback}\" alt=\"Static GraphForge compiler performance report\"></div>
+<noscript><style>#chart{{display:none}}#fallback{{display:flex}}</style></noscript>
+<script id=\"gf-report-data\" type=\"application/json\">{payload}</script>
+<script src=\"https://cdn.plot.ly/plotly-3.1.0.min.js\" onerror=\"showFallback()\"></script>
+<script>
+function showFallback(){{document.getElementById('chart').style.display='none';document.getElementById('fallback').style.display='flex'}}
+if(!window.Plotly){{showFallback()}}else{{
+const panels=JSON.parse(document.getElementById('gf-report-data').textContent);
+const traces=panels.map((panel,index)=>({{type:'bar',orientation:'h',visible:index===0,
+ y:panel.providers,x:panel.relative,marker:{{color:panel.colors,line:{{color:'#fff',width:1}}}},
+ text:panel.relative.map(value=>value.toFixed(3)+'×'),textposition:'outside',cliponaxis:false,
+ customdata:panel.milliseconds.map(value=>[value]),
+ hovertemplate:'<b>%{{y}}</b><br>Relative throughput: %{{x:.4f}}×<br>Median latency: %{{customdata[0]:.5g}} ms<extra></extra>'}}));
+function layoutFor(index){{const panel=panels[index];const ceiling=Math.max(1.16,...panel.relative)*1.16;return {{
+ title:{{text:'<b>'+panel.title+'</b><br><span style=\"font-size:13px;color:#64748b\">'+panel.detail+'</span>',x:.03,xanchor:'left',font:{{size:23,color:'#0f172a'}}}},
+ xaxis:{{title:'Relative throughput · '+panel.baseline+' = 1.00×',range:[0,ceiling],gridcolor:'#dbe3ef',zeroline:false}},
+ yaxis:{{autorange:'reversed',automargin:true,tickfont:{{size:13}}}},
+ shapes:[{{type:'line',x0:1,x1:1,y0:-.6,y1:panel.providers.length-.4,line:{{color:'#475569',width:1.4,dash:'dash'}}}}]}}}}
+const buttons=panels.map((panel,index)=>({{label:panel.title,method:'update',args:[
+ {{visible:panels.map((_,candidate)=>candidate===index)}},layoutFor(index)]}}));
+const layout=Object.assign({{autosize:true,margin:{{l:180,r:90,t:150,b:75}},paper_bgcolor:'#f8fafc',plot_bgcolor:'#f8fafc',showlegend:false,
+ font:{{color:'#334155'}},updatemenus:[{{type:'dropdown',active:0,x:.03,y:1.13,xanchor:'left',yanchor:'top',buttons:buttons,
+ bgcolor:'#fff',bordercolor:'#cbd5e1',font:{{size:12}}}}],annotations:[{{text:'Each panel has fixed semantics and a predeclared baseline · no aggregate score',xref:'paper',yref:'paper',x:0,y:-.18,showarrow:false,xanchor:'left',font:{{size:11,color:'#64748b'}}}}]}},layoutFor(0));
+Plotly.newPlot('chart',traces,layout,{{responsive:true,displaylogo:false,modeBarButtonsToRemove:['lasso2d','select2d']}}).catch(showFallback);
+}}
+</script></body></html>"""
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(document, encoding="utf-8")
+    return output

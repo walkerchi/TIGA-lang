@@ -148,7 +148,7 @@ def main() -> None:
         f"[{gate.speedup_ci_low:.3f}, {gate.speedup_ci_high:.3f}].\n\n"
         "The roofline counts useful distance work; sort/select and dense "
         "temporary traffic remain explicit operational-model caveats.\n\n"
-        "![Roofline](roofline.png)\n\n![Latency](provider_latency.png)\n")
+        "![Roofline](roofline.svg)\n\n![Latency](provider_latency.svg)\n")
     print(output_dir)
     if args.fail_on_gate and not gate.passed:
         raise SystemExit(2)

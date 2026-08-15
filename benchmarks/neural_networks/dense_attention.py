@@ -243,8 +243,8 @@ def main():
         f"The measured FP16 GEMM ceiling is {fp16_gflops / 1000:.2f} TFLOP/s.\n\n"
         "Both providers implement the same B/H/N/D workload and therefore use "
         f"the same x coordinate: {intensity:.6g} useful FLOP/common byte.\n\n"
-        "![Dense attention roofline](roofline.png)\n\n"
-        "![Provider latency](provider_latency.png)\n"
+        "![Dense attention roofline](roofline.svg)\n\n"
+        "![Provider latency](provider_latency.svg)\n"
     )
     print(output)
     if args.fail_on_gate and not gate.passed:

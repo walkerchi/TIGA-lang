@@ -55,14 +55,15 @@ under `output/roofline/<operation>/<case>/`. Handwritten oracle code may set a
 performance target, but it is never reported as GraphForge compiler output.
 
 Machine JSON is the reproducible source of truth, but it is not the human
-interface. Every measured JSON directory has a PNG/SVG visualization.
-Formal roofline cases additionally receive an operation-level `summary.png`:
+interface. Every measured JSON directory has an SVG visualization and a PNG
+fallback. Formal roofline cases additionally receive an operation-level `summary.svg`:
 matching conditions are connected across input sizes, condition changes are
 faceted, provider colors are corpus-stable, and numeric markers expose
 coincident points without moving their measured coordinates.
 
 `plot_collections` also regenerates the portrait all-in-one compiler report at
-`docs/assets/compiler-performance-report.{png,svg}`. Panel filters, provider
+`docs/assets/compiler-performance-report.{svg,png}` and its interactive Plotly
+view at `docs/assets/charts/compiler-performance-report.html`. Panel filters, provider
 order, and baseline are declared in `evidence_manifest.json`; rendering fails
 if an exact matched bucket or provider is absent, so the README cannot silently
 substitute a favorable measurement.

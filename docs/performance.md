@@ -1,66 +1,64 @@
-# Performance
+# Performance methodology
 
-Performance claims are accepted only for a matched workload, dtype, shape,
-index convention and end-to-end boundary. Every operation has an isolated
-artifact directory:
+GraphForge accepts a performance claim only when the program semantics, dtype,
+shape, index convention, cache state and timed boundary match the declared
+peer. Raw samples and device metadata—not a screenshot—are the source of truth.
+
+## Human view and machine evidence
+
+<figure class="gf-figure gf-figure--chart">
+  <iframe src="assets/charts/compiler-performance-report.html" title="Interactive GraphForge compiler performance report" loading="lazy"></iframe>
+  <noscript><img src="assets/compiler-performance-report.svg" alt="Static GraphForge compiler performance report"></noscript>
+  <figcaption>Plotly HTML is the primary browser view · <a href="assets/compiler-performance-report.svg">SVG fallback</a> · PNG is retained only for clients that cannot render SVG.</figcaption>
+</figure>
+
+The dropdown above is generated from `benchmarks/evidence_manifest.json` and
+the same registered case JSON as the static report. Generation fails if an
+exact case, filter or provider is missing, preventing an old chart from being
+silently reused after benchmark names change.
+
+## Artifact contract
 
 ```text
 output/roofline/<operation>/<case>/
-  roofline.json
-  roofline.png
-  provider_latency.png  # vertical kernel subplots; stable method hues
-  REPORT.md
+  roofline.json          # raw samples, statistics, model and metadata
+  roofline.svg           # scalable static roofline
+  provider_latency.svg   # human comparison; stable method colors
+  roofline.png           # raster fallback only
+  provider_latency.png   # raster fallback only
+  REPORT.md              # boundary, peer, accuracy and exclusions
 
 output/roofline/<operation>/
-  summary.png
+  summary.svg            # matching cases connected across input size
+  summary.png            # fallback
   SUMMARY.md
 
-output/roofline/
-  dashboard.png
+docs/assets/charts/
+  compiler-performance-report.html  # interactive registered-case view
 ```
 
-## Current compiler-generated evidence
+`output/` is reproducible and Git-ignored. Only selected publication assets are
+copied to `docs/assets/`, where SVG/HTML is preferred and PNG is a fallback.
 
-Measurements below were collected on the repository's RTX 5070 Ti environment.
-Raw samples and device metadata are stored with each artifact.
+## Measurement rules
 
-![Sparse kernel provider leaderboard](assets/sparse-kernel-comparison.png)
+- Report cold capture/provider compilation separately from warm execution.
+- Time a result-ready boundary, including required synchronization.
+- Interleave providers within the sample loop to reduce thermal/order bias.
+- Store medians, raw samples and bootstrap confidence intervals.
+- Use one stable color per exact provider throughout the corpus; numeric
+  markers distinguish coincident points without moving measurements.
+- Connect points only when semantics and conditions match and input size is the
+  varying dimension.
+- Label external-library dispatch and correctness oracles; neither may be
+  presented as compiler-emitted TTIR.
 
-![Dense attention throughput](assets/dense-attention-performance.svg)
+!!! warning "Do not combine unlike operations"
 
-| Workload | Shape | GraphForge | Matched peer | Result |
-|---|---:|---:|---:|---:|
-| Dense exact SDPA | B=1, H=16, N=4096, D=64, FP16 | 0.7720 ms | PyTorch Flash SDPA 0.8288 ms | 1.074× peer/GraphForge |
-| Dense grouped-query | B=1, Hq=16, Hkv=4, N=4096, D=64, FP16 | 0.7769 ms | PyTorch Flash SDPA 0.8424 ms | 1.084× peer/GraphForge |
-| GPU heatmap | 2048×2048 scalar→RGB, FP32 | 0.0996 ms | torch.compile/Inductor 0.1148 ms | 1.153× peer/GraphForge |
-| Exact kNN build + weighted consume | N=8192, D=3, k=32, FP32 | 3.9072 ms | cdist/top-k/gather-multiply-sum 3.9137 ms | 1.0017× peer/GraphForge |
-| Scalar CSR weighted sum, random source | 131072 rows, degree=4, FP32 | 0.0183 ms | Triton template 0.0222 ms | 0.824× GraphForge/peer latency |
-| Scalar CSR weighted sum, random source | 131072 rows, degree=16, FP32 | 0.0513 ms | Triton template 0.0571 ms | 0.899× |
-| Scalar CSR weighted sum, random source | 131072 rows, degree=64, FP32 | 0.1869 ms | Triton template 0.1887 ms | 0.990× |
-| Scalar CSR weighted sum, regular local/hot | 131072 rows, degree=16, FP32 | 0.0186 ms | `torch.sparse.mm` 0.0310 ms | 1.67× peer/GraphForge |
-| Vector CSR weighted sum, regular random/hot | 131072 rows, degree=16, F=16, i32 | 0.0512 ms | `torch.sparse.mm` 0.2213 ms | 4.322× peer/GraphForge, CI low 4.245 |
-| Vector CSR weighted sum, regular random/cold | 131072 rows, degree=16, F=64, i32 | 0.2684 ms | `torch.sparse.mm` 0.3495 ms | 1.302× peer/GraphForge, CI low 1.288 |
-| Vector CSR weighted sum, irregular random/hot | 131072 rows, degree=0–32, F=16, i32 | 0.0548 ms | `torch.sparse.mm` 0.2308 ms | 4.213× peer/GraphForge, CI low 4.153 |
-| Vector CSR weighted sum, irregular random/cold | same topology, F=64 | 0.2711 ms | `torch.sparse.mm` 0.3477 ms | 1.283× peer/GraphForge, CI low 1.270 |
-| Generated radius distance sum | 3D, target degree=32 | 0.3343 ms | benchmark Triton oracle 0.3383 ms | 1.012× peer/GraphForge |
-| CPU automatic halo overlap | 2 ranks, N=65536, degree=16, F=64, 5 ms controlled receive model | 38.2262 ms | forced serialized 40.8632 ms | 1.069× peer/GraphForge |
-
-Dense attention is generated from a user-defined Cartesian message and reducer;
-the core contains no attention kernel. Cold capture + MLIR + provider JIT is
-reported separately from warm execution in the registered artifact.
-
-For fixed-degree and bounded-ragged weighted aggregation, F=1 and the registered
-F=16/64 cases are compiler-generated TTIR paths. The public `prepared_auto`
-boundary removes Python/guard costs from repeated launches while the ordinary
-lazy call remains reported separately. Vector cases beyond the proven
-degree/feature bounds explicitly dispatch to `torch.sparse.mm`.
-
-!!! warning "Do not compare unlike operations on one roofline"
-
-    Dense exact attention, linear attention (FLA) and sparse attention (FSA)
-    have different mathematical work and byte models. They require separate
-    operation directories and matched baselines. Radius build and radius
-    consume are also reported separately and together.
+    Exact attention, linear attention and tile-pruned sparse attention have
+    different work and accuracy contracts. Radius build, consume and
+    build+consume are also distinct boundaries. They use separate cases and
+    are never averaged into a cross-workload score.
 
 ## Reproduce
 
@@ -70,12 +68,17 @@ export GRAPHFORGE_OPT="$PWD/build/bin/gf-opt"
 export GRAPHFORGE_TRANSLATE="$PWD/build/bin/gf-translate"
 
 python -m benchmarks.compiler.provider_gate --fail-on-gate
+python -m benchmarks.sparse_compute.weighted_aggregation
 python -m benchmarks.graph_operations.radius_roofline
 python -m benchmarks.neural_networks.dense_attention
 python -m benchmarks.distributed.automatic_overlap
-python -m benchmarks.visualization.heatmap --fail-on-gate
+
 python -m benchmarks.common.check_outputs
+python -m benchmarks.common.plot_cases
+python -m benchmarks.common.plot_collections
 ```
 
-The deeper fairness, cache, roof and confidence-interval rules are in the
-[benchmark protocol](BENCHMARKS.md).
+The final command regenerates operation summaries, the SVG/PNG publication
+report and the interactive HTML report. See the [benchmark protocol](BENCHMARKS.md)
+for semantic matching, cache definitions, roof models and acceptance gates;
+see [benchmark results](benchmark-results.md) for current claims and exclusions.

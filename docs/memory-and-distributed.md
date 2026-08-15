@@ -7,30 +7,13 @@ one GPU, streamed from NVMe, or partitioned across ranks.
 !!! note "Current status"
 
     Single-node capacity-accounted RAM/pinned/HBM/NVMe execution is implemented,
-    including compiler-plan transfer/release and native async DMA. Exact
-    owner/ghost maps、real Torch-free multi-process neighbor transport，以及把
-    compiler-emitted `__gf_halo_pack/exchange/unpack` 直接绑定到 runtime bundle 的
-    `DistributedTaskResolver` 已实现。CPU host transport 会自动缓存 owned-row
-    interior/boundary split，在 halo worker 运行时实际执行 interior LLVM kernel，
-    随后执行 boundary 并用 compiled `gf_tensor.scatter_rows` 合并。forward、
-    reverse-halo automatic VJP 与 overlap ordering 均通过普通 `Graph.halo()` +
-    `MessagePassing` 两进程测试；
-    CUDA Buffer rank-local forward/reverse binding and versioned `.gfg` paged
-    partition execution are implemented. Device-buffer forward execution now
-    enqueues owned/ghost assembly on a communication stream, realizes the
-    owned-source-only interior on an independent compiler stream, waits, and
-    executes the boundary; `gf_tensor.scatter_rows` is compiler-lowered on CUDA
-    as well as CPU. Each rank reads only its CSR shard and
-    derives exact halo maps without constructing global `col_idx` in RAM. A
-    versioned `graphforge.transport` ABI and optional mpi4py-compatible provider
-    are implemented and pass a real `mpiexec -n 2` forward/VJP test. The local
-    MPICH artifact exchanges 16 MiB per iteration at 1.892 GB/s end-to-end after
-    the fixed-byte/no-pickle path. A Torch-free NCCL provider accepts native
-    device-buffer slices on GraphForge CUDA streams; the local rank-one
-    communicator plus D2D fast-path artifact passes with NCCL 2.28.9. Since a
-    rank is not its own NCCL P2P peer, this proves provider binding and local
-    transport semantics, not an NCCL data path or peer-link result. RCCL and true multi-device
-    correctness/profiler-timeline/performance remain release gates.
+    including compiler-planned transfer/release and native async DMA. Typed
+    owned/ghost/halo tasks, paged `.gfg` shards and a real two-process MPI
+    forward/VJP path are executable. CPU communication/interior overlap has a
+    controlled-link benchmark; CUDA has native buffer binding and verified
+    stream dependency ordering. A rank-one NCCL test proves provider binding,
+    not peer communication. Real 2+ GPU NCCL/RCCL correctness, profiler overlap
+    and performance remain open gates.
 
 ## Hierarchical memory
 
@@ -151,7 +134,7 @@ artifact 还要加入 local kernel、pack/unpack、network/collective、exposed 
 speedup without the communication boundary is not accepted.
 `benchmarks/distributed/automatic_overlap.py` measures that public path against
 the same runtime forced to serialize, records per-rank communication/interior
-timestamps, and writes `timeline.png`. Its registered 1.069× result uses an
+timestamps, and writes `timeline.svg` plus a PNG fallback. Its registered 1.069× result uses an
 explicit 5 ms receive-delay model and is therefore scheduler evidence under a
 controlled link model, not a measured inter-node claim.
 `benchmarks/distributed/nccl_device_loopback.py` separately validates communicator

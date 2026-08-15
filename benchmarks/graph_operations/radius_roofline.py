@@ -355,7 +355,7 @@ def main() -> None:
             f"{item['cache']:14} {item['provider']:44} "
             f"{item['milliseconds']:.4f} ms")
     print(json_path)
-    print(output / "roofline.png")
+    print(output / "roofline.svg")
     print(
         f"{'PASS' if lifecycle_gate.passed else 'FAIL'} generated builder-consumer "
         f"vs materialized: {lifecycle_gate.speedup_vs_sota:.3f}x, "

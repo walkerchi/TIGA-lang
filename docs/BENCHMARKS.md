@@ -53,8 +53,9 @@ artifact 位于
 exact kNN 的注册 N=8192/D=3/k=32 build+consume case 检查全部 N² pair，使用 provider
 Euclidean cdist 再做 top-k；固定 degree 的 row pointer 可复用，但 column indices 每次重建并
 重绑到同一个 compiler-generated TTIR weighted-consume executable，不触发重编译。Prepared
-GraphForge 为 3.9072 ms，matched cdist/top-k/gather-multiply-sum 为 3.9137 ms，严格 gate
-1.0017x、CI low 1.0005。该结论不外推其他 N/D/k 或 approximate kNN；build-only artifact
+当前仓库 clean rerun 的 GraphForge 为 3.9076 ms，matched
+cdist/top-k/gather-multiply-sum 为 3.9110 ms，严格 gate 仅 1.0009x、CI low 1.0003，
+因此只算 parity，不算 ranked-relation compiler win。该结果不外推其他 N/D/k 或 approximate kNN；build-only artifact
 只保留为历史辅助结果。
 
 线性 recurrence 的注册 `L=64,T=512,K=V=16,FP32` case 只向 compiler 提交普通
@@ -427,7 +428,7 @@ break-even。
 
 ## 10. Visualization output
 
-安装绘图依赖并从 machine-readable JSON 生成 PNG/SVG：
+安装绘图依赖并从 machine-readable JSON 生成 SVG/HTML 与 PNG fallback：
 
 ```bash
 python3 -m pip install -r requirements-plot.txt
@@ -436,8 +437,8 @@ python3 -m benchmarks.common.plotting \
   --output-dir output/roofline/weighted_aggregation/<case>
 ```
 
-当前每个注册 case 输出 `roofline.png`、厂商榜单式竖向 subplot 的
-`provider_latency.png`、`roofline.json` 和嵌入图像/SOTA gate 的 `REPORT.md`。每个 subplot
+当前每个注册 case 输出 `roofline.svg`（`roofline.png` 仅作 fallback）、厂商榜单式竖向 subplot 的
+`provider_latency.svg`（PNG fallback）、`roofline.json` 和嵌入图像/SOTA gate 的 `REPORT.md`。每个 subplot
 对应一个 kernel/config，method 使用跨图稳定 hue。绘图只读取 JSON，不重新运行
 benchmark；因此报告可以在无 GPU 的机器生成。长期 GraphForge-native GPU visualization
 设计见根目录 `PROJECT.md` 第 11 节，不能与当前 Matplotlib report 混为同一 implementation claim。
@@ -450,13 +451,15 @@ python -m benchmarks.common.plot_diagnostics
 python -m benchmarks.common.plot_cases
 ```
 
-`output/roofline/<operation>/summary.png` 在同一张图片内按数学条件分面；只有
+`output/roofline/<operation>/summary.svg` 在同一张图内按数学条件分面，PNG 仅作 fallback；只有
 topology/locality/dtype/periodic 等条件相同、仅输入规模变化的点才会连线。provider
 颜色由完整方法名稳定映射，在所有图片中保持一致。数字 marker `1/2/3...` 标识方法；
 当测量点重合时，数字 badge 只在显示坐标中绕真实锚点排开，不会用 jitter 篡改
-roofline 坐标。`output/roofline/dashboard.png` 汇总正式 evidence coverage。
+roofline 坐标。`output/roofline/dashboard.svg` 汇总正式 evidence coverage。发布页还由同一
+manifest/JSON 生成 `docs/assets/charts/compiler-performance-report.html`；若 case/filter/provider
+过期，生成会直接失败而不会沿用旧榜单。
 
 非 roofline JSON（编译生命周期、halo、层级存储、provider conformance、容量规划等）
-也必须有同目录 PNG。`plot_diagnostics` 从原始 JSON 回放这些图，不重新执行 benchmark。
+也必须有同目录 SVG；PNG 只作 fallback。`plot_diagnostics` 从原始 JSON 回放这些图，不重新执行 benchmark。
 `output/` 是可再生本地产物并被 Git 忽略；公开文档所需的精选静态图应放在
 `docs/assets/`，而不是提交整棵测量输出。

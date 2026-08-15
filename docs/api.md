@@ -73,30 +73,17 @@ loops and launch bounds static while avoiding one user kernel per input size.
   or compiler-selected consumer requires it.
 - `graph.halo(mesh, *, partition=gf.ByDestination(), depth="auto")` returns the
   same logical `Graph` type with owned/ghost requirements. It is declarative:
-  communication is inserted below the user kernel. The alpha currently
-  lowers it to executable-plan halo pack/exchange/unpack and an
-  interior/boundary dependency Task IR. `DistributedTaskResolver` binds those typed tasks to
-  Torch-free pack/transport/unpack executables and installs exact ordered ghosts,
-  while an active CPU `DistributedRuntime` now accepts contiguous rank-local
-  `gf.Tensor` fields and automatically remaps owned+ghost CSR below ordinary
-  `MessagePassing`; its CPU VJP reverses ghost cotangents back to owners.
-  Versioned paged CSR shards and CUDA Buffer rank-local forward/VJP are executable.
-  On CPU host transports the automatic executor partitions owned rows into
-  owned-source-only interior and ghost-dependent boundary subgraphs. It starts
-  halo progress, realizes the interior while communication is active, then
-  runs the boundary and places both disjoint row sets with compiled
-  `gf_tensor.scatter_rows`. The runtime records an inspectable overlap trace.
-  CUDA device-buffer transports use the same split, enqueue halo copies/P2P on
-  a communication stream, realize the interior on an independent compiler
-  stream, wait, and then execute the boundary. Its local fixture proves this
-  dependency order and generated forward/VJP code, not elapsed GPU overlap.
-  The optional `DistributedRuntime.from_provider("mpi")` binds an
-  mpi4py-compatible communicator through the transport plugin ABI.
-  `DistributedRuntime.from_provider("nccl", ...)` binds native CUDA buffer
-  slices and stream events without importing Torch; its rank-one communicator
-  plus local-D2D transport gate passes, but is not NCCL P2P evidence. RCCL and
-  true multi-device correctness, profiler overlap and performance remain explicit
-  fail-closed gates.
+  communication is inserted below the user kernel as typed pack, exchange,
+  unpack, interior and boundary tasks.
+
+??? info "Current distributed execution boundary"
+
+    CPU rank-local execution, reverse halo VJP, paged CSR shards and real
+    two-process MPI transport are executable. CUDA native buffers use separate
+    communication/compiler streams and verified event ordering. The one-rank
+    NCCL fixture proves provider binding only; real multi-GPU NCCL/RCCL
+    correctness and overlap performance remain fail-closed gates. See
+    [Memory hierarchy and distributed execution](memory-and-distributed.md).
 
 `gf.DeviceMesh(device_type, shape, names=...)` describes logical devices without
 initializing a process group. Deployment binds it to Torch `DeviceMesh`, MPI,
@@ -142,16 +129,15 @@ owns placement.
 
 Reducer regions and type/state metadata are first-class compiler IR. Users may
 subclass `gf.Reducer` and implement `identity`, `lift`, `combine`, and
-`finalize`; the current native capture accepts scalar FP32 messages and scalar
-or tuple state. Implicit dense and CSR scalar reducers have generic CUDA TTIR
-paths; structurally proven online-softmax uses a separate tiled path. Vector
-tuple reducers are not yet in the generic CSR provider. Static-CSR native
-MessagePassing automatically differentiates additive/stable algebras and now
-falls back to an explicit balanced or deterministic reduction tree for any
-captured associative scalar-message/scalar-result reducer with scalar/tuple
-state. The tree path handles empty/ragged rows and runs through CPU LLVM and
-CUDA TTIR. The explicit tree accepts scalar or vector messages/results and its
-automatic VJP lowers rank-two scatter through generic `segment_sum` TTIR.
-Captured product is promoted to first-class zero-safe CSR product/VJP IR. Its
-uniform-degree CUDA mapping passed the registered matched handwritten-backward
-gate; unregistered reducer shapes remain correctness-only claims.
+`finalize`. Native capture accepts scalar FP32 messages and scalar or tuple
+state. Implicit dense and CSR scalar reducers have generic CUDA TTIR paths;
+structurally proven online-softmax uses a tiled path. Vector tuple reducers are
+not yet available in the generic CSR provider.
+
+??? info "Automatic reducer VJP coverage"
+
+    Additive/stable algebras and captured associative scalar reducers lower to
+    balanced or deterministic trees through CPU LLVM and CUDA TTIR. Product is
+    promoted to zero-safe CSR product/VJP IR. Empty/ragged rows and ordered
+    non-commutative tuple state are covered; unregistered reducer shapes remain
+    correctness-only claims.

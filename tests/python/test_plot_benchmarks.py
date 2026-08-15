@@ -115,7 +115,8 @@ class PlotBenchmarksTest(unittest.TestCase):
                      "passed": True},
                 ],
             }, output)
-            for name in ("roofline.png", "provider_latency.png",
+            for name in ("roofline.svg", "provider_latency.svg",
+                         "roofline.png", "provider_latency.png",
                          "radius_build.png", "radius_pipeline.png"):
                 path = output / name
                 self.assertTrue(path.exists())
@@ -127,6 +128,7 @@ class PlotBenchmarksTest(unittest.TestCase):
             plot_manifest_dashboard,
             plot_operation_summary,
             plot_release_showcase,
+            write_interactive_compiler_report,
         )
         from benchmarks.common.plotting import provider_color
 
@@ -191,6 +193,14 @@ class PlotBenchmarksTest(unittest.TestCase):
             }, output, output / "compiler-overview.png")
             self.assertTrue(showcase.exists())
             self.assertTrue(showcase.with_suffix(".svg").exists())
+            interactive = write_interactive_compiler_report({
+                "report_panels": [showcase_panel],
+            }, output, output / "compiler-report.html")
+            self.assertTrue(interactive.exists())
+            interactive_text = interactive.read_text(encoding="utf-8")
+            self.assertIn("application/json", interactive_text)
+            self.assertIn("Sparse test kernel", interactive_text)
+            self.assertIn("GraphForge", interactive_text)
 
     def test_knn_roofline_uses_specialized_overlap_view(self):
         from benchmarks.common.plotting import plot_roofline
@@ -202,9 +212,10 @@ class PlotBenchmarksTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory)
             plot_roofline(payload, output)
-            path = output / "roofline.png"
-            self.assertTrue(path.exists())
-            self.assertGreater(path.stat().st_size, 1000)
+            for name in ("roofline.svg", "roofline.png"):
+                path = output / name
+                self.assertTrue(path.exists())
+                self.assertGreater(path.stat().st_size, 1000)
 
     def test_non_roofline_diagnostic_json_gets_a_human_plot(self):
         import json

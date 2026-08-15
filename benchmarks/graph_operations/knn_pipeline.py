@@ -153,7 +153,7 @@ def main() -> None:
         f"gather-sum: {baseline['milliseconds']:.4f} ms. Strict gate: "
         f"{'PASS' if gate.passed else 'FAIL'}, {gate.speedup_vs_sota:.3f}x, "
         f"95% CI [{gate.speedup_ci_low:.3f}, {gate.speedup_ci_high:.3f}].\n\n"
-        "![Roofline](roofline.png)\n\n![Latency](provider_latency.png)\n")
+        "![Roofline](roofline.svg)\n\n![Latency](provider_latency.svg)\n")
     print(output)
     if args.fail_on_gate and not gate.passed:
         raise SystemExit(2)

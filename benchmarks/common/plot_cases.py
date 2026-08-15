@@ -33,8 +33,8 @@ def main() -> None:
             payload = json.loads(path.read_text(encoding="utf-8"))
             plot_roofline(payload, directory)
             plot_latency(payload, directory)
-            print(directory / "roofline.png")
-            print(directory / "provider_latency.png")
+            print(directory / "roofline.svg")
+            print(directory / "provider_latency.svg")
 
 
 if __name__ == "__main__":

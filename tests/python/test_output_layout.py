@@ -25,6 +25,7 @@ class OutputLayoutTest(unittest.TestCase):
         self.assertEqual(
             overlap["path"], "output/distributed/automatic_cpu_overlap")
         self.assertIn("results.json", overlap["required_artifacts"])
+        self.assertIn("timeline.svg", overlap["required_artifacts"])
         self.assertIn("timeline.png", overlap["required_artifacts"])
         self.assertIn("REPORT.md", overlap["required_artifacts"])
 

@@ -3,26 +3,12 @@
 GraphForge keeps semantic information long enough to choose different physical
 algorithms for the same user program.
 
-```text
-Python AST/tensor bindings
-          │ capture
-          ▼
-gf.domain: relation + field roles + message regions + reducer algebra
-          │ legality, fusion, provenance/effect analysis
-          ├──────── ownership/residency planning ────────┐
-          │                                               ▼
-          │                                  gf.storage + gf.task
-          │                                  region/instance/event DAG
-          │                                               │ local compute task
-          ▼                                               ▼
-gf.iter: coordinate hierarchy + ordering + generated/materialized traversal
-          │ schedule selection, bounds, tiling, masks
-          ▼
-gf.kernel: target-independent launch, working set and local reduction
-          │ provider-local translation
-          ▼
-serialized TTIR ── vendor Triton ── TTGIR/LLVM ── PTX/cubin
-```
+<figure class="gf-figure gf-figure--architecture">
+  <object type="image/svg+xml" data="assets/compiler-pipeline-overview.svg" aria-label="GraphForge compiler architecture from Python to TTIR">
+    <img src="assets/compiler-pipeline-overview.svg" alt="GraphForge compiler architecture from Python to TTIR">
+  </object>
+  <figcaption><a href="assets/compiler-pipeline-overview.svg">Open the full-size SVG</a>. TTIR is the stable GPU provider handoff; the CPU path lowers through MLIR to LLVM.</figcaption>
+</figure>
 
 ## Why three GraphForge IR levels?
 
@@ -40,6 +26,21 @@ serialized TTIR ── vendor Triton ── TTGIR/LLVM ── PTX/cubin
 
 The serialized TTIR boundary prevents GraphForge's MLIR revision and a vendor
 Triton fork's MLIR revision from being linked into one process.
+
+## Pass ownership
+
+| Stage | Information introduced | Representative transformations | Inspect with |
+|---|---|---|---|
+| Capture | field roles, relation provenance, UDF regions, shape/dtype guards | region verification, effect discovery, semantic hashing | `ir("domain")`, `Tensor.mlir()` |
+| Semantic optimization | reducer algebra, Tensor DAG and VJP requests | canonicalization, fusion legality, automatic VJP, checkpoint candidates | `ir("domain")`, VJP IR |
+| Iteration lowering | coordinate hierarchy, traversal order and generated/materialized choice | builder–consumer fusion, row bounds, dense/triangular tile bounds | `ir("iter")` |
+| Kernel scheduling | launch geometry, tiles, masks, local working set and reduction | degree buckets, split rows, feature tiling, pipeline legality | `ir("kernel")`, `schedules` |
+| Storage/task planning | physical instances, capacity, versions, owned/ghost sets and events | spill/recompute, async transfer, halo tasks, communication overlap | `ir("task")`, `explain()` |
+| Provider translation | provider ABI and legal target operations | GraphForge kernel IR → serialized TTIR, or CPU MLIR → LLVM | `ir("gf.kernel.ttir")`, `code(...)` |
+
+`gf.storage` and `gf.task` are not Python scheduling hints. Their cost and
+dependency information feeds back into iteration/kernel choices before local
+tasks are emitted.
 
 ## Debugging a variant
 

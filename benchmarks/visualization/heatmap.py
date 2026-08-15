@@ -120,7 +120,7 @@ def main() -> None:
         "Both points execute the same scalar-to-RGB expression. GraphForge uses "
         "its public prepared executable for stable animation buffers; cold JIT is "
         "reported separately and PNG encoding is outside the timed region.\n\n"
-        "![Roofline](roofline.png)\n\n![Latency](provider_latency.png)\n"
+        "![Roofline](roofline.svg)\n\n![Latency](provider_latency.svg)\n"
     )
     if args.fail_on_gate and not gate.passed:
         raise SystemExit(

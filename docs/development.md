@@ -68,3 +68,21 @@ The post-install command is:
 ```bash
 /path/to/clean/venv/bin/python tests/wheel_smoke.py
 ```
+
+## Documentation and media
+
+Public documentation has three layers: **Learn** for users, **Compiler** for
+architecture/runtime, and **Performance** for measured evidence. Design notes
+and research snapshots live under **Internals** and must not be used as the
+current support matrix.
+
+- Prefer semantic HTML for page structure and native SVG for architecture.
+- Publish benchmark charts as interactive HTML when hover/filtering adds real
+  value; keep a committed SVG fallback and PNG only for raster-only clients.
+- Generate performance views from `benchmarks/evidence_manifest.json` and
+  registered JSON. Do not hand-copy measurements into a new chart generator.
+- Give each exact provider one corpus-stable color; vary marker/line style for
+  conditions and input sizes.
+- Every figure needs useful alt text, a caption and a full-size/fallback link.
+- Run `mkdocs build --strict` and inspect desktop plus narrow layouts before
+  publishing.
