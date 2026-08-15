@@ -37,7 +37,7 @@ inspection、cold/warm compile、roofline 和 matched-peer gate 都在目标硬�
 - typed halo overlap DAG、owner/ghost map 和真实两进程 Torch-free exact exchange；
 - persistent isolated vendor compile worker、content-addressed cache；
 - optional functional `torch.library` adapter、FakeTensor/meta/autograd/Inductor tests；
-- LLVM 22.1.8 pinned-SDK clean build；当前 60/60 lit、218 Python tests + 10 subtests；
+- LLVM 22.1.8 pinned-SDK clean build；当前 61/61 lit、220 Python tests + 10 subtests；
 - `gf.kernel` 的 provider-neutral machine-schedule ABI 已由选择 pass 生成、dialect
   verifier 校验，并通过 native binding 暴露为 `kernel.schedules` 与 structured findings；
 - manylinux/macOS release workflow、本地 manylinux_2_38 wheel audit、两次独立 no-Torch
@@ -87,7 +87,7 @@ Graph/Tensor，不暴露 send/recv。
 
 ### C0/P0 — hosted reproducibility and release
 
-本地已使用校验 SHA256 的官方 LLVM/MLIR 22.1.8 SDK 完成 clean build；当前为 60/60 lit、218 个
+本地已使用校验 SHA256 的官方 LLVM/MLIR 22.1.8 SDK 完成 clean build；当前为 61/61 lit、220 个
 Python tests、strict docs、manylinux_2_38 wheel audit、无 Torch smoke 和 sdist→wheel rebuild。
 hosted compiler run `31793915112` 的 clean-build 与独立 Torch compatibility jobs 均已通过。
 repository、issue 和 maintainer metadata 已进入 PEP 621，并由安装后的 wheel smoke 读取校验；
@@ -108,8 +108,9 @@ ABI/conformance 已就绪，但厂商 toolchain 与真机不是当前工作区�
   fixed repeat 已有自动 VJP correctness fallback，但反向 control loop/tape 与性能 gate 尚缺。
   算法实现留在 examples/benchmarks，core 禁止 workload-named kernel；
 - 当前 N=131072/degree-tail{8,64,256} 的 power-law 已覆盖 i32/i64、local/random、hot/cold
-  八个正式 gate；random 使用 chunked worklist，local 使用 reusable-output native CSR，
-  `prepared_auto` 的 CI low 为 1.255–2.015。结论仍不外推其他 N 与 tail 分布；
+  八个正式 auto gate，CI low 为 1.255–1.849；i32 compiler-generated CDF bucket +
+  chunked-tail TTIR 的四项 CI low 为 1.337–1.495。连续 log-normal/exponential 生成路径
+  也各有 hot/cold gate。结论仍不外推其他 N 与 tail 分布；
 - general strides/layouts、multi-output vector projection、high-degree vector
   SpMM 和 nonlinear/fused message family；fixed/bounded-ragged F16/F64 vector
   TTIR 已登记；

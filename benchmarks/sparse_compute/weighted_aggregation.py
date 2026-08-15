@@ -99,8 +99,8 @@ class Result:
     compile_ms: float | None = None
 
 
-def chunked_tail_candidate(kernel, graph, row_ptr, col_idx, x, weight):
-    """Build the compiler's experimental compact-tail task bundle.
+def compiler_chunked_tail(kernel, graph, row_ptr, col_idx, x, weight):
+    """Build the compiler's compact-tail task bundle.
 
     Compilation and frozen-relation worklist materialization happen here and
     are reported separately; the returned callable submits only the execute
@@ -173,9 +173,45 @@ def chunked_tail_candidate(kernel, graph, row_ptr, col_idx, x, weight):
     resource_tuple = tuple(
         resources[name] for name in execute.bundle.required_bindings
     )
+    # Match the public prepared runtime boundary: the immutable worklist was
+    # materialized above, and the remaining bucket kernels are dependency-free
+    # launches on one CUDA stream.  Going back through generic bundle
+    # submission here would benchmark Python Completion/event bookkeeping that
+    # prepared_auto deliberately removes, rather than the compiler-generated
+    # kernels themselves.
+    bundle_invocations = execute.bundle.invocations
+    prepared_invocations = execute.invocations
+    kernel_names = {
+        invocation.name for invocation in bundle_invocations
+        if invocation.task_kind != "join"
+    }
+    same_stream = tuple(
+        prepared
+        for invocation, prepared in zip(
+            bundle_invocations, prepared_invocations, strict=True)
+        if invocation.task_kind != "join"
+    )
+    can_launch_same_stream = bool(same_stream) and all(
+        not invocation.depends_on
+        for invocation in bundle_invocations
+        if invocation.task_kind != "join"
+    ) and all(
+        invocation.task_kind == "join"
+        or hasattr(prepared, "launch_same_stream")
+        for invocation, prepared in zip(
+            bundle_invocations, prepared_invocations, strict=True)
+    ) and all(
+        invocation.task_kind != "join"
+        or set(invocation.depends_on) <= kernel_names
+        for invocation in bundle_invocations
+    )
 
     def run():
-        execute.submit_resources(resource_tuple)
+        if can_launch_same_stream:
+            for invocation in same_stream:
+                invocation.launch_same_stream(resource_tuple)
+        else:
+            execute.submit_resources(resource_tuple)
         return output
 
     return run, compile_ms
@@ -295,26 +331,30 @@ def benchmark_case(args, roof: Roof, device: torch.device, features: int,
         providers["triton.csr"] = triton_csr
 
     skipped = []
-    if scalar and device.type == "cuda" and args.topology == "powerlaw":
+    if (
+        scalar
+        and device.type == "cuda"
+        and int(degree_stats["maximum"]) > 64
+    ):
         try:
-            candidate = chunked_tail_candidate(
+            candidate = compiler_chunked_tail(
                 gf_kernel, graph, row_ptr, col_idx, x, weight)
         except Exception as error:  # noqa: BLE001 - compiler candidate probe
             candidate = None
             skipped.append((
-                "graphforge.chunked_tail_candidate",
+                "graphforge.compiler_chunked_tail",
                 f"compiler candidate unavailable: {error}",
             ))
         if candidate is None:
-            if not any(name == "graphforge.chunked_tail_candidate"
+            if not any(name == "graphforge.compiler_chunked_tail"
                        for name, _ in skipped):
                 skipped.append((
-                    "graphforge.chunked_tail_candidate",
+                    "graphforge.compiler_chunked_tail",
                     "compiler did not select compact high-degree splitting",
                 ))
         else:
-            providers["graphforge.chunked_tail_candidate"], compile_times[
-                "graphforge.chunked_tail_candidate"
+            providers["graphforge.compiler_chunked_tail"], compile_times[
+                "graphforge.compiler_chunked_tail"
             ] = candidate
     optional_factories = () if scalar else (
         ("pyg.message_passing", optional_pyg),
@@ -397,7 +437,13 @@ def benchmark_case(args, roof: Roof, device: torch.device, features: int,
                 degree_stats["coefficient_of_variation"]),
             lowering=(
                 gf_kernel.last_variant.lowering
-                if name == "graphforge.auto" else None),
+                if name in {
+                    "graphforge.auto", "graphforge.prepared_auto"
+                }
+                else "gf-task-worklist-chunked-tail"
+                if name == "graphforge.compiler_chunked_tail"
+                else None
+            ),
             compile_ms=compile_times.get(name),
         ))
     baseline = next(

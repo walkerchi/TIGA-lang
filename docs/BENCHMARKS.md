@@ -110,9 +110,16 @@ GraphForge prepared Tensor TTIR 为 0.0996 ms，torch.compile/Inductor 为 0.114
 
 已登记的 social-like power-law slice 固定 N=131072、90% degree-8 / 9% degree-64 /
 1% degree-256，覆盖 source locality `{local,random}`、index `{i32,i64}` 与 cache
-`{hot,cold}`。random gather 由 compiler autotune 选择 chunked worklist，local 选择 reusable-output
-native CSR；public `prepared_auto` 的八个 gate 全过，CI low `1.255–2.015`。该矩阵按 provider
+`{hot,cold}`。public `prepared_auto` 逐 topology autotune chunked worklist 与 reusable-output
+native CSR，八个 gate 全过，CI low `1.255–1.849`。i32 的 compiler-generated
+CDF-bucket + register-resident chunked-tail TTIR 也单独 gate：local hot/cold 为
+`1.508x/1.404x`，random 为 `1.353x/1.525x`，CI low `1.337–1.495`。该矩阵按 provider
 逐样本轮转交错，避免长时间 cold flush 把温度/频率漂移归因给测量顺序。
+
+连续 log-normal 与 exponential degree case 使用相同语义条件 `degree_max > 64` 进入
+compiler plan，不按 topology 名称特调。generated TTIR hot/cold 分别为
+`1.196x/1.157x` 与 `1.204x/1.439x`，四项 CI low 均大于 1；结果同时保留 auto/native
+选择，因而可以区分编译器 kernel 能力与外部库 dispatch。
 
 固定度 vector CSR 也走同一 public API，经 Domain/Iter/Kernel IR 生成
 row-neighbor-feature TTIR。registered random/i32/N=131072/degree16 case 中，F16 的 hot/cold

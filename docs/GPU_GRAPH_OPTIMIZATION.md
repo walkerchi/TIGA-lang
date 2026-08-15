@@ -168,11 +168,12 @@ large row   → CTA or split-row + second reduction
 优点：实现风险低，几乎所有不均匀图都需要。缺点：主要解决 load balance，不一定改善
 随机 feature traffic。
 
-2026-08-14 implementation note：compiler 已能生成 packed degree worklist、typed additive
-bucket TTIR 与 `direct-filter + compact high-degree tail`。正式 social-like power-law 矩阵覆盖
-local/random、i32/i64、hot/cold；autotune 对 random gather 选择 register-resident chunked
-worklist，对 local graph 选择 reusable-output native CSR，八个已登记 bucket 均通过严格门槛。
-edge-balanced/merge-path/persistent queue 仍是未登记分布的候选 schedule，不属于当前支持声明。
+2026-08-15 implementation note：compiler 已能从精确 degree CDF 选择 short-row bound，生成
+packed degree worklist、typed additive bucket TTIR 与 register-resident high-degree tail。正式
+social-like power-law 矩阵覆盖 local/random、i32/i64、hot/cold；public auto 八项通过，i32
+generated TTIR 四项也独立通过。log-normal/exponential 不按 case 名特调，使用相同
+`degree_max > 64` planning 路径并通过 hot/cold gate。edge-balanced/merge-path/persistent queue
+仍是未登记分布的候选 schedule，不属于当前支持声明。
 
 ### 5.2 Static subgraph/work-tile blocking
 

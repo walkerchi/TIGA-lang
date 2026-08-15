@@ -92,9 +92,11 @@ public:
       SmallVector<int64_t> bounds = makeUpperBounds(maximum.getInt());
       bool tailSplit = false;
       if (histogram && maximum.getInt() > 32) {
-        // Keep the fast bounded-row kernel at <=32 for ordinary skew, but use
-        // the largest currently generated row tile (64) when oversized rows
-        // will be consumed by the compact split-row planner.
+        // Keep the fast bounded-row kernel at <=32 for ordinary skew.  For an
+        // oversized tail, derive a short-row bound from the exact CDF instead
+        // of padding every non-tail row to 64 lanes.  Use the smaller tile
+        // only when it covers at least half the rows; otherwise retaining
+        // {64, max} avoids specializing for an unrepresentative minority.
         int64_t threshold = maximum.getInt() > 64
                                 ? 64
                                 : maximum.getInt() / 2;
@@ -103,7 +105,31 @@ public:
              degree <= maximum.getInt(); ++degree)
           tailRows += histogram[degree];
         if (maximum.getInt() > 64 || tailRows * 10 <= rows) {
-          bounds = {threshold, maximum.getInt()};
+          int64_t shortBound = threshold;
+          if (maximum.getInt() > 64) {
+            int64_t cumulative = 0;
+            int64_t previous = -1;
+            for (int64_t candidate : {8, 16, 32}) {
+              for (int64_t degree = previous + 1; degree <= candidate;
+                   ++degree)
+                cumulative += histogram[degree];
+              previous = candidate;
+              if (cumulative * 2 >= rows) {
+                shortBound = candidate;
+                break;
+              }
+            }
+          }
+          // A message-only associative reducer can combine every remaining
+          // row in one register-resident chunked worklist.  A node epilogue
+          // retains the middle <=64 bucket so split-row finalize executes
+          // only for truly oversized rows.
+          if (shortBound < threshold && launch.getNumRegions() == 1)
+            bounds = {shortBound, maximum.getInt()};
+          else if (shortBound < threshold)
+            bounds = {shortBound, threshold, maximum.getInt()};
+          else
+            bounds = {threshold, maximum.getInt()};
           tailSplit = true;
           launch->setAttr("load_balance_plan",
                           builder.getStringAttr("high-degree-tail-split"));

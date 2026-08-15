@@ -5,13 +5,11 @@ import os
 import unittest
 from unittest import mock
 
-import torch
-
 import graphforge as gf
+import torch
 from graphforge.codegen import compile_ttir, prepare_ttir_task_primitive
 from graphforge.compiler.toolchain import find_gf_opt, find_gf_translate
 from graphforge.interop.torch.compiler_bridge import (
-    lower_kernel_to_ttir,
     lower_kernel_to_ttir_plan,
     lower_mlir_stages,
     message_passing_domain_mlir,
@@ -312,7 +310,10 @@ class TTIRProviderTest(unittest.TestCase):
             tuple(bucket.metadata["row_mapping"] for bucket in buckets),
             ("direct-filter", "worklist-chunked"),
         )
-        self.assertEqual(buckets[1].metadata["grid_x"], 2)
+        # The exact CDF selects degree 8 as the short-row bound.  A single
+        # chunked worklist then handles all 24 degree-64 rows plus the two
+        # oversized rows, avoiding a third kernel launch.
+        self.assertEqual(buckets[1].metadata["grid_x"], 26)
         compiled = {
             invocation.name: prepare_ttir_task_primitive(invocation)
             for invocation in plan.invocations
@@ -804,7 +805,7 @@ class TTIRProviderTest(unittest.TestCase):
             actual = kernel(
                 graph=graph, src={"x": source}, dst={},
                 edge={"weight": weight})
-            row_ptr, col_idx = graph.resolve_csr()
+            _row_ptr, col_idx = graph.resolve_csr()
             expected = source[col_idx].reshape(nodes, degree).sum(dim=1)
             torch.testing.assert_close(actual, expected, rtol=3e-4, atol=3e-4)
             if step == 0:

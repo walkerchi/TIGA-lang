@@ -53,16 +53,17 @@ func.func @heavy(%row: tensor<?xi64>, %col: tensor<?xi64>,
   return %out : tensor<?xf32>
 }
 
-// IR: %[[WORKLIST:.*]], %[[READY:.*]] = "gf_task.degree_worklist"({{.*}}) <{rows = 128 : i64, snapshot_version = 5 : i64, upper_bounds = array<i64: 64, 256>}>
-// IR: %[[SHORT:.*]] = "gf_task.degree_bucket_launch"(%[[WORKLIST]], %[[READY]]) <{{.*}}degree_upper_inclusive = 64 : i64, output_partition = "bucket:0"
+// IR: %[[WORKLIST:.*]], %[[READY:.*]] = "gf_task.degree_worklist"({{.*}}) <{rows = 128 : i64, snapshot_version = 5 : i64, upper_bounds = array<i64: 8, 64, 256>}>
+// IR: %[[SHORT:.*]] = "gf_task.degree_bucket_launch"(%[[WORKLIST]], %[[READY]]) <{{.*}}degree_upper_inclusive = 8 : i64, output_partition = "bucket:0"
+// IR: %[[MIDDLE:.*]] = "gf_task.degree_bucket_launch"(%[[WORKLIST]], %[[READY]]) <{{.*}}degree_lower_exclusive = 8 : i64, degree_upper_inclusive = 64 : i64, output_partition = "bucket:1"
 // IR: %[[REGION:.*]] = "gf_storage.region"({{.*}}) <{elements = 4 : i64, logical_id = "heavy.row-partials", version = 5 : i64}>
 // IR: %[[INSTANCE:.*]] = "gf_storage.instance"(%[[REGION]]) <{capacity_bytes = 16 : i64, device = "provider:0", external = false, layout = "row-partial-f32", memory_space = "device"}>
-// IR: %[[PARTIAL:.*]] = "gf_task.row_split_partial"({{.*}}, %[[WORKLIST]], %[[INSTANCE]], %[[READY]]) <{active_rows = 1 : i64, arguments = {{.*}}, bucket_ordinal = 1 : i64, buckets = 2 : i64, callee = @heavy, chunk_edges = 64 : i64, partials_per_row = 4 : i64
+// IR: %[[PARTIAL:.*]] = "gf_task.row_split_partial"({{.*}}, %[[WORKLIST]], %[[INSTANCE]], %[[READY]]) <{active_rows = 1 : i64, arguments = {{.*}}, bucket_ordinal = 2 : i64, buckets = 3 : i64, callee = @heavy, chunk_edges = 64 : i64, partials_per_row = 4 : i64
 // IR-SAME: reads = ["row_ptr", "col_idx", "src:x", "row_worklist"], rows = 128 : i64, snapshot_version = 5 : i64, state_bytes = 4 : i64, writes = ["row_partials"]
-// IR: %[[FINAL:.*]] = "gf_task.row_split_finalize"(%[[WORKLIST]], %[[INSTANCE]], %[[PARTIAL]]) <{active_rows = 1 : i64, arguments = {{.*}}, bucket_ordinal = 1 : i64, buckets = 2 : i64, callee = @heavy, output_partition = "bucket:1", partials_per_row = 4 : i64, partitioning = "degree-worklist", reads = ["row_worklist", "row_partials"]
+// IR: %[[FINAL:.*]] = "gf_task.row_split_finalize"(%[[WORKLIST]], %[[INSTANCE]], %[[PARTIAL]]) <{active_rows = 1 : i64, arguments = {{.*}}, bucket_ordinal = 2 : i64, buckets = 3 : i64, callee = @heavy, output_partition = "bucket:2", partials_per_row = 4 : i64, partitioning = "degree-worklist", reads = ["row_worklist", "row_partials"]
 // IR-SAME: writes = ["output"]
 // IR: "gf_storage.release"(%[[INSTANCE]], %[[FINAL]]) <{snapshot_version = 5 : i64}>
-// IR: "gf_storage.join"(%[[SHORT]], %[[FINAL]])
+// IR: "gf_storage.join"(%[[SHORT]], %[[MIDDLE]], %[[FINAL]])
 // IR: load_balance_plan = "high-degree-tail-split"
 
 // PLAN: "chunk_edges": 64

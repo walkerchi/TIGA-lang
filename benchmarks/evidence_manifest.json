@@ -23,11 +23,11 @@
     },
     {
       "title": "Log-normal social CSR aggregation",
-      "detail": "N=131072 · mean 15.70 · p99=137 · max=256 · auto-selected native CSR",
+      "detail": "N=131072 · mean 15.70 · p99=137 · max=256 · generated CDF buckets",
       "operation": "weighted_aggregation",
       "case": "lognormal_random_cuda_i32_n131072_degree16_f1",
       "filters": {"features": 1, "cache": "hot"},
-      "providers": ["graphforge.prepared_auto", "torch.sparse.mm", "triton.csr"],
+      "providers": ["graphforge.compiler_chunked_tail", "graphforge.prepared_auto", "torch.sparse.mm", "triton.csr"],
       "baseline": "torch.sparse.mm"
     },
     {
@@ -143,7 +143,7 @@
         "lognormal_random_cuda_i32_n131072_degree16_f1",
         "exponential_random_cuda_i32_n131072_degree16_f1"
       ],
-      "note": "Fixed-degree and bounded-ragged (maximum degree <=64) F=1/F=16/F=64 CSR use compiler-emitted TTIR; unsupported high-degree/general vector shapes explicitly dispatch to torch.sparse.mm. The fixed random/i32/N=131072/degree16 gate reports F16 hot/cold at 4.322x/3.801x and F64 at 1.966x/1.302x. The irregular degree-0..32 gate reports F16 hot/cold at 4.213x/3.270x and F64 at 1.595x/1.283x, with all 95% CI lows above 1.0. The four discrete social-like power-law buckets cover local/random, i32/i64 and hot/cold; all eight gates use prepared_auto's reusable native CSR winner. The compiler-generated chunked-tail candidate is retained in the raw results but is slower and is not described as the winner. Continuous log-normal and exponential random/i32/F1 cases record degree quantiles and coefficient of variation in every result; prepared_auto passes their hot/cold gates with CI lows 1.249/1.209 and 1.257/1.198 respectively. Compiler-emitted high-degree split-row TTIR remains a performance gap. Providers are sampled in rotating interleaved order to remove thermal/order drift.",
+      "note": "Fixed-degree and bounded-ragged (maximum degree <=64) F=1/F=16/F=64 CSR use compiler-emitted TTIR; unsupported high-degree vector shapes explicitly dispatch to torch.sparse.mm. The fixed random/i32/N=131072/degree16 gate reports F16 hot/cold at 4.322x/3.801x and F64 at 1.966x/1.302x. The irregular degree-0..32 gate reports F16 hot/cold at 4.213x/3.270x and F64 at 1.595x/1.283x, with all 95% CI lows above 1.0. Discrete social-like power-law covers local/random, i32/i64 and hot/cold: public prepared_auto passes all eight gates with CI lows 1.255-1.849. The CDF-planned, compiler-generated chunked-tail TTIR is separately gated for i32 and reaches 1.353-1.525x over torch.sparse.mm with CI lows 1.337-1.495. Continuous log-normal and exponential random/i32/F1 cases record full degree statistics; generated chunked-tail TTIR passes hot/cold at 1.196x/1.157x and 1.204x/1.439x, with CI lows 1.186/1.138 and 1.198/1.376. Auto retains and may select a faster reusable native CSR executable. Providers are sampled in rotating interleaved order to remove thermal/order drift.",
       "auxiliary": ["kernel_ttir/results.json", "kernel_ttir/runtime.png"]
     },
     "diffusion": {

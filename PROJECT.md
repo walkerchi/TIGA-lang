@@ -67,26 +67,25 @@ kernel。
   使用真实 bucket 行数；没有 histogram 的 `degree_max>64` 则显式标记为
   `provider-deferred-high-degree`，不会生成后端无法兑现的 task plan。
 - `degree_max > 64` 不再误入只支持单 neighbor tile 的 bucket translator。调度先生成
-  `degree_worklist`。无 node epilogue 的 associative scalar reducer 现在选择
-  `direct-filter(<=64) + worklist-chunked(>64)`：tail kernel 从 reducer/UDF regions 生成，在
+  `degree_worklist`。无 node epilogue 的 associative scalar reducer 现在从精确 degree CDF
+  选择 `{8,16,32}` 中覆盖至少半数行的 short bound，并生成
+  `direct-filter(<=short) + worklist-chunked(>short)`：tail kernel 从 reducer/UDF regions 生成，在
   寄存器中跨 64-edge tiles 合并状态，不再分配 partial buffer，也没有 finalize launch；带 node
   epilogue 的通用语义仍保留 `row_split_partial → row_split_finalize → release`。短/长行 writer
   通过 `degree-worklist` output partition 在 Task IR 中证明互斥。正式 power-law
-  case（131072 行、90% degree-8 / 9% degree-64 / 1% degree-256）中，compiler-generated
-  chunked-tail candidate 已执行但仍慢于 native CSR；公开 `auto` 因此合法选择并缓存 native
-  CSR，不把该 candidate 宣传为 winner。结果位于
-  `output/roofline/weighted_aggregation/powerlaw_random_cuda_i64_n131072_degree16_f1/`。
-  同一规模/tail 分布的 i32/i64、local/random、hot/cold 八项 prepared-auto native-dispatch
-  gate 均通过，CI low 为 1.255–2.015；这证明 dispatch/caching，不证明高 degree TTIR SOTA。
-  连续 log-normal（mean 15.70/p99 137/max 256）和 exponential（mean 16.00/p99 74/max 176）
-  random/i32/F1 hot/cold 也已登记并记录完整 degree quantile；其 winner 同样是 native CSR。
-  让 split-row TTIR 超过该 baseline 仍是 G0 性能缺口，不能外推其他规模或 tail 比例。
+  case（131072 行、90% degree-8 / 9% degree-64 / 1% degree-256）中，i32
+  compiler-generated chunked-tail TTIR 对 `torch.sparse.mm` 的 local hot/cold 为
+  1.508x/1.404x、random 为 1.353x/1.525x，四项 CI low 1.337–1.495。公开 auto 仍同时
+  autotune reusable native CSR；i32/i64、local/random、hot/cold 八项 gate 全过，CI low
+  1.255–1.849。连续 log-normal（mean 15.70/p99 137/max 256）和 exponential
+  （mean 16.00/p99 74/max 176）random/i32/F1 也走相同 generated plan，hot/cold 分别为
+  1.196x/1.157x 与 1.204x/1.439x；不能外推其他规模、dtype、vector width 或 tail 比例。
 - Torch 只存在于 lazy `interop/torch` oracle/provider 边界；公开 Graph、Reducer、Tensor、
   runtime 和 native compiler frontend 不以 Torch 为基类或必选依赖。
 - 本地 wheel 已捆绑 `gf-opt`、`gf-translate` 和 runtime，并在两个全新、无 Torch 的 venv
   验证相对 RPATH、native Tensor IR 和工具启动；manylinux_2_38 修复产物及从 sdist 独立重建
   也已通过。正式 PyPI wheel 仍须由 hosted trusted-publishing workflow 发布。当前本机 Python
-  suite 为 220 passed、0 skip、10 subtests，LLVM/MLIR 22.1.8 lit 为 60/60；这不是
+  suite 为 220 passed、0 skip、10 subtests，LLVM/MLIR 22.1.8 lit 为 61/61；这不是
   ROCm/DCU/Metal/PPU 支持声明。
 
 ### 文档权属
@@ -2596,9 +2595,9 @@ bounded ragged lowering 随后加入 degree-range proof、masked row×neighbor×
 output pool。历史 `output/irregular/`、`output/skewed_i32/`、`output/skewed_i64/` 是旧矩阵快照，
 不能代替当前 manifest 的正式 gate。当前正式 static evidence 包括 power-law random/i64/F1/hot、
 irregular/skewed diffusion，以及 regular mixed-width case；这些 case 均通过严格 matched-peer gate。
-power-law、log-normal 与 exponential 的高 degree scalar gate 当前由 auto-selected native CSR
-获胜；compiler-generated chunked-tail TTIR 只作为明确标注的失败 candidate 保留在 raw JSON，
-不算作 direct-lowering SOTA 证据。
+power-law、log-normal 与 exponential 的 high-degree scalar gate 现在同时记录 public auto 和
+compiler-generated chunked-tail TTIR；后者八项 i32 hot/cold/locality/distribution gate 的 CI
+下界均超过 1.0，因此计入 direct-lowering evidence。auto 若实测更快仍可选择 native CSR。
 新增的 fixed random/i32/degree16 vector gate 直接执行 compiler-generated
 row-neighbor-feature TTIR：
 F16 hot/cold 对 `torch.sparse.mm` 为 4.322x/3.801x（CI low 4.245/3.759），F64 为
@@ -3041,11 +3040,11 @@ dependency 与 version mismatch 保留 unfused program。
 Tensor、scalar CSR/dense/generated-radius 以及 structured dense online reducer frontend 已由
 C++ OpBuilder 原生构造；Torch compatibility bridge 只保留 typed capture 和显式 tool/provider
 进程边界。native Domain→Iter→Kernel→Task 已改为同一 MLIRContext 内的 pass pipeline；
-serialized TTIR 只保留在 vendor provider ABI 边界。当前 Python suite 为 218 passed、
-0 skip、10 个参数化子测通过；LLVM/MLIR 22.1.8 lit 60/60。以下编号是实现审计，不是第二份
+serialized TTIR 只保留在 vendor provider ABI 边界。当前 Python suite 为 220 passed、
+0 skip、10 个参数化子测通过；LLVM/MLIR 22.1.8 lit 61/61。以下编号是实现审计，不是第二份
 TODO 台账；所有未完成项只在 §15.3 登记：
 
-1. 已在校验 SHA256 的官方 LLVM/MLIR 22.1.8 SDK 上完成 clean build、60/60 lit、完整 Python
+1. 已在校验 SHA256 的官方 LLVM/MLIR 22.1.8 SDK 上完成 clean build、61/61 lit、完整 Python
    suite、strict docs、wheel audit、无 Torch smoke 与 sdist→wheel rebuild；hosted 结果见 C0；
 2. `ReducerDef`、`gf_storage`、`gf_task`、global-ID/owner map 与可执行 planner 已落地；
    Field snapshot、typed Effect 与 Region privilege 已映射为 apply operands、storage instance
@@ -3073,8 +3072,9 @@ TODO 台账；所有未完成项只在 §15.3 登记：
    PhysicalInstance、degree bucket task、partition proof 和 join；provider-neutral worklist
    build 与 typed additive bucket TTIR 已执行通过。`degree_max>64` 已组合 compact high-tail
    worklist 与 register-resident chunked reducer；正式 power-law 矩阵覆盖 local/random ×
-   i32/i64 × hot/cold，public `prepared_auto` 八项全过，CI low 1.255–2.015。结论不外推未登记
-   tail/规模；edge-balanced/merge-path/persistent 只作为候选 schedule；
+   i32/i64 × hot/cold，public `prepared_auto` 八项全过，CI low 1.255–1.849；i32 generated
+   chunked-tail 四项 CI low 1.337–1.495，continuous log-normal/exponential generated gate
+   也通过。结论不外推未登记 tail/规模；edge-balanced/merge-path/persistent 只作为候选 schedule；
 11. direct `gf_kernel → serialized TTIR` 已覆盖 fixed/bounded-ragged scalar sum、fixed/bounded-
     ragged vector feature tile、generated radius distance sum、dense Cartesian streaming reducer、解释
     任意 scalar FP32 reducer region 的 generic dense/CSR edge→reduce→optional-node 路径，以及
@@ -3151,7 +3151,7 @@ benchmark artifact 的能力，`PARTIAL` 不得用于发布声明。每关闭一
 
 | ID | 状态 | 收口项 | 完成证据 |
 |---|---|---|---|
-| C0 | DONE | LLVM/MLIR 22.1.8 权威 Linux CI | 本机用官方 SDK SHA256 pin 完成 clean build、60/60 lit、218 Python tests + 10 subtests、strict docs、manylinux_2_38 audit、两次 wheel/no-Torch smoke 与 sdist→wheel rebuild；hosted run `31793915112` 的 LLVM/MLIR clean-build 与独立 Torch compatibility jobs 均通过（该 hosted run 对应变更前的 53 lit/206 Python tests） |
+| C0 | DONE | LLVM/MLIR 22.1.8 权威 Linux CI | 本机用官方 SDK SHA256 pin 完成 clean build、61/61 lit、220 Python tests + 10 subtests、strict docs、manylinux_2_38 audit、两次 wheel/no-Torch smoke 与 sdist→wheel rebuild；hosted run `31793915112` 的 LLVM/MLIR clean-build 与独立 Torch compatibility jobs 均通过（该 hosted run 对应变更前的 53 lit/206 Python tests） |
 | C1 | DONE | straight-line GraphProgram SSA/canonical hash | native module composition/round-trip、relation CSE、跨 apply SSA 与 stale-version negative、optional `@gf.program` JIT；有依赖的 applies lower 为带显式 value read/write 与 depends-on 的 runtime `ExecutableBundle`，CPU differential 和 CUDA 两个独立 generated PTX leaf 均执行通过；无依赖 applies 仍走单个 horizontal product kernel |
 | C2 | DONE | multi-output apply、vector projection、horizontal fusion codegen | generic product Domain→TTIR differential；N=131072/D=16 matched gate 1.043x handwritten fused oracle，95% CI low=1.008 |
 | C3 | DONE | general Tensor canonicalization/layout/dtype coverage | strided/broadcast view、FP16/32/64/complex CPU 与 FP16/32/64/complex64/128 CUDA TTIR differential；`Dim/TensorSpec/ShapeSpecializer` 统一跨参数 guards 并以实际 binding 生成 concrete MLIR cache specialization |
@@ -3162,7 +3162,7 @@ benchmark artifact 的能力，`PARTIAL` 不得用于发布声明。每关闭一
 | C8 | DONE | structured scan 与动态 tile reducer | 一等 `gf_tensor.cumsum(axis,reverse)`、CPU LLVM/CUDA TTIR 和 reverse-mode VJP；普通 map→scan→contract Tensor DAG 结构融合为单 recurrent kernel，L64/T512/K16/V16 对 official FLA 最快 peer 为 1.037x（CI low 1.025）。`online_softmax(block_prune_threshold=...)` 作为 reducer 近似语义保留在 Domain/Kernel IR，generic dense lowering 生成只包围 payload load/update 的动态 `scf.if`；B1/H16/N4096/D64 对 official FSA 为 1.182x（CI low 1.177），并分别对 exact Flash SDPA 审计误差 |
 | C9 | DONE | CPU LLVM vector/parallel mapping | contiguous pointwise DAG 使用 512-bit semantic Vector IR、LLVM 合法拆分、动态 scalar tail 与懒创建 persistent range worker pool；4M FP32 fusion 对 Inductor 1.073x（CI low 1.053）。MessagePassing 的 gather→edge UDF→CSR reduce 融为嵌套 LLVM loop；N131072/degree16/i32/permuted 热 SpMV 对最快已安装 provider-native CSR peer 6.318x（CI low 5.540）。只登记这两个 bucket，不外推 power-law CPU |
 | C10 | DONE | implicit triangular relation、causal dense streaming 与 grouped lanes | `Graph.triangular()` 表达通用 lower-inclusive topology，不引入 attention core op；edge count/degree/reference materialization 正确，boundary 贯穿 Domain→Iter→Kernel，TTIR 使用动态 source tile 上界与 `src<=dst` mask。source/destination lane 可按整除 group 映射，GQA 不复制 KV。width-aware schedule 对 full/triangular/GQA(Hq16/Hkv4) B1/N4096/D64 分别超过 external Flash SDPA 1.074x（CI low 1.069）/1.117x（CI low 1.100）/1.084x（CI low 1.078），并保留 tuned benchmark-only Triton parity oracle |
-| S0 | DONE | Static MessagePassing registered performance matrix | social-like power-law 已覆盖 local/random × i32/i64 × hot/cold 八个正式 gate；compiler autotune 对 random 选择 register-resident chunked worklist，对 local 选择复用 output 的 native CSR，public `prepared_auto` 全过（CI low 1.255–2.015）。fixed-degree vector TTIR 的 random/i32/degree16 F16 hot/cold 为 4.322x/3.801x、F64 为 1.966x/1.302x（最低 CI low 1.288）；bounded-ragged degree 0–32 的 F16 为 4.213x/3.270x、F64 为 1.595x/1.283x（最低 CI low 1.270）。provider 逐样本轮转交错，避免 thermal/order drift。irregular/skewed diffusion、regular degree 2–64 与 horizontal fusion 也严格通过；仅对 manifest 已登记 case 声明 |
+| S0 | DONE | Static MessagePassing registered performance matrix | social-like power-law 已覆盖 local/random × i32/i64 × hot/cold 八个 public-auto gate（CI low 1.255–1.849）；i32 compiler-generated CDF bucket + chunked-tail TTIR 的 local/random × hot/cold 四项为 1.353–1.525x（CI low 1.337–1.495），log-normal/exponential generated hot/cold 也全部过线。fixed-degree vector TTIR 的 random/i32/degree16 F16 hot/cold 为 4.322x/3.801x、F64 为 1.966x/1.302x（最低 CI low 1.288）；bounded-ragged degree 0–32 的 F16 为 4.213x/3.270x、F64 为 1.595x/1.283x（最低 CI low 1.270）。provider 逐样本轮转交错，避免 thermal/order drift。irregular/skewed diffusion、regular degree 2–64 与 horizontal fusion 也严格通过；仅对 manifest 已登记 case 声明 |
 | D0 | DONE | default Euclidean RadiusGraph performance-ready | compiler generated relation ABI 已携带 box/skew lattice 与 inverse，wrapped cell traversal 在 kernel 内执行 minimum-image 并直接 reduction，不物化 CSR/distance；N=32768、D=2/3、none/box/skew、consume/reuse/rebind/rebuild 共 24 个严格 gate 全过，periodic rebuild 为 3.861–6.064x（CI low 3.769–5.909）。Torch-free runtime 也以通用 gather/square/sum/sqrt/reducer Tensor IR 执行 fixed-snapshot forward/VJP；CPU custom metric/select 接受一次 batched Tensor UDF，membership stop-gradient，selected-edge metric 保持可导 |
 | D1 | DONE | generated builder-consumer fusion | N=32768/D3/degree32 fresh pipeline 对 materialized 4.425x（CI low 4.397），显式 CSR/distance/message ABI 为零、modeled peak bytes 降 7.03x |
 | K0 | DONE | exact procedural kNN build+consume | `Graph.knn` 不预存邻接；N=8192/D3/k32 每次 exhaustive Euclidean cdist/top-k 重建 col_idx，固定 row_ptr 元数据复用并把新 snapshot 重绑到同一个 compiler-generated weighted-consume TTIR executable。Prepared GraphForge 3.9072 ms，对 matched cdist/top-k/gather-multiply-sum 3.9137 ms，严格 gate 1.0017x（CI low 1.0005）；普通 lazy-JIT 热调用 3.9111 ms，位置 mutation differential 与 compile-cache hit 通过 |

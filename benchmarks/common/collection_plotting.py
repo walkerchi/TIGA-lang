@@ -275,17 +275,8 @@ def _short_provider(provider: str) -> str:
 
 
 def _report_method_color(provider: str) -> str:
-    """Use one color per public method family throughout the report."""
-    families = {
-        "graphforge": "#2563eb",
-        "torch": "#dc2626",
-        "triton": "#7c3aed",
-        "handwritten": "#c026d3",
-        "flash_sparse_attn": "#0891b2",
-        "fla": "#10b981",
-        "scipy": "#0284c7",
-    }
-    return families.get(provider.split(".", 1)[0], provider_color(provider))
+    """Use the corpus-wide exact-method color throughout the report."""
+    return provider_color(provider)
 
 
 def plot_compiler_report(manifest: dict, root: Path, output: Path) -> Path:

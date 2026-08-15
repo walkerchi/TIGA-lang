@@ -108,7 +108,8 @@ public:
       function.walk([&](gft::DegreeBucketLaunchOp candidate) {
         if (!tail && candidate.getCalleeAttr().getValue() ==
                          function.getSymName() &&
-            candidate.getDegreeLowerExclusiveAttr().getInt() == chunkEdges &&
+            candidate.getDegreeLowerExclusiveAttr().getInt() > 0 &&
+            candidate.getDegreeLowerExclusiveAttr().getInt() <= chunkEdges &&
             candidate.getDegreeUpperInclusiveAttr().getInt() ==
                 maximum.getInt() &&
             candidate.getRowMapping() == "worklist")

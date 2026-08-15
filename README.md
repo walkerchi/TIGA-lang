@@ -172,17 +172,18 @@ These RTX 5070 Ti results use matched sparse semantics and timing boundaries.
 | Vector CSR SpMM, random/hot | 131,072 rows, degree 16, F=16, i32 | 0.0512 ms | `torch.sparse.mm` 0.2213 ms | **4.32×**, CI-low 4.245 |
 | Vector CSR SpMM, random/cold | same topology, F=64 | 0.2684 ms | `torch.sparse.mm` 0.3495 ms | **1.30×**, CI-low 1.288 |
 | Ragged vector CSR SpMM, random/hot | 131,072 rows, degree 0–32, F=16, i32 | 0.0548 ms | `torch.sparse.mm` 0.2308 ms | **4.21×**, CI-low 4.153 |
-| Social power-law CSR | 90% degree 8 / 9% degree 64 / 1% degree 256; i32/i64; local/random; hot/cold | auto-selected reusable native CSR | fastest registered peer per bucket | **8/8 gates pass**, CI-low 1.255–2.015×; split-row TTIR candidate is not yet the winner |
-| Log-normal social CSR | 131,072 rows; mean 15.70 / p50 7 / p99 137 / max 256; random i32 | 0.0552 ms hot / 0.0715 ms cold | `torch.sparse.mm` 0.0695 / 0.0874 ms | **1.259× / 1.222×**, CI-low 1.249 / 1.209 |
-| Exponential-degree CSR | 131,072 rows; mean 16.00 / p50 11 / p99 74 / max 176; random i32 | 0.0554 ms hot / 0.0716 ms cold | `torch.sparse.mm` 0.0702 / 0.0875 ms | **1.267× / 1.222×**, CI-low 1.257 / 1.198 |
+| Social power-law CSR | 90% degree 8 / 9% degree 64 / 1% degree 256; i32 local/random; hot/cold | compiler-generated CDF buckets + chunked tail TTIR | `torch.sparse.mm` | **1.353–1.525×**, CI-low 1.337–1.495; public auto's wider i32/i64 matrix is 8/8 |
+| Log-normal social CSR | 131,072 rows; mean 15.70 / p50 7 / p99 137 / max 256; random i32 | compiler-generated chunked-tail TTIR | `torch.sparse.mm` | **1.196× / 1.157×** hot/cold, CI-low 1.186 / 1.138 |
+| Exponential-degree CSR | 131,072 rows; mean 16.00 / p50 11 / p99 74 / max 176; random i32 | compiler-generated chunked-tail TTIR | `torch.sparse.mm` | **1.204× / 1.439×** hot/cold, CI-low 1.198 / 1.376 |
 | Sparse online-softmax reducer | 131,072 rows, degree 32 | compiler-generated TTIR | hand-written Triton | **1.007×**, CI-low 1.005 |
 | Product-reducer backward | 131,072 rows, degree 16 | compiler-generated zero-safe VJP | hand-written Triton | **1.021×**, CI-low 1.016 |
 | Fixed-iteration PageRank | N=65,536/262,144, degree 4/16/32, 20 iterations | one fused CSR+node TTIR launch/iteration | matched `torch.sparse.mm` loop | **1.049–2.337×**, CI-low 1.043–2.312 |
 
-The scalar, fixed-degree vector, and bounded-ragged vector rows above are
-compiler-generated TTIR. Vector shapes beyond the proven degree/feature bounds
-still dispatch explicitly to an external sparse library and remain labeled as
-dispatch results.
+The scalar, high-degree scalar, fixed-degree vector, and bounded-ragged vector
+rows above are compiler-generated TTIR. Auto still keeps an independently
+measured native CSR choice and may select it for a particular locality/cache
+regime. Vector shapes beyond the proven degree/feature bounds dispatch
+explicitly to an external sparse library and remain labeled as dispatch results.
 The [benchmark results](docs/benchmark-results.md) separate sparse consume,
 dynamic graph build, build+consume, backward, and cache regimes.
 
