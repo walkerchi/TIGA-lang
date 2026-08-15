@@ -85,7 +85,7 @@ kernel。
 - 本地 wheel 已捆绑 `gf-opt`、`gf-translate` 和 runtime，并在两个全新、无 Torch 的 venv
   验证相对 RPATH、native Tensor IR 和工具启动；manylinux_2_38 修复产物及从 sdist 独立重建
   也已通过。正式 PyPI wheel 仍须由 hosted trusted-publishing workflow 发布。当前本机 Python
-  suite 为 228 passed、0 skip、10 subtests，LLVM/MLIR 22.1.8 lit 为 63/63；这不是
+  suite 为 230 passed、0 skip、10 subtests，LLVM/MLIR 22.1.8 lit 为 64/64；这不是
   ROCm/DCU/Metal/PPU 支持声明。
 
 ### 文档权属
@@ -3045,11 +3045,11 @@ dependency 与 version mismatch 保留 unfused program。
 Tensor、scalar CSR/dense/generated-radius 以及 structured dense online reducer frontend 已由
 C++ OpBuilder 原生构造；Torch compatibility bridge 只保留 typed capture 和显式 tool/provider
 进程边界。native Domain→Iter→Kernel→Task 已改为同一 MLIRContext 内的 pass pipeline；
-serialized TTIR 只保留在 vendor provider ABI 边界。当前 Python suite 为 220 passed、
-0 skip、10 个参数化子测通过；LLVM/MLIR 22.1.8 lit 63/63。以下编号是实现审计，不是第二份
+serialized TTIR 只保留在 vendor provider ABI 边界。当前 Python suite 为 230 passed、
+0 skip、10 个参数化子测通过；LLVM/MLIR 22.1.8 lit 64/64。以下编号是实现审计，不是第二份
 TODO 台账；所有未完成项只在 §15.3 登记：
 
-1. 已在校验 SHA256 的官方 LLVM/MLIR 22.1.8 SDK 上完成 clean build、63/63 lit、完整 Python
+1. 已在校验 SHA256 的官方 LLVM/MLIR 22.1.8 SDK 上完成 clean build、64/64 lit、完整 Python
    suite、strict docs、wheel audit、无 Torch smoke 与 sdist→wheel rebuild；hosted 结果见 C0；
 2. `ReducerDef`、`gf_storage`、`gf_task`、global-ID/owner map 与可执行 planner 已落地；
    Field snapshot、typed Effect 与 Region privilege 已映射为 apply operands、storage instance
@@ -3128,8 +3128,11 @@ TODO 台账；所有未完成项只在 §15.3 登记：
 19. `gf.online_softmax()` 在自有 Tensor runtime 中展开为稳定的 detached row-shift、exp、
     CSR reductions 与 normalize，forward 和 score/value VJP 均由 native Tensor IR/LLVM JIT
     执行；power-law backward 的 dx/dweight 正式门槛也已通过。
-20. `gf_control.repeat` 已把固定次数 loop-carried Tensor state capture 为一个 region；CPU
-    lowering 生成 `scf.for` 与两个 ping-pong MemRef，CUDA runtime 复用两个 device buffer。
+20. `gf_control.repeat` 已把一个或多个固定次数 loop-carried Tensor state capture 为一个
+    multi-result region；CPU lowering 生成 `scf.for`，并为每个 carried value 复用两个 typed
+    ping-pong MemRef，rank-0 reduction/scalar algebra 每迭代 hoist 一次，不在 vector element loop
+    内重复。单状态 CUDA runtime 复用两个 device buffer；多状态 CUDA command
+    graph/persistent plan 仍待实现。
     CSR sum IR 保留真实 `degree_min/max` proof；fixed-degree weighted gather、sum 和任意由
     add/mul/div 组成的 node epilogue 结构融合为 row×neighbor TTIR tile，每次迭代一次 launch，
     未知或长尾 relation 进入任意长度 tiled-loop fallback。fixed repeat 的自动 VJP correctness
@@ -3156,7 +3159,7 @@ benchmark artifact 的能力，`PARTIAL` 不得用于发布声明。每关闭一
 
 | ID | 状态 | 收口项 | 完成证据 |
 |---|---|---|---|
-| C0 | DONE | LLVM/MLIR 22.1.8 权威 Linux CI | 本机用官方 SDK SHA256 pin 完成 clean build、63/63 lit、228 Python tests + 10 subtests、strict docs、manylinux_2_38 audit、两次 wheel/no-Torch smoke 与 sdist→wheel rebuild；hosted run `31793915112` 的 LLVM/MLIR clean-build 与独立 Torch compatibility jobs 均通过（该 hosted run 对应变更前的 53 lit/206 Python tests） |
+| C0 | DONE | LLVM/MLIR 22.1.8 权威 Linux CI | 本机用官方 SDK SHA256 pin 完成 clean build、64/64 lit、230 Python tests + 10 subtests、strict docs、manylinux_2_38 audit、两次 wheel/no-Torch smoke 与 sdist→wheel rebuild；hosted run `31793915112` 的 LLVM/MLIR clean-build 与独立 Torch compatibility jobs 均通过（该 hosted run 对应变更前的 53 lit/206 Python tests） |
 | C1 | DONE | straight-line GraphProgram SSA/canonical hash | native module composition/round-trip、relation CSE、跨 apply SSA 与 stale-version negative、optional `@gf.program` JIT；有依赖的 applies lower 为带显式 value read/write 与 depends-on 的 runtime `ExecutableBundle`，CPU differential 和 CUDA 两个独立 generated PTX leaf 均执行通过；无依赖 applies 仍走单个 horizontal product kernel |
 | C2 | DONE | multi-output apply、vector projection、horizontal fusion codegen | generic product Domain→TTIR differential；N=131072/D=16 matched gate 1.043x handwritten fused oracle，95% CI low=1.008 |
 | C3 | DONE | general Tensor canonicalization/layout/dtype coverage | strided/broadcast view、FP16/32/64/complex CPU 与 FP16/32/64/complex64/128 CUDA TTIR differential；`Dim/TensorSpec/ShapeSpecializer` 统一跨参数 guards 并以实际 binding 生成 concrete MLIR cache specialization |
@@ -3182,7 +3185,7 @@ benchmark artifact 的能力，`PARTIAL` 不得用于发布声明。每关闭一
 | A0 | DONE | optional Torch adapter productization | zero-copy/current-stream；CSR topology 与 UDF fields 均为显式 functional `torch.library` operands，FakeTensor/meta、registered autograd、四项 `opcheck` 与 Inductor fullgraph forward+backward test/example |
 | V0 | DONE | GPU-native visualization parallel track | 独立 `gf.visualize.heatmap` 只组合通用 Tensor IR，返回可查看 MLIR/TTIR 的 lazy `Raster`；`Tensor.prepare()` 绑定稳定动画 buffer，`to_numpy/save/show` 位于可选 interop/encoding 边界。2048² FP32 scalar→RGB 对 matched torch.compile/Inductor 为 1.153x（CI low 1.140），cold JIT 与 PNG encoding 分开报告；core 无 heatmap/render op |
 | G0 | PARTIAL | representative graph-algorithm compiler probes | fixed-iteration PageRank 已有 `gf_control.repeat`、CPU/CUDA correctness、bounded canonical IR、2-buffer/1-launch-per-iteration artifact，以及 degree 4/16/32 × N65536/262144 的 matched `torch.sparse.mm` roofline/latency benchmark；RTX 5070 Ti 完整 artifact 为 1.049–2.337x（CI low 1.043–2.312），首个 cold provider compile 后其余 shape 的 capture+compile+prepare wall 为 13.70–17.01 ms。fixed repeat 的 pointwise/CSR MessagePassing 自动 VJP correctness fallback 已通过，但反向结构化 loop/tape/performance、设备侧 convergence、BFS frontier/worklist、triangle sorted-intersection 仍待完成；没有用 NetworkX 作性能分母 |
-| L0 | PARTIAL | matrix-free solver compiler probe | `gf.linalg.LinearOperator` 已将 Tensor/MessagePassing `matvec`、adjoint callback、参数元数据保持为普通 compiler-visible application，`dot/vector_norm` 由可捕获 Tensor algebra 表达；一维 P1 FEM Poisson example 不组装 sparse matrix，并以 `gf.linalg.richardson` 捕获为单个 fixed-count `gf_control.repeat`，前向正确性与短循环自动 VJP 测试通过。关闭范围仍需 multi-value loop-carried SSA、bounded device-side `gf_control.while`、distributed reduction/collective semantics、CG/preconditioner、structured reverse loop/tape、residual-guarded implicit adjoint VJP，以及 matched forward/backward performance artifact |
+| L0 | PARTIAL | matrix-free solver compiler probe | `gf.linalg.LinearOperator` 保留 Tensor/MessagePassing `matvec`、adjoint callback 与参数元数据；`gf_control.repeat` 已支持多 shape/type carried SSA 和 variadic yield、native builder/verifier round-trip，CPU lowering 为每个 state 生成 typed double buffer，并将 rank-0 reduction/scalar algebra hoist 为每迭代一次以防 dot product 退化成 `O(N^2)`。`gf.linalg.cg` 以 `(x,r,p,rᴴz)` 四状态捕获 fixed-count CG，并接受 callable/LinearOperator preconditioner；一维 P1 FEM 不组装 sparse matrix，CPU LLVM forward 与自动 algorithmic VJP 通过。关闭范围仍需 bounded device-side `gf_control.while`、multi-state CUDA loop plan、distributed collective semantics、structured reverse loop/tape、residual-guarded implicit adjoint VJP，以及 matched forward/backward performance artifact |
 
 执行顺序固定为 `C0/C1/C2/C3/C4/C6 → S0/D0/D1/K0 → R0/M0/X0 → B*/J0/P0/A0`；V0 是独立
 track；G0/L0 是以算法驱动 compiler 修改的独立 diagnostic track。外部硬件或发布凭据缺失不会把对应项伪标为 DONE，而应保留 PENDING 并记录可复现的

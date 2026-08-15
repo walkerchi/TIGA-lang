@@ -382,10 +382,15 @@ def _compile_repeat(output: Tensor) -> GPULoopExecutable:
 
     first_target = allocate_state()
     second_target = allocate_state()
+    if int(expression.attr("num_carried")) != 1:
+        raise NotImplementedError(
+            "CUDA execution of multi-state gf_control.repeat is not yet lowered")
+    body_output = region.output[0] if isinstance(region.output, tuple) \
+        else region.output
     state = region.arguments[0]
-    first_body = _clone_loop_body(region.output, state, initial)
-    odd_body = _clone_loop_body(region.output, state, second_target)
-    even_body = _clone_loop_body(region.output, state, first_target)
+    first_body = _clone_loop_body(body_output, state, initial)
+    odd_body = _clone_loop_body(body_output, state, second_target)
+    even_body = _clone_loop_body(body_output, state, first_target)
     first_executable = compile_tensor(first_body, _control_body=True)
     odd_executable = compile_tensor(odd_body, _control_body=True)
     even_executable = compile_tensor(even_body, _control_body=True)

@@ -30,16 +30,22 @@ A = gf.linalg.LinearOperator(
     symmetric=True,
 )
 
-x = gf.linalg.richardson(
-    A, b,
-    iterations=200,
-    relaxation=omega,
-)
+x = gf.linalg.cg(A, b, iterations=k)
 ```
 
-The stationary solver is deliberately fixed-count. Its body is captured once
-inside `gf_control.repeat`; iteration count does not grow forward IR, and a
-supported GPU path can reuse two buffers plus one prepared operator launch.
+Both Richardson and CG are deliberately fixed-count. CG carries
+`(x, r, p, rᴴz)` as four typed SSA values in one `gf_control.repeat`; iteration
+count does not grow forward IR, and CPU lowering allocates two reusable buffers
+per carried value. Single-state CUDA repeat already reuses two buffers and one
+prepared operator launch per iteration; multi-state CUDA scheduling remains an
+explicit open performance item rather than silently returning to Python.
+CPU control lowering also hoists rank-zero body SSA (including dot-product
+reductions and dependent scalar algebra) ahead of element loops and stores each
+once per iteration; this prevents a scalar reduction referenced by three CG
+vector updates from being recomputed once per vector element.
+Ordinary downstream Tensor algebra remains Pythonic (`loss = x.sum()`): the
+current single-output CPU executable ABI automatically stages a nested control
+result, while a future multi-output program ABI may fuse the loop epilogue.
 Changing coordinates, coefficients, a radius relation, or a halo snapshot
 changes the operator's normal guards and versions—the solver API does not
 change.
@@ -71,11 +77,13 @@ quadrature/layout metadata, and explicit essential-constraint semantics. It
 should lower through the same gather/UDF/reducer machinery, but must not be
 faked as pairwise edges when doing so loses the element tensor structure.
 
-## Why CG is not a Python helper yet
+## Fixed CG exists; convergence-driven CG needs bounded while
 
-Conjugate gradient carries `(x, r, p, rᵀr)` and stops from a device-computed
-condition. A correct compiler primitive therefore needs more than the current
-single-state fixed repeat.
+`gf.linalg.cg(..., iterations=k)` is an executable matrix-free primitive, not a
+Python iteration helper. It accepts an optional compiler-visible
+preconditioner. It deliberately does not accept a tolerance yet: exact early
+convergence can otherwise make a later fixed CG step divide by zero, and a host
+residual check would insert a synchronization into every iteration.
 
 | Primitive | Why the compiler must see it | Status |
 |---|---|---|
@@ -83,9 +91,10 @@ single-state fixed repeat.
 | element gather/local tensor/scatter | retain higher-order and mixed FEM structure beyond pairwise P1 edges | design exists as hyperrelation; executable solver slice pending |
 | boundary/constraint projection | enforce essential constraints consistently in primal, adjoint, and distributed ownership | pending |
 | dot, norm, scalar comparison | expose reductions and their distributed collective boundary | `dot`/`vector_norm` Tensor algebra exists; comparison and solver-level collective semantics pending |
-| multi-value loop-carried SSA | keep CG vectors/scalars in one bounded region with reusable buffers | pending |
+| multi-value loop-carried SSA | keep CG vectors/scalars in one bounded region with reusable buffers | executable frontend + CPU LLVM lowering |
 | bounded `gf_control.while` | device-side convergence with `max_iterations` as a mandatory safety/resource bound | pending |
-| preconditioner operator | permit Jacobi/block/multigrid or provider-library choice without changing CG semantics | pending |
+| preconditioner operator | permit Jacobi/block/multigrid or provider-library choice without changing CG semantics | callable/`LinearOperator` frontend; schedule/performance gates pending |
+| multi-state CUDA loop plan | reuse all carried buffers and choose host command graph vs persistent/cooperative execution | pending |
 | loop memory/checkpoint plan | choose saved states, recomputation, or hierarchy spill for reverse mode | fixed-repeat correctness fallback exists; structured reverse loop pending |
 
 The intended control form is structurally similar to:
@@ -95,7 +104,7 @@ The intended control form is structurally similar to:
     max_iterations = 1000
     (%x0, %r0, %p0, %rr0) {
   cond(%x, %r, %p, %rr):
-    %continue = arith.cmpf olt, %rr, %tolerance_squared
+    %continue = arith.cmpf ogt, %rr, %tolerance_squared
     gf_control.condition %continue
   body(%x, %r, %p, %rr):
     // A(p), dot products, vector updates, and optional collectives
@@ -116,7 +125,7 @@ are not interchangeable.
 ### Algorithmic or unrolled VJP
 
 The derivative is for exactly the executed finite iteration algorithm. Current
-`gf_control.repeat` reuses existing Tensor/MessagePassing VJP rules, but its
+multi-state `gf_control.repeat` reuses existing Tensor/MessagePassing VJP rules, but its
 correctness path specializes the reverse body per iteration. Backward IR and
 compile work therefore grow with iteration count. This is useful for testing
 and truncated optimization, but it is not a performance-complete solver VJP.
@@ -170,5 +179,6 @@ A solver claim must report more than kernel latency:
 - backward comparison against both an unrolled hand-written implementation and
   a matched implicit/adjoint implementation.
 
-Until multi-state while lowering and implicit VJP exist, the Richardson example
-is a compiler vertical slice—not a CG/PETSc/FEniCS performance claim.
+Until bounded while, structured reverse lowering, implicit VJP and matched
+artifacts exist, the FEM/CG example is a compiler vertical slice—not a
+CG/PETSc/FEniCS performance claim.

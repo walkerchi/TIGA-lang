@@ -150,6 +150,35 @@ def _physicalize_materialized_operands(output: Tensor) -> Tensor:
     return visit(output, root=True)
 
 
+def _materialize_nested_control(output: Tensor) -> None:
+    """Execute control regions consumed by an ordinary outer Tensor DAG.
+
+    The current CPU ABI returns one Tensor, while ``gf_control.repeat`` may
+    produce several SSA results. Until the program ABI accepts multiple output
+    buffers, a downstream pointwise/reduction DAG treats each required control
+    result as an automatically materialized stage boundary. This is never a
+    user-visible synchronization requirement and keeps the semantic DAG intact
+    for inspection/autograd; `_physicalize_materialized_operands` cuts only the
+    executable clone at the realized storage.
+    """
+    visited: set[int] = set()
+
+    def visit(value: Tensor, *, root: bool = False) -> None:
+        if id(value) in visited:
+            return
+        visited.add(id(value))
+        expression = value._expr
+        if expression is None:
+            return
+        if not root and expression.op == "repeat":
+            value.realize()
+            return
+        for operand in expression.operands:
+            visit(operand)
+
+    visit(output, root=True)
+
+
 def compile_tensor(output: Tensor) -> CPUExecutable:
     if output.device.type.name != "CPU":
         raise NotImplementedError("the native CPU JIT only accepts CPU tensors")
@@ -157,11 +186,11 @@ def compile_tensor(output: Tensor) -> CPUExecutable:
     # A control region owns references to its captured leaves. Rewriting only
     # the outer operand list would break that region's explicit capture ABI;
     # control physicalization therefore happens in its dedicated lowering.
-    physical_output = (
-        output
-        if output._expr is not None and output._expr.op == "repeat"
-        else _physicalize_materialized_operands(output)
-    )
+    root_is_control = output._expr is not None and output._expr.op == "repeat"
+    if not root_is_control:
+        _materialize_nested_control(output)
+    physical_output = output if root_is_control else \
+        _physicalize_materialized_operands(output)
     identity = (_PIPELINE_VERSION, physical_output._jit_key)
     cached = _IDENTITY_EXECUTABLES.get(identity)
     if cached is not None:

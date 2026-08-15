@@ -15,6 +15,7 @@ from ..tensor import Tensor, zeros_like
 
 
 Matvec = Callable[[Tensor], Tensor]
+Preconditioner = Callable[[Tensor], Tensor]
 
 
 def dot(left: Tensor, right: Tensor) -> Tensor:
@@ -173,4 +174,91 @@ def richardson(
     )
 
 
-__all__ = ["LinearOperator", "Matvec", "dot", "richardson", "vector_norm"]
+def cg(
+    operator: LinearOperator,
+    rhs: Tensor,
+    *,
+    iterations: int,
+    initial: Tensor | None = None,
+    preconditioner: LinearOperator | Preconditioner | None = None,
+) -> Tensor:
+    """Capture fixed-count matrix-free (preconditioned) conjugate gradient.
+
+    Four values (solution, residual, search direction, residual inner product)
+    are carried through one ``gf_control.repeat`` region. ``operator`` and an
+    optional ``preconditioner`` therefore remain ordinary compiler-visible
+    Tensor/MessagePassing programs and can be fused or scheduled by providers.
+
+    This fixed-count API never performs a host synchronization to inspect a
+    residual. A future tolerance-driven overload will lower to bounded
+    ``gf_control.while``; callers should not infer convergence merely because
+    this routine returned.
+    """
+    if not isinstance(operator, LinearOperator):
+        raise TypeError("cg operator must be a LinearOperator")
+    if not operator.symmetric:
+        raise ValueError("cg requires operator.symmetric=True")
+    if not isinstance(rhs, Tensor):
+        raise TypeError("cg rhs must be a graphforge.Tensor")
+    if operator.shape[0] != operator.shape[1]:
+        raise ValueError("cg requires a square LinearOperator")
+    if rhs.shape != (operator.shape[0],):
+        raise ValueError(f"cg rhs shape must be {(operator.shape[0],)}")
+    if rhs.dtype.kind != "float":
+        raise TypeError("cg currently requires a real floating Tensor")
+    if not isinstance(iterations, int) or isinstance(iterations, bool):
+        raise TypeError("cg iterations must be an integer")
+    if iterations < 0:
+        raise ValueError("cg iterations must be non-negative")
+    if (preconditioner is not None and
+            not isinstance(preconditioner, LinearOperator) and
+            not callable(preconditioner)):
+        raise TypeError("cg preconditioner must be a LinearOperator or callable")
+    solution = zeros_like(rhs) if initial is None else initial
+    if (not isinstance(solution, Tensor) or solution.shape != rhs.shape or
+            solution.dtype is not rhs.dtype or solution.device != rhs.device):
+        raise ValueError("cg initial value must match rhs shape, dtype, and device")
+
+    def apply_preconditioner(value: Tensor) -> Tensor:
+        if preconditioner is None:
+            return value
+        output = preconditioner(value)
+        if (not isinstance(output, Tensor) or output.shape != value.shape or
+                output.dtype is not value.dtype or output.device != value.device):
+            raise ValueError(
+                "cg preconditioner must preserve residual shape, dtype, and device")
+        return output
+
+    residual = rhs - operator(solution)
+    preconditioned = apply_preconditioner(residual)
+    residual_product = dot(residual, preconditioned)
+
+    def step(
+        current_solution: Tensor,
+        current_residual: Tensor,
+        direction: Tensor,
+        current_product: Tensor,
+    ) -> tuple[Tensor, Tensor, Tensor, Tensor]:
+        applied = operator(direction)
+        alpha = current_product / dot(direction, applied)
+        next_solution = current_solution + alpha * direction
+        next_residual = current_residual - alpha * applied
+        next_preconditioned = apply_preconditioner(next_residual)
+        next_product = dot(next_residual, next_preconditioned)
+        beta = next_product / current_product
+        next_direction = next_preconditioned + beta * direction
+        return next_solution, next_residual, next_direction, next_product
+
+    result = repeat(
+        (solution, residual, preconditioned, residual_product),
+        step,
+        iterations=iterations,
+    )
+    assert isinstance(result, tuple)
+    return result[0]
+
+
+__all__ = [
+    "LinearOperator", "Matvec", "Preconditioner", "cg", "dot",
+    "richardson", "vector_norm",
+]

@@ -1,8 +1,9 @@
-"""Matrix-free 1D P1 FEM Poisson solve through MessagePassing.
+"""Matrix-free 1D P1 FEM Poisson solve through MessagePassing and CG.
 
 The mesh topology is a Graph, stiffness application is a user UDF, and the
-fixed solver loop is captured once as gf_control.repeat. No sparse matrix is
-assembled. Run with ``PYTHONPATH=python python examples/fem_poisson.py``.
+four-state solver loop is captured once as gf_control.repeat. No sparse matrix
+is assembled and the UDF participates in automatic algorithmic differentiation.
+Run with ``PYTHONPATH=python python examples/fem_poisson.py``.
 """
 
 from __future__ import annotations
@@ -62,20 +63,18 @@ def poisson_operator(interior_nodes: int):
     ), spacing
 
 
-def run(interior_nodes: int = 8, iterations: int = 240):
+def run(interior_nodes: int = 8, iterations: int | None = None):
     operator, spacing = poisson_operator(interior_nodes)
     load = gf.tensor(
         [spacing] * interior_nodes,
         dtype=gf.float32,
         requires_grad=True,
     )
-    # lambda_max(A) < 4 / h, so omega=h/2 is a stable stationary step.
-    solution = gf.linalg.richardson(
-        operator,
-        load,
-        iterations=iterations,
-        relaxation=0.5 * spacing,
-    )
+    # The constant load and symmetric mesh occupy ceil(n/2) eigenmodes. Stop
+    # there: fixed-count CG has no residual guard and intentionally exposes
+    # exact-convergence breakdown instead of hiding a host-side tolerance test.
+    steps = (interior_nodes + 1) // 2 if iterations is None else iterations
+    solution = gf.linalg.cg(operator, load, iterations=steps)
     coordinates = [(index + 1) * spacing for index in range(interior_nodes)]
     exact = [0.5 * x * (1.0 - x) for x in coordinates]
     error = max(abs(actual - expected) for actual, expected in zip(
@@ -83,9 +82,20 @@ def run(interior_nodes: int = 8, iterations: int = 240):
     return solution, exact, error
 
 
+def load_gradient(interior_nodes: int = 4):
+    """Differentiate through the captured iterations (algorithmic VJP)."""
+    operator, spacing = poisson_operator(interior_nodes)
+    load = gf.tensor(
+        [spacing] * interior_nodes, dtype=gf.float32, requires_grad=True)
+    solution = gf.linalg.cg(
+        operator, load, iterations=(interior_nodes + 1) // 2)
+    return gf.autograd.grad(solution.sum(), load)
+
+
 if __name__ == "__main__":
     result, expected, maximum_error = run()
     print("solution:", [round(value, 6) for value in result.tolist()])
     print("exact:   ", [round(value, 6) for value in expected])
     print(f"max error: {maximum_error:.3e}")
+    print("d sum(u) / d load:", load_gradient().tolist())
     print(result.mlir())

@@ -55,8 +55,9 @@ python3 examples/compiler_probes/pagerank.py
 - `diffusion.py`: native directional neighbor difference with both source and
   destination fields, node update and automatic field/edge gradients;
 - `fem_poisson.py`: matrix-free one-dimensional P1 stiffness application as a
-  MessagePassing `LinearOperator`, captured inside one fixed-count
-  `gf_control.repeat`; it is a solver compiler probe, not a CG performance claim;
+  MessagePassing `LinearOperator`; four-state fixed CG is captured inside one
+  multi-result `gf_control.repeat`, and an algorithmic load VJP is generated
+  without a user backward; it is a compiler probe, not a CG performance claim;
 - `gcn.py`: native multi-feature aggregation with edge broadcasting and
   automatic gradients, matching the SpMM/GCN tensor shape;
 - `custom_reducer.py`: Torch-free execution of a user-defined tuple-state mean

@@ -20,7 +20,8 @@ func.func @repeat_pointwise(%initial: tensor<32xf32>, %scale: tensor<f32>,
       strides = array<i64>}> : (tensor<f32>) -> tensor<f32>
   %2 = "gf_tensor.input"(%bias) <{offset = 0 : i64,
       strides = array<i64>}> : (tensor<f32>) -> tensor<f32>
-  %3 = "gf_control.repeat"(%0, %1, %2) <{iterations = 7 : i64}> ({
+  %3 = "gf_control.repeat"(%0, %1, %2) <{iterations = 7 : i64,
+      num_carried = 1 : i64}> ({
   ^bb0(%state: tensor<32xf32>, %captured_scale: tensor<f32>,
        %captured_bias: tensor<f32>):
     %4 = "gf_tensor.mul"(%state, %captured_scale)

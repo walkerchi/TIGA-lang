@@ -291,28 +291,67 @@ struct TensorBuilder {
         return failure();
       PyOwned attrsSequence(PySequence_Fast(attrs.value, "expected attrs"));
       PyObject *iterationsObject = nullptr;
+      PyObject *numCarriedObject = nullptr;
+      PyObject *resultIndexObject = nullptr;
       for (Py_ssize_t index = 0;
            index < PySequence_Fast_GET_SIZE(attrsSequence.value); ++index) {
         PyObject *pair = PySequence_Fast_GET_ITEM(attrsSequence.value, index);
         PyObject *name = PyTuple_GetItem(pair, 0);
         if (name && PyUnicode_CompareWithASCIIString(name, "iterations") == 0)
           iterationsObject = PyTuple_GetItem(pair, 1);
+        else if (name && PyUnicode_CompareWithASCIIString(
+                              name, "num_carried") == 0)
+          numCarriedObject = PyTuple_GetItem(pair, 1);
+        else if (name && PyUnicode_CompareWithASCIIString(
+                              name, "result_index") == 0)
+          resultIndexObject = PyTuple_GetItem(pair, 1);
       }
       FailureOr<int64_t> iterations = iterationsObject
           ? integer(iterationsObject) : FailureOr<int64_t>(failure());
+      FailureOr<int64_t> numCarried = numCarriedObject
+          ? integer(numCarriedObject) : FailureOr<int64_t>(failure());
+      FailureOr<int64_t> resultIndex = resultIndexObject
+          ? integer(resultIndexObject) : FailureOr<int64_t>(failure());
       PyOwned argumentsObject(attribute(regionObject.value, "arguments"));
       PyOwned outputObject(attribute(regionObject.value, "output"));
+      PyOwned resultsObject(attribute(regionObject.value, "results"));
       PyOwned arguments(argumentsObject
           ? PySequence_Fast(argumentsObject.value, "expected region arguments")
           : nullptr);
-      if (failed(iterations) || !arguments || !outputObject ||
-          PySequence_Fast_GET_SIZE(arguments.value) !=
-              static_cast<Py_ssize_t>(inputs.size()))
+      PyOwned outputs(outputObject
+          ? PySequence_Fast(outputObject.value, "expected region outputs")
+          : nullptr);
+      PyOwned resultObjects(resultsObject
+          ? PySequence_Fast(resultsObject.value, "expected repeat results")
+          : nullptr);
+      if (failed(iterations) || failed(numCarried) || failed(resultIndex) ||
+          !arguments || !outputs || !resultObjects)
         return failure();
+      const int64_t carriedCount = *numCarried;
+      const int64_t selectedResult = *resultIndex;
+      if (
+          PySequence_Fast_GET_SIZE(arguments.value) !=
+              static_cast<Py_ssize_t>(inputs.size()) ||
+          PySequence_Fast_GET_SIZE(outputs.value) != carriedCount ||
+          PySequence_Fast_GET_SIZE(resultObjects.value) != carriedCount ||
+          carriedCount <= 0 ||
+          carriedCount > static_cast<int64_t>(inputs.size()) ||
+          selectedResult < 0 || selectedResult >= carriedCount)
+        return failure();
+
+      SmallVector<Type> resultTypes;
+      for (int64_t index = 0; index < carriedCount; ++index) {
+        FailureOr<RankedTensorType> type = tensorType(
+            context, PySequence_Fast_GET_ITEM(resultObjects.value, index));
+        if (failed(type)) return failure();
+        resultTypes.push_back(*type);
+      }
 
       OperationState state(location, gfc::RepeatOp::getOperationName());
       state.addOperands(inputs);
-      state.addTypes(*resultType);
+      state.addTypes(resultTypes);
+      state.addAttribute("num_carried",
+                         builder.getI64IntegerAttr(carriedCount));
       state.addAttribute("iterations", builder.getI64IntegerAttr(*iterations));
       state.addRegion();
       auto repeat = cast<gfc::RepeatOp>(builder.create(state));
@@ -338,15 +377,23 @@ struct TensorBuilder {
       {
         OpBuilder::InsertionGuard guard(builder);
         builder.setInsertionPointToStart(body);
-        FailureOr<Value> bodyResult = emit(outputObject.value);
-        if (failed(bodyResult)) return failure();
-        builder.create<gfc::ControlYieldOp>(location, *bodyResult);
+        SmallVector<Value> bodyResults;
+        for (int64_t index = 0; index < carriedCount; ++index) {
+          FailureOr<Value> bodyResult = emit(
+              PySequence_Fast_GET_ITEM(outputs.value, index));
+          if (failed(bodyResult)) return failure();
+          bodyResults.push_back(*bodyResult);
+        }
+        builder.create<gfc::ControlYieldOp>(location, bodyResults);
       }
       for (const SavedValue &item : saved) {
         if (item.existed) values[item.key] = item.value;
         else values.erase(item.key);
       }
-      cached = repeat.getResult();
+      for (int64_t index = 0; index < carriedCount; ++index)
+        values[PySequence_Fast_GET_ITEM(resultObjects.value, index)] =
+            repeat.getResults()[index];
+      cached = repeat.getResults()[selectedResult];
     }
     else if (*operation == "loop_argument") {
       PyErr_SetString(PyExc_RuntimeError,

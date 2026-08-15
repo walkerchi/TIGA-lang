@@ -102,9 +102,13 @@ NCCL/RCCL or a vendor communicator.
   explicit collective tasks.
 - `gf.linalg.richardson(operator, rhs, iterations=..., relaxation=...,
   initial=None)` captures one fixed-count `gf_control.repeat` region.
+- `gf.linalg.cg(operator, rhs, iterations=..., initial=None,
+  preconditioner=None)` carries solution/residual/direction/scalar state in one
+  multi-result `gf_control.repeat`. The preconditioner may be a
+  `LinearOperator` or Tensor callable.
 
-Device-side convergence, multi-state CG, preconditioner semantics, structured
-reverse loops, and implicit solve VJP are not yet public APIs. The
+Tolerance-driven device-side convergence, structured reverse loops, and
+implicit solve VJP are not yet public APIs. The
 [solver design page](linear-solvers.md) defines their required compiler
 contracts and explains why they are not hidden in a Python loop.
 

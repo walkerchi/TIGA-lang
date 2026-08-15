@@ -638,7 +638,7 @@ fallback，绝不根据 `E/N` 猜测 uniform relation。
 
 ```mlir
 %rank1 = "gf_control.repeat"(%rank0, %row_ptr, %col_idx, %weight) <{
-  iterations = 20 : i64
+  iterations = 20 : i64, num_carried = 1 : i64
 }> ({
 ^bb0(%rank: tensor<Nxf32>, %row: tensor<?xi64>,
      %col: tensor<Exi64>, %w: tensor<Exf32>):
@@ -647,8 +647,12 @@ fallback，绝不根据 `E/N` 猜测 uniform relation。
 }) : (...) -> tensor<Nxf32>
 ```
 
-循环体只 capture 一次，iteration count 不增加 compiler IR 节点。CPU lowering 产生 `scf.for`
-和两个 ping-pong MemRef；CUDA runtime 复用两个 device buffer 和 prepared executable。当前
+`num_carried` 允许前缀中的多个不同 shape/type Tensor 同时成为 SSA result；其余 operands 是
+显式 immutable captures。循环体只 capture 一次，iteration count 不增加 compiler IR 节点。
+CPU lowering 产生 `scf.for`，并为每个 carried value 复用两个 ping-pong MemRef；单状态 CUDA
+runtime 复用两个 device buffer 和 prepared executable，多状态 CUDA loop plan 尚待实现。
+CPU pass 还会将 body 内 rank-0 reduction 及其 scalar algebra 提升为每迭代一次的临时值，
+避免 CG 的 dot product 因被多个 vector update 引用而退化成 `O(N^2)`。当前
 fixed-degree weighted CSR + 逐节点 epilogue 会结构匹配到二维 row×neighbor TTIR tile，每次
 迭代一次 launch；未知/长尾 CSR 使用一行一 program、任意长度分块循环。这里没有
 PageRank-named op 或 codegen case。设备侧 `repeat_until`/convergence 尚未实现，因此

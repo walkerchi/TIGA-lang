@@ -85,12 +85,16 @@ class _Expr:
         raise KeyError(name)
 
 
-@dataclass(frozen=True)
+@dataclass
 class _Region:
     """One captured semantic region with explicit Tensor arguments."""
 
     arguments: tuple[Tensor, ...]
-    output: Tensor
+    output: Tensor | tuple[Tensor, ...]
+    # Result handles are populated after their expressions have been created.
+    # They let the native builder emit one multi-result control operation even
+    # when inspection starts from only one projected Tensor result.
+    results: tuple[Tensor, ...] = ()
 
 
 def _normalize_shape(shape: int | Sequence[int]) -> tuple[int, ...]:
@@ -315,9 +319,14 @@ class Tensor:
         else:
             region_key = None
             if expression.region is not None:
+                region_outputs = (
+                    (expression.region.output,)
+                    if isinstance(expression.region.output, Tensor)
+                    else expression.region.output
+                )
                 region_key = (
                     tuple(argument._jit_key for argument in expression.region.arguments),
-                    expression.region.output._jit_key,
+                    tuple(item._jit_key for item in region_outputs),
                 )
             self._jit_key = (
                 expression.op, self.shape, self.dtype.name, expression.attrs,
@@ -1128,7 +1137,9 @@ class Tensor:
                 for operand in value._expr.operands:
                     visit(operand)
                 if value._expr.region is not None:
-                    visit(value._expr.region.output)
+                    outputs = value._expr.region.output
+                    for output in ((outputs,) if isinstance(outputs, Tensor) else outputs):
+                        visit(output)
             ordered.append(value)
 
         visit(self)
@@ -1196,20 +1207,32 @@ class Tensor:
             if region is None or not region.arguments:
                 raise RuntimeError("repeat expression is missing its body region")
             iterations = int(expression.attr("iterations"))
-            current = values[0]
-            captured_values = values[1:]
+            num_carried = int(expression.attr("num_carried"))
+            result_index = int(expression.attr("result_index"))
+            current = values[:num_carried]
+            captured_values = values[num_carried:]
+            outputs = (region.output,) if isinstance(region.output, Tensor) \
+                else region.output
             for _ in range(iterations):
                 iteration_cache = {
-                    id(region.arguments[0]): current,
                     **{
                         id(argument): value
                         for argument, value in zip(
-                            region.arguments[1:], captured_values
+                            region.arguments[:num_carried], current, strict=True
+                        )
+                    },
+                    **{
+                        id(argument): value
+                        for argument, value in zip(
+                            region.arguments[num_carried:], captured_values,
+                            strict=True,
                         )
                     },
                 }
-                current = region.output._evaluate_flat(iteration_cache)
-            result = current
+                current = [
+                    item._evaluate_flat(iteration_cache) for item in outputs
+                ]
+            result = current[result_index]
         elif expression.op == "loop_argument":
             raise RuntimeError("a loop argument escaped its control region")
         elif expression.op == "reshape":

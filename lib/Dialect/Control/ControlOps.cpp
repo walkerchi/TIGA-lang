@@ -6,10 +6,14 @@ using namespace mlir;
 using namespace mlir::graphforge::control;
 
 LogicalResult RepeatOp::verify() {
-  if (getInputs().empty())
-    return emitOpError("requires an initial loop-carried tensor");
-  if (getInputs().front().getType() != getResult().getType())
-    return emitOpError("initial and result tensor types must match");
+  int64_t carried = getNumCarried();
+  if (carried <= 0 || static_cast<size_t>(carried) > getInputs().size())
+    return emitOpError("num_carried must select a non-empty input prefix");
+  if (getResults().size() != static_cast<size_t>(carried))
+    return emitOpError("requires one result per loop-carried input");
+  for (int64_t index = 0; index < carried; ++index)
+    if (getInputs()[index].getType() != getResults()[index].getType())
+      return emitOpError("carried input and result tensor types must match");
   if (!llvm::hasSingleElement(getBody()))
     return emitOpError("requires exactly one body block");
   Block &block = getBody().front();
@@ -21,8 +25,11 @@ LogicalResult RepeatOp::verify() {
   auto yield = dyn_cast<ControlYieldOp>(block.getTerminator());
   if (!yield)
     return emitOpError("body must terminate with gf_control.yield");
-  if (yield.getValue().getType() != getResult().getType())
-    return emitOpError("yielded tensor type must match the loop result");
+  if (yield.getValues().size() != static_cast<size_t>(carried))
+    return emitOpError("body must yield one tensor per carried input");
+  for (int64_t index = 0; index < carried; ++index)
+    if (yield.getValues()[index].getType() != getResults()[index].getType())
+      return emitOpError("yielded tensor types must match loop results");
   return success();
 }
 
@@ -30,8 +37,11 @@ LogicalResult ControlYieldOp::verify() {
   auto repeat = dyn_cast_or_null<RepeatOp>((*this)->getParentOp());
   if (!repeat)
     return emitOpError("must terminate a gf_control.repeat body");
-  if (getValue().getType() != repeat.getResult().getType())
-    return emitOpError("value type must match the repeat result");
+  if (getValues().size() != repeat.getResults().size())
+    return emitOpError("must yield one value per repeat result");
+  for (auto [value, result] : llvm::zip(getValues(), repeat.getResults()))
+    if (value.getType() != result.getType())
+      return emitOpError("value types must match the repeat results");
   return success();
 }
 

@@ -112,16 +112,21 @@ def _expand_fixed_repeats(output: Tensor) -> tuple[Tensor, dict[int, Tensor]]:
             return False
         if expression.op == "repeat":
             return True
-        return any(contains_repeat(operand) for operand in expression.operands) or (
-            expression.region is not None
-            and contains_repeat(expression.region.output)
-        )
+        if any(contains_repeat(operand) for operand in expression.operands):
+            return True
+        if expression.region is None:
+            return False
+        outputs = expression.region.output
+        return any(contains_repeat(item) for item in (
+            (outputs,) if isinstance(outputs, Tensor) else outputs
+        ))
 
     if not contains_repeat(output):
         return output, {}
 
     memo: dict[int, Tensor] = {}
     replacements: dict[int, Tensor] = {}
+    repeat_groups: dict[int, tuple[Tensor, ...]] = {}
 
     def rebuild(value: Tensor) -> Tensor:
         cached = memo.get(id(value))
@@ -137,9 +142,15 @@ def _expand_fixed_repeats(output: Tensor) -> tuple[Tensor, dict[int, Tensor]]:
             region = expression.region
             if region is None or not region.arguments:
                 raise RuntimeError("repeat expression is missing its body region")
+            grouped = repeat_groups.get(id(region))
+            if grouped is not None:
+                return grouped[int(expression.attr("result_index"))]
             operands = tuple(rebuild(operand) for operand in expression.operands)
-            current = operands[0]
-            captures = operands[1:]
+            num_carried = int(expression.attr("num_carried"))
+            current = list(operands[:num_carried])
+            captures = operands[num_carried:]
+            outputs = (region.output,) if isinstance(region.output, Tensor) \
+                else region.output
 
             def instantiate(region_value: Tensor, local: dict[int, Tensor]) -> Tensor:
                 found = local.get(id(region_value))
@@ -176,12 +187,15 @@ def _expand_fixed_repeats(output: Tensor) -> tuple[Tensor, dict[int, Tensor]]:
                 local = {
                     id(argument): operand
                     for argument, operand in zip(
-                        region.arguments, (current, *captures), strict=True)
+                        region.arguments, (*current, *captures), strict=True)
                 }
-                current = instantiate(region.output, local)
-            memo[id(value)] = current
-            replacements[id(value)] = current
-            return current
+                current = [instantiate(item, local) for item in outputs]
+            resolved = tuple(current)
+            repeat_groups[id(region)] = resolved
+            for handle, item in zip(region.results, resolved, strict=True):
+                memo[id(handle)] = item
+                replacements[id(handle)] = item
+            return resolved[int(expression.attr("result_index"))]
         if expression.region is not None:
             raise NotImplementedError(
                 f"autograd cannot expand control op {expression.op!r}")
