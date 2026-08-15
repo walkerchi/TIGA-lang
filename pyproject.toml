@@ -29,7 +29,7 @@ classifiers = [
 
 [project.urls]
 Homepage = "https://github.com/walkerchi/graphforge"
-Documentation = "https://github.com/walkerchi/graphforge#readme"
+Documentation = "https://graphforge-docs.app.walkerchi.com/"
 Repository = "https://github.com/walkerchi/graphforge.git"
 Issues = "https://github.com/walkerchi/graphforge/issues"
 

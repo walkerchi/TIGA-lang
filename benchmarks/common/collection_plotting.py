@@ -558,35 +558,50 @@ def write_interactive_compiler_report(
 <meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">
 <title>GraphForge interactive compiler performance report</title>
 <style>
-html,body{{height:100%;margin:0;background:#f8fafc;font-family:Inter,ui-sans-serif,system-ui,sans-serif}}
-#chart{{width:100%;height:100%;min-height:620px}}#fallback{{display:none;width:100%;height:100%;align-items:flex-start;justify-content:center}}
-#fallback img{{display:block;width:100%;height:auto}}@media(max-width:640px){{#chart{{min-height:700px}}}}
+:root{{--paper:#f8fafc;--plot:#f8fafc;--ink:#172033;--muted:#64748b;--grid:#dbe3ef;--menu:#fff;--line:#cbd5e1}}
+:root[data-theme=dark]{{--paper:#101a2b;--plot:#101a2b;--ink:#edf3fc;--muted:#9cabc0;--grid:#26354b;--menu:#17243a;--line:#3a4b64}}
+html,body{{height:100%;margin:0;background:var(--paper);font-family:Inter,ui-sans-serif,system-ui,sans-serif}}
+#chart{{width:100%;height:100%;min-height:600px}}
+#fallback{{display:none;width:100%;height:100%;align-items:flex-start;justify-content:center;background:#f8fafc}}
+#fallback img{{display:block;width:100%;height:auto}}
+@media(max-width:640px){{#chart{{min-height:700px}}}}
 </style></head><body>
 <div id=\"chart\" role=\"img\" aria-label=\"Interactive GraphForge compiler performance report\"></div>
 <div id=\"fallback\"><img src=\"{fallback}\" alt=\"Static GraphForge compiler performance report\"></div>
 <noscript><style>#chart{{display:none}}#fallback{{display:flex}}</style></noscript>
 <script id=\"gf-report-data\" type=\"application/json\">{payload}</script>
+<script>
+function notify(type,value){{if(window.parent!==window)window.parent.postMessage({{source:'graphforge-report',type:type,value:value}},window.location.origin)}}
+function notifyHeight(){{notify('height',Math.max(document.documentElement.scrollHeight,window.innerHeight))}}
+function showFallback(){{document.getElementById('chart').style.display='none';document.getElementById('fallback').style.display='flex';notify('fallback',true);notifyHeight()}}
+</script>
 <script src=\"https://cdn.plot.ly/plotly-3.1.0.min.js\" onerror=\"showFallback()\"></script>
 <script>
-function showFallback(){{document.getElementById('chart').style.display='none';document.getElementById('fallback').style.display='flex'}}
 if(!window.Plotly){{showFallback()}}else{{
 const panels=JSON.parse(document.getElementById('gf-report-data').textContent);
+let activePanel=0;
+let dark=false;
 const traces=panels.map((panel,index)=>({{type:'bar',orientation:'h',visible:index===0,
  y:panel.providers,x:panel.relative,marker:{{color:panel.colors,line:{{color:'#fff',width:1}}}},
  text:panel.relative.map(value=>value.toFixed(3)+'×'),textposition:'outside',cliponaxis:false,
  customdata:panel.milliseconds.map(value=>[value]),
  hovertemplate:'<b>%{{y}}</b><br>Relative throughput: %{{x:.4f}}×<br>Median latency: %{{customdata[0]:.5g}} ms<extra></extra>'}}));
-function layoutFor(index){{const panel=panels[index];const ceiling=Math.max(1.16,...panel.relative)*1.16;return {{
- title:{{text:'<b>'+panel.title+'</b><br><span style=\"font-size:13px;color:#64748b\">'+panel.detail+'</span>',x:.03,xanchor:'left',font:{{size:23,color:'#0f172a'}}}},
- xaxis:{{title:'Relative throughput · '+panel.baseline+' = 1.00×',range:[0,ceiling],gridcolor:'#dbe3ef',zeroline:false}},
- yaxis:{{autorange:'reversed',automargin:true,tickfont:{{size:13}}}},
- shapes:[{{type:'line',x0:1,x1:1,y0:-.6,y1:panel.providers.length-.4,line:{{color:'#475569',width:1.4,dash:'dash'}}}}]}}}}
-const buttons=panels.map((panel,index)=>({{label:panel.title,method:'update',args:[
- {{visible:panels.map((_,candidate)=>candidate===index)}},layoutFor(index)]}}));
-const layout=Object.assign({{autosize:true,margin:{{l:180,r:90,t:150,b:75}},paper_bgcolor:'#f8fafc',plot_bgcolor:'#f8fafc',showlegend:false,
- font:{{color:'#334155'}},updatemenus:[{{type:'dropdown',active:0,x:.03,y:1.13,xanchor:'left',yanchor:'top',buttons:buttons,
- bgcolor:'#fff',bordercolor:'#cbd5e1',font:{{size:12}}}}],annotations:[{{text:'Each panel has fixed semantics and a predeclared baseline · no aggregate score',xref:'paper',yref:'paper',x:0,y:-.18,showarrow:false,xanchor:'left',font:{{size:11,color:'#64748b'}}}}]}},layoutFor(0));
-Plotly.newPlot('chart',traces,layout,{{responsive:true,displaylogo:false,modeBarButtonsToRemove:['lasso2d','select2d']}}).catch(showFallback);
+function colors(){{return dark?{{paper:'#101a2b',ink:'#edf3fc',muted:'#9cabc0',grid:'#26354b',menu:'#17243a',line:'#3a4b64'}}:{{paper:'#f8fafc',ink:'#172033',muted:'#64748b',grid:'#dbe3ef',menu:'#fff',line:'#cbd5e1'}}}}
+function layoutFor(index){{const panel=panels[index];const c=colors();const compact=window.innerWidth<640;const ceiling=Math.max(1.16,...panel.relative)*1.17;return {{
+ title:{{text:'<b>'+panel.title+'</b><br><span style=\"font-size:12px;color:'+c.muted+'\">'+panel.detail+'</span>',x:.03,xanchor:'left',font:{{size:compact?18:23,color:c.ink}}}},
+ margin:{{l:compact?32:180,r:compact?36:90,t:compact?142:150,b:compact?92:75}},paper_bgcolor:c.paper,plot_bgcolor:c.paper,font:{{color:c.ink}},
+ xaxis:{{title:'Relative throughput · '+panel.baseline+' = 1.00×',range:[0,ceiling],gridcolor:c.grid,zeroline:false,titlefont:{{size:compact?10:12}}}},
+ yaxis:{{autorange:'reversed',automargin:true,tickfont:{{size:compact?10:13}}}},
+ shapes:[{{type:'line',x0:1,x1:1,y0:-.6,y1:panel.providers.length-.4,line:{{color:c.muted,width:1.4,dash:'dash'}}}}]}}}}
+const buttons=panels.map((panel,index)=>({{label:panel.title,method:'update',args:[{{visible:panels.map((_,candidate)=>candidate===index)}}],execute:true}}));
+const base={{autosize:true,showlegend:false,updatemenus:[{{type:'dropdown',active:0,x:.03,y:1.13,xanchor:'left',yanchor:'top',buttons:buttons}}],
+ annotations:[{{text:'Fixed semantics and predeclared baseline · no aggregate score',xref:'paper',yref:'paper',x:0,y:-.18,showarrow:false,xanchor:'left'}}]}};
+function renderLayout(){{const c=colors();const layout=Object.assign({{}},base,layoutFor(activePanel));layout.updatemenus=base.updatemenus.map(menu=>Object.assign({{}},menu,{{active:activePanel,bgcolor:c.menu,bordercolor:c.line,font:{{size:12,color:c.ink}}}}));layout.annotations=base.annotations.map(item=>Object.assign({{}},item,{{font:{{size:11,color:c.muted}}}}));return layout}}
+Plotly.newPlot('chart',traces,renderLayout(),{{responsive:true,displaylogo:false,modeBarButtonsToRemove:['lasso2d','select2d']}}).then(()=>{{
+ const chart=document.getElementById('chart');chart.on('plotly_buttonclicked',event=>{{activePanel=panels.findIndex(panel=>panel.title===event.button.label);Plotly.relayout(chart,renderLayout());setTimeout(notifyHeight,0)}});notifyHeight();
+}}).catch(showFallback);
+window.addEventListener('message',event=>{{if(event.origin!==window.location.origin||event.data?.source!=='graphforge-docs'||event.data.type!=='theme')return;dark=event.data.value==='dark';document.documentElement.dataset.theme=dark?'dark':'light';Plotly.relayout('chart',renderLayout()).then(notifyHeight)}});
+window.addEventListener('resize',()=>{{Plotly.relayout('chart',renderLayout()).then(notifyHeight)}});
 }}
 </script></body></html>"""
     output.parent.mkdir(parents=True, exist_ok=True)

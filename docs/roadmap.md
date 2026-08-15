@@ -39,6 +39,7 @@ the target hardware.
 | X0 · distributed execution | **partial** | typed halo Event DAG, MPI two-process forward/VJP, CPU overlap, NCCL rank-one binding and CUDA submission-order fixture | real 2+ GPU NCCL correctness/profiler overlap/performance and RCCL evidence |
 | P0 · release engineering | **partial** | pinned LLVM build, local wheel audit, no-Torch smoke, sdist rebuild and hosted compiler CI | complete CPython/Linux/macOS release matrix, trusted publishing and first PyPI release |
 | G0 · graph-algorithm probes | **partial** | fixed-iteration PageRank compiler/control path and registered performance cases | reverse structured loop/tape performance, device-side convergence, representative frontier and sorted-intersection IR probes |
+| L0 · matrix-free solvers | **partial** | `LinearOperator`, MessagePassing FEM stiffness apply, and fixed-count Richardson as one `gf_control.repeat` | multi-state device while, CG/preconditioner semantics, structured reverse loop, implicit adjoint VJP, and matched forward/backward artifacts |
 | Vendor providers | **pending** | provider ABI, plugin entry point and fail-closed conformance command | independently distributed provider plus target-hardware artifacts for each vendor |
 
 The exact-kNN gates time live all-pairs rebuild plus consume in one launch;
@@ -55,6 +56,9 @@ cached spatial-directory reuse is not substituted for rebuild timing.
 4. Run the full release matrix and publish the first signed PyPI artifacts.
 5. Add vendor providers only when their toolchain and hardware conformance can
    run continuously.
+6. Use the FEM/solver probe to add bounded multi-state control flow and
+   residual-guarded implicit differentiation without introducing
+   workload-named kernels.
 
 ## Claim discipline
 

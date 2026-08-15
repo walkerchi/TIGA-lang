@@ -7,10 +7,10 @@ incrementally repaired, partitioned, or paged. Materializing CSR is one legal
 realization, not the default meaning of `Graph.radius` or `Graph.knn`.
 
 <figure class="gf-figure">
-  <object type="image/svg+xml" data="assets/dynamic-relation-strategies.svg" aria-label="Dynamic relation realization strategies">
-    <img src="assets/dynamic-relation-strategies.svg" alt="Dynamic relation realization strategies">
+  <object type="image/svg+xml" data="../assets/dynamic-relation-strategies.svg" aria-label="Dynamic relation realization strategies">
+    <img src="../assets/dynamic-relation-strategies.svg" alt="Dynamic relation realization strategies">
   </object>
-  <figcaption><a href="assets/dynamic-relation-strategies.svg">Open the full-size SVG</a>. The realization is a compiler choice; it is not a different user Graph type.</figcaption>
+  <figcaption><a href="../assets/dynamic-relation-strategies.svg">Open the full-size SVG</a>. The realization is a compiler choice; it is not a different user Graph type.</figcaption>
 </figure>
 
 ## The realization matrix
@@ -20,7 +20,7 @@ realization, not the default meaning of `Graph.radius` or `Graph.knn`.
 | Dense Cartesian or triangular | no edge array; query/source tiles | fuse message, online reducer and value contraction; keep state in registers/shared memory | attention, all-pairs kernels whose output is much smaller than the relation | executable and benchmarked |
 | Euclidean radius, rebuilt | sorted cell directory plus occupied-cell ranges | generate candidates inside the consumer, reject by distance, and avoid CSR/distance/message tensors | low-dimensional particles with bounded cell occupancy | executable for 2D/3D default metric, including periodic box/skew cases |
 | Radius with bounded motion | cell directory or neighbor list plus a skin | reuse while the displacement certificate holds; rebuild only on invalidation | molecular dynamics and time stepping with coherent motion | snapshot/version reuse exists; a full Verlet invalidation policy is next work |
-| Exact kNN | candidate tiles plus hierarchical local top-k and merge | fuse distance, selection and consume; keep M0 selection state register-local | exact low/moderate-dimensional search | executable FP32 squared-Euclidean M0; two strict gates pass; general k/metric/spill remains partial |
+| Exact kNN | candidate tiles plus hierarchical local top-k and merge | fuse distance, selection and consume; keep M0 selection state register-local | exact low/moderate-dimensional search | executable FP32 squared-Euclidean M0; three strict gates pass; large-k/metric/spill remains partial |
 | Approximate kNN | IVF/HNSW/tree directory plus refinement relation | compile probe/refine as nested generated relations and expose recall as part of the contract | high-dimensional search where exact all-pairs is unnecessary | planned; no performance claim |
 | Mutable edge stream | immutable CSR base plus sorted delta segments/tombstones | fuse base and delta traversal, compact asynchronously, version snapshots | temporal/social graphs with small batches of edge updates | planned |
 | Skewed materialized graph | degree CDF worklists and chunked high-degree tails | different schedules for short rows and split rows; disjoint output ownership avoids atomics | power-law social graphs | executable and benchmarked |

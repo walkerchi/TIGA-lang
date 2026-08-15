@@ -4,10 +4,10 @@ GraphForge keeps semantic information long enough to choose different physical
 algorithms for the same user program.
 
 <figure class="gf-figure gf-figure--architecture">
-  <object type="image/svg+xml" data="assets/compiler-pipeline-overview.svg" aria-label="GraphForge compiler architecture from Python to TTIR">
-    <img src="assets/compiler-pipeline-overview.svg" alt="GraphForge compiler architecture from Python to TTIR">
+  <object type="image/svg+xml" data="../assets/compiler-pipeline-overview.svg" aria-label="GraphForge compiler architecture from Python to TTIR">
+    <img src="../assets/compiler-pipeline-overview.svg" alt="GraphForge compiler architecture from Python to TTIR">
   </object>
-  <figcaption><a href="assets/compiler-pipeline-overview.svg">Open the full-size SVG</a>. TTIR is the stable GPU provider handoff; the CPU path lowers through MLIR to LLVM.</figcaption>
+  <figcaption><a href="../assets/compiler-pipeline-overview.svg">Open the full-size SVG</a>. TTIR is the stable GPU provider handoff; the CPU path lowers through MLIR to LLVM.</figcaption>
 </figure>
 
 ## Why three GraphForge IR levels?

@@ -3,34 +3,49 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>GraphForge interactive compiler performance report</title>
 <style>
-html,body{height:100%;margin:0;background:#f8fafc;font-family:Inter,ui-sans-serif,system-ui,sans-serif}
-#chart{width:100%;height:100%;min-height:620px}#fallback{display:none;width:100%;height:100%;align-items:flex-start;justify-content:center}
-#fallback img{display:block;width:100%;height:auto}@media(max-width:640px){#chart{min-height:700px}}
+:root{--paper:#f8fafc;--plot:#f8fafc;--ink:#172033;--muted:#64748b;--grid:#dbe3ef;--menu:#fff;--line:#cbd5e1}
+:root[data-theme=dark]{--paper:#101a2b;--plot:#101a2b;--ink:#edf3fc;--muted:#9cabc0;--grid:#26354b;--menu:#17243a;--line:#3a4b64}
+html,body{height:100%;margin:0;background:var(--paper);font-family:Inter,ui-sans-serif,system-ui,sans-serif}
+#chart{width:100%;height:100%;min-height:600px}
+#fallback{display:none;width:100%;height:100%;align-items:flex-start;justify-content:center;background:#f8fafc}
+#fallback img{display:block;width:100%;height:auto}
+@media(max-width:640px){#chart{min-height:700px}}
 </style></head><body>
 <div id="chart" role="img" aria-label="Interactive GraphForge compiler performance report"></div>
 <div id="fallback"><img src="../compiler-performance-report.svg" alt="Static GraphForge compiler performance report"></div>
 <noscript><style>#chart{display:none}#fallback{display:flex}</style></noscript>
 <script id="gf-report-data" type="application/json">[{"title": "Bounded-ragged CSR SpMM", "detail": "N=131072 \u00b7 degree 0\u201332 \u00b7 F=16 \u00b7 FP32/i32", "baseline": "PyTorch \u00b7 sparse.mm", "providers": ["GraphForge \u00b7 prepared auto", "PyTorch \u00b7 sparse.mm", "Triton \u00b7 csr"], "relative": [4.2126168097197, 1.0, 0.7629323961585924], "milliseconds": [0.05478399991989136, 0.23078399896621704, 0.302496001124382], "colors": ["#059669", "#dc2626", "#7c3aed"]}, {"title": "Log-normal social CSR aggregation", "detail": "N=131072 \u00b7 mean 15.70 \u00b7 p99=137 \u00b7 max=256 \u00b7 generated CDF buckets", "baseline": "PyTorch \u00b7 sparse.mm", "providers": ["GraphForge \u00b7 compiler chunked tail", "GraphForge \u00b7 prepared auto", "PyTorch \u00b7 sparse.mm", "Triton \u00b7 csr"], "relative": [1.1956109877393941, 1.2850902689946475, 1.0, 0.22955681707417036], "milliseconds": [0.05905599892139435, 0.0549440011382103, 0.0706080012023449, 0.3075839877128601], "colors": ["#385ebd", "#059669", "#dc2626", "#7c3aed"]}, {"title": "Sparse anisotropic diffusion", "detail": "N=131072 \u00b7 degree 16 \u00b7 FP32/i64", "baseline": "PyTorch \u00b7 sparse laplacian", "providers": ["GraphForge \u00b7 auto", "PyTorch \u00b7 sparse laplacian", "Triton \u00b7 csr"], "relative": [1.5105819757512735, 1.0, 0.11745345446624864], "milliseconds": [0.024191999807953835, 0.03654399886727333, 0.31113600730895996], "colors": ["#2563eb", "#b54d42", "#7c3aed"]}, {"title": "Sparse online-softmax reducer", "detail": "N=131072 \u00b7 degree 32 \u00b7 stable tuple state", "baseline": "Triton \u00b7 handwritten fused", "providers": ["GraphForge \u00b7 compiler ttir", "Triton \u00b7 handwritten fused", "PyTorch \u00b7 explicit"], "relative": [1.0070570376002608, 1.0, 0.6303724778627438], "milliseconds": [0.16777600347995758, 0.16896000504493713, 0.2680320143699646], "colors": ["#2d54c5", "#9150d5", "#be5948"]}, {"title": "Radius-distance UDF backward", "detail": "N=32768 \u00b7 D=3 \u00b7 degree\u224832 \u00b7 generated VJP", "baseline": "Handwritten \u00b7 triton", "providers": ["GraphForge \u00b7 generated vjp", "Handwritten \u00b7 triton", "PyTorch \u00b7 autograd"], "relative": [1.0785005588772563, 1.0, 0.24709399626686748], "milliseconds": [0.24030400067567825, 0.25916799902915955, 1.0488640069961548], "colors": ["#2c5bca", "#c745df", "#cb3c3e"]}, {"title": "Fixed-iteration PageRank", "detail": "N=262144 \u00b7 degree 16 \u00b7 20 iterations", "baseline": "PyTorch \u00b7 sparse.mm", "providers": ["GraphForge \u00b7 control", "PyTorch \u00b7 sparse.mm"], "relative": [2.3374362127118107, 1.0], "milliseconds": [0.590144008398056, 1.379423975944519], "colors": ["#497cc3", "#dc2626"]}, {"title": "Dense exact attention", "detail": "B=1 \u00b7 H=16 \u00b7 N=4096 \u00b7 D=64 \u00b7 FP16", "baseline": "PyTorch \u00b7 sdpa.flash", "providers": ["GraphForge \u00b7 direct ttir", "PyTorch \u00b7 sdpa.flash", "Triton \u00b7 streaming oracle"], "relative": [1.073533718954289, 1.0, 1.068528748214962], "milliseconds": [0.7719999849796295, 0.8287680149078369, 0.7756160199642181], "colors": ["#2e60b4", "#b4262a", "#8230cf"]}, {"title": "Tile-pruned sparse attention", "detail": "B=1 \u00b7 H=16 \u00b7 N=4096 \u00b7 D=64 \u00b7 matched pruning", "baseline": "FSA \u00b7 official", "providers": ["GraphForge \u00b7 compiler tile pruned", "FSA \u00b7 official"], "relative": [1.1820473920914856, 1.0], "milliseconds": [0.9072799980640411, 1.072447955608368], "colors": ["#4162bc", "#43b3c1"]}, {"title": "Causal linear-attention recurrence", "detail": "L=64 \u00b7 T=512 \u00b7 K=V=16 \u00b7 FP32", "baseline": "FLA \u00b7 chunk", "providers": ["GraphForge \u00b7 compiler scan contract", "FLA \u00b7 chunk", "FLA \u00b7 fused recurrent"], "relative": [1.0369809028761678, 1.0, 0.6344584698906831], "milliseconds": [0.10556799918413162, 0.10947199910879135, 0.1725439950823784], "colors": ["#478ac3", "#3abf94", "#3fd18e"]}, {"title": "Exact kNN build + consume", "detail": "N=8192 \u00b7 D=3 \u00b7 k=32 \u00b7 FP32", "baseline": "PyTorch \u00b7 cdist topk gather sum", "providers": ["GraphForge \u00b7 knn build consume prepared ttir", "PyTorch \u00b7 cdist topk gather sum"], "relative": [1.3273794212576, 1.0], "milliseconds": [2.94977605342865, 3.9154720306396484], "colors": ["#407acc", "#d6583a"]}, {"title": "Dense matrix multiplication", "detail": "M=N=K=2048 \u00b7 FP16", "baseline": "PyTorch \u00b7 mm.cublas", "providers": ["GraphForge \u00b7 compiler auto", "PyTorch \u00b7 mm.cublas"], "relative": [1.004822881819996, 1.0], "milliseconds": [0.1924159973859787, 0.19334399700164795], "colors": ["#4b7bd3", "#bf3727"]}, {"title": "CPU sparse relation fusion", "detail": "N=131072 \u00b7 degree 16 \u00b7 FP32/i32 \u00b7 16 threads", "baseline": "SciPy \u00b7 csr matvec", "providers": ["GraphForge \u00b7 llvm.parallel relation", "SciPy \u00b7 csr matvec", "PyTorch \u00b7 sparse.mm"], "relative": [6.318225401230697, 1.0, 0.30578700916252793], "milliseconds": [0.1235885, 0.78086, 2.5536075], "colors": ["#4466c3", "#4284ca", "#dc2626"]}, {"title": "Fused GPU visualization preparation", "detail": "2048\u00d72048 scalar \u2192 RGB \u00b7 FP32", "baseline": "PyTorch \u00b7 inductor.fused", "providers": ["GraphForge \u00b7 tensor ttir", "PyTorch \u00b7 inductor.fused", "PyTorch \u00b7 eager"], "relative": [1.1529809225907874, 1.0, 0.539960872957909], "milliseconds": [0.09956799820065498, 0.11480000242590904, 0.2126080021262169], "colors": ["#2461b3", "#b95039", "#d13f35"]}]</script>
+<script>
+function notify(type,value){if(window.parent!==window)window.parent.postMessage({source:'graphforge-report',type:type,value:value},window.location.origin)}
+function notifyHeight(){notify('height',Math.max(document.documentElement.scrollHeight,window.innerHeight))}
+function showFallback(){document.getElementById('chart').style.display='none';document.getElementById('fallback').style.display='flex';notify('fallback',true);notifyHeight()}
+</script>
 <script src="https://cdn.plot.ly/plotly-3.1.0.min.js" onerror="showFallback()"></script>
 <script>
-function showFallback(){document.getElementById('chart').style.display='none';document.getElementById('fallback').style.display='flex'}
 if(!window.Plotly){showFallback()}else{
 const panels=JSON.parse(document.getElementById('gf-report-data').textContent);
+let activePanel=0;
+let dark=false;
 const traces=panels.map((panel,index)=>({type:'bar',orientation:'h',visible:index===0,
  y:panel.providers,x:panel.relative,marker:{color:panel.colors,line:{color:'#fff',width:1}},
  text:panel.relative.map(value=>value.toFixed(3)+'×'),textposition:'outside',cliponaxis:false,
  customdata:panel.milliseconds.map(value=>[value]),
  hovertemplate:'<b>%{y}</b><br>Relative throughput: %{x:.4f}×<br>Median latency: %{customdata[0]:.5g} ms<extra></extra>'}));
-function layoutFor(index){const panel=panels[index];const ceiling=Math.max(1.16,...panel.relative)*1.16;return {
- title:{text:'<b>'+panel.title+'</b><br><span style="font-size:13px;color:#64748b">'+panel.detail+'</span>',x:.03,xanchor:'left',font:{size:23,color:'#0f172a'}},
- xaxis:{title:'Relative throughput · '+panel.baseline+' = 1.00×',range:[0,ceiling],gridcolor:'#dbe3ef',zeroline:false},
- yaxis:{autorange:'reversed',automargin:true,tickfont:{size:13}},
- shapes:[{type:'line',x0:1,x1:1,y0:-.6,y1:panel.providers.length-.4,line:{color:'#475569',width:1.4,dash:'dash'}}]}}
-const buttons=panels.map((panel,index)=>({label:panel.title,method:'update',args:[
- {visible:panels.map((_,candidate)=>candidate===index)},layoutFor(index)]}));
-const layout=Object.assign({autosize:true,margin:{l:180,r:90,t:150,b:75},paper_bgcolor:'#f8fafc',plot_bgcolor:'#f8fafc',showlegend:false,
- font:{color:'#334155'},updatemenus:[{type:'dropdown',active:0,x:.03,y:1.13,xanchor:'left',yanchor:'top',buttons:buttons,
- bgcolor:'#fff',bordercolor:'#cbd5e1',font:{size:12}}],annotations:[{text:'Each panel has fixed semantics and a predeclared baseline · no aggregate score',xref:'paper',yref:'paper',x:0,y:-.18,showarrow:false,xanchor:'left',font:{size:11,color:'#64748b'}}]},layoutFor(0));
-Plotly.newPlot('chart',traces,layout,{responsive:true,displaylogo:false,modeBarButtonsToRemove:['lasso2d','select2d']}).catch(showFallback);
+function colors(){return dark?{paper:'#101a2b',ink:'#edf3fc',muted:'#9cabc0',grid:'#26354b',menu:'#17243a',line:'#3a4b64'}:{paper:'#f8fafc',ink:'#172033',muted:'#64748b',grid:'#dbe3ef',menu:'#fff',line:'#cbd5e1'}}
+function layoutFor(index){const panel=panels[index];const c=colors();const compact=window.innerWidth<640;const ceiling=Math.max(1.16,...panel.relative)*1.17;return {
+ title:{text:'<b>'+panel.title+'</b><br><span style="font-size:12px;color:'+c.muted+'">'+panel.detail+'</span>',x:.03,xanchor:'left',font:{size:compact?18:23,color:c.ink}},
+ margin:{l:compact?32:180,r:compact?36:90,t:compact?142:150,b:compact?92:75},paper_bgcolor:c.paper,plot_bgcolor:c.paper,font:{color:c.ink},
+ xaxis:{title:'Relative throughput · '+panel.baseline+' = 1.00×',range:[0,ceiling],gridcolor:c.grid,zeroline:false,titlefont:{size:compact?10:12}},
+ yaxis:{autorange:'reversed',automargin:true,tickfont:{size:compact?10:13}},
+ shapes:[{type:'line',x0:1,x1:1,y0:-.6,y1:panel.providers.length-.4,line:{color:c.muted,width:1.4,dash:'dash'}}]}}
+const buttons=panels.map((panel,index)=>({label:panel.title,method:'update',args:[{visible:panels.map((_,candidate)=>candidate===index)}],execute:true}));
+const base={autosize:true,showlegend:false,updatemenus:[{type:'dropdown',active:0,x:.03,y:1.13,xanchor:'left',yanchor:'top',buttons:buttons}],
+ annotations:[{text:'Fixed semantics and predeclared baseline · no aggregate score',xref:'paper',yref:'paper',x:0,y:-.18,showarrow:false,xanchor:'left'}]};
+function renderLayout(){const c=colors();const layout=Object.assign({},base,layoutFor(activePanel));layout.updatemenus=base.updatemenus.map(menu=>Object.assign({},menu,{active:activePanel,bgcolor:c.menu,bordercolor:c.line,font:{size:12,color:c.ink}}));layout.annotations=base.annotations.map(item=>Object.assign({},item,{font:{size:11,color:c.muted}}));return layout}
+Plotly.newPlot('chart',traces,renderLayout(),{responsive:true,displaylogo:false,modeBarButtonsToRemove:['lasso2d','select2d']}).then(()=>{
+ const chart=document.getElementById('chart');chart.on('plotly_buttonclicked',event=>{activePanel=panels.findIndex(panel=>panel.title===event.button.label);Plotly.relayout(chart,renderLayout());setTimeout(notifyHeight,0)});notifyHeight();
+}).catch(showFallback);
+window.addEventListener('message',event=>{if(event.origin!==window.location.origin||event.data?.source!=='graphforge-docs'||event.data.type!=='theme')return;dark=event.data.value==='dark';document.documentElement.dataset.theme=dark?'dark':'light';Plotly.relayout('chart',renderLayout()).then(notifyHeight)});
+window.addEventListener('resize',()=>{Plotly.relayout('chart',renderLayout()).then(notifyHeight)});
 }
 </script></body></html>

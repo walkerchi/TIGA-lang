@@ -10,6 +10,7 @@ algorithm operator.
 | `message_passing_autograd.py` | static CSR UDF + sum VJP + checkpoint policy | native `gf_tensor` → LLVM CPU JIT / CUDA TTIR |
 | `gcn.py` | static CSR, vector sum and broadcast VJP | native relation Tensor IR |
 | `diffusion.py` | source/destination message + node update VJP | native relation Tensor IR |
+| `fem_poisson.py` | matrix-free P1 stiffness MessagePassing inside a bounded solver loop | `LinearOperator` + one `gf_control.repeat`; implicit VJP not yet claimed |
 | `custom_reducer.py` | user tuple-state mean algebra | structural additive lowering + native automatic VJP |
 | `tensor_matmul.py` | rank-2 contraction and both operand gradients | CPU LLVM / FP16 GPU `tt.dot` |
 | `distributed_halo.py` | paged `.gfg`, two-process rank-local forward and VJP | bounded shard read + automatic owner→ghost/reverse exchange |
@@ -24,6 +25,7 @@ python examples/complex_autograd.py
 python examples/message_passing_autograd.py
 python examples/gcn.py
 python examples/diffusion.py
+python examples/fem_poisson.py
 python examples/custom_reducer.py
 python examples/torch_interop.py  # optional
 ```
@@ -57,6 +59,16 @@ This example defines mean entirely through reducer algebra. The compiler lowers
 the four regions; there is no built-in mean operator or name-based kernel.
 
 --8<-- "examples/custom_reducer.py"
+
+## Matrix-free FEM operator and solver loop
+
+The stiffness matrix is never assembled. Its graph relation and edge
+coefficients feed an ordinary MessagePassing UDF, while Richardson iteration is
+captured once as structured control flow. See [linear solvers and implicit
+differentiation](linear-solvers.md) for the missing CG/while and implicit-VJP
+contracts.
+
+--8<-- "examples/fem_poisson.py"
 
 ## Optional Torch interoperability
 

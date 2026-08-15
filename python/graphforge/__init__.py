@@ -10,7 +10,7 @@ from __future__ import annotations
 from importlib import import_module
 
 from ._version import __version__
-from . import autograd, compiler, control, math, runtime, visualize
+from . import autograd, compiler, control, linalg, math, runtime, visualize
 from .distributed import (
     ByDestination, DeviceMesh, GraphPlacement, HaloMap, derive_halo_map,
     collective_halo_maps, exchange_halo,
@@ -18,6 +18,7 @@ from .distributed import (
 from .runtime import Device, DeviceType
 from .program import GraphProgram, ProgramValue, program
 from .control import repeat
+from .linalg import LinearOperator
 from .tensor import (
     DType,
     Tensor,
@@ -104,6 +105,7 @@ __all__ = [
     "GraphSchema",
     "GraphProgram",
     "Kernel",
+    "LinearOperator",
     "MachineSchedule",
     "MessagePassing",
     "OnlineSoftmaxItem",
@@ -131,6 +133,7 @@ __all__ = [
     "int32",
     "int64",
     "load",
+    "linalg",
     "math",
     "ones_like",
     "online_softmax",

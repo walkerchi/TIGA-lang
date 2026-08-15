@@ -89,6 +89,25 @@ loops and launch bounds static while avoiding one user kernel per input size.
 initializing a process group. Deployment binds it to Torch `DeviceMesh`, MPI,
 NCCL/RCCL or a vendor communicator.
 
+## `linalg`
+
+- `gf.linalg.LinearOperator((rows, cols), matvec=..., rmatvec=None,
+  parameters=(), symmetric=False)` preserves a matrix-free Tensor or
+  MessagePassing application. It validates vector shape, dtype, and device but
+  never materializes coefficients as a matrix.
+- `operator.adjoint_apply(v)` uses `rmatvec`, or `matvec` when the operator was
+  declared symmetric.
+- `gf.linalg.dot(x, y)` and `gf.linalg.vector_norm(x)` remain ordinary Tensor
+  algebra today; a distributed plan may later promote their reductions to
+  explicit collective tasks.
+- `gf.linalg.richardson(operator, rhs, iterations=..., relaxation=...,
+  initial=None)` captures one fixed-count `gf_control.repeat` region.
+
+Device-side convergence, multi-state CG, preconditioner semantics, structured
+reverse loops, and implicit solve VJP are not yet public APIs. The
+[solver design page](linear-solvers.md) defines their required compiler
+contracts and explains why they are not hidden in a Python loop.
+
 ## `MessagePassing`
 
 Subclass `MessagePassing`, set `reducer`, and implement `edge(src, dst, edge,

@@ -6,13 +6,9 @@ peer. Raw samples and device metadata—not a screenshot—are the source of tru
 
 ## Human view and machine evidence
 
-<figure class="gf-figure gf-figure--chart">
-  <iframe src="assets/charts/compiler-performance-report.html" title="Interactive GraphForge compiler performance report" loading="lazy"></iframe>
-  <noscript><img src="assets/compiler-performance-report.svg" alt="Static GraphForge compiler performance report"></noscript>
-  <figcaption>Plotly HTML is the primary browser view · <a href="assets/compiler-performance-report.svg">SVG fallback</a> · PNG is retained only for clients that cannot render SVG.</figcaption>
-</figure>
+--8<-- "docs/includes/performance-report.html"
 
-The dropdown above is generated from `benchmarks/evidence_manifest.json` and
+The interactive report is generated from `benchmarks/evidence_manifest.json` and
 the same registered case JSON as the static report. Generation fails if an
 exact case, filter or provider is missing, preventing an old chart from being
 silently reused after benchmark names change.

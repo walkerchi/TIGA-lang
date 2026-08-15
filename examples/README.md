@@ -14,6 +14,7 @@ python3 examples/message_passing_autograd.py
 python3 examples/radius_autograd.py
 python3 examples/graph_program.py
 python3 examples/diffusion.py
+python3 examples/fem_poisson.py
 python3 examples/gcn.py
 python3 examples/custom_reducer.py
 python3 examples/torch_interop.py
@@ -53,6 +54,9 @@ python3 examples/compiler_probes/pagerank.py
   adapter for CUDA storage in this first executable provider example;
 - `diffusion.py`: native directional neighbor difference with both source and
   destination fields, node update and automatic field/edge gradients;
+- `fem_poisson.py`: matrix-free one-dimensional P1 stiffness application as a
+  MessagePassing `LinearOperator`, captured inside one fixed-count
+  `gf_control.repeat`; it is a solver compiler probe, not a CG performance claim;
 - `gcn.py`: native multi-feature aggregation with edge broadcasting and
   automatic gradients, matching the SpMM/GCN tensor shape;
 - `custom_reducer.py`: Torch-free execution of a user-defined tuple-state mean

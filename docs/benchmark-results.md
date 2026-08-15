@@ -12,11 +12,7 @@ claim?
     Raw JSON/SVG/HTML/REPORT artifacts are generated under
     `output/roofline/<operation>/<case>/` and intentionally remain out of Git.
 
-<figure class="gf-figure gf-figure--chart">
-  <iframe src="assets/charts/compiler-performance-report.html" title="Interactive registered GraphForge compiler performance report" loading="lazy"></iframe>
-  <noscript><img src="assets/compiler-performance-report.svg" alt="Static GraphForge compiler performance report"></noscript>
-  <figcaption>Select any registered workload from the Plotly dropdown · <a href="assets/compiler-performance-report.svg">SVG fallback</a> · each panel uses its predeclared matched baseline.</figcaption>
-</figure>
+--8<-- "docs/includes/performance-report.html"
 
 ## Compiler transformations
 
@@ -57,19 +53,19 @@ main reason to use the compiler.
 | Dense matmul | 2048³ FP16 | 89.29 TFLOP/s | torch.mm/cuBLAS 88.86 TFLOP/s | **1.005×**, CI low 1.004 |
 | GPU visualization prep | 2048² FP32 | 0.0996 ms | Inductor 0.1148 ms | **1.153×**, CI low 1.140 |
 
-Exact kNN now exercises the general ranked-relation compiler path rather than
+Exact kNN exercises the ranked-relation compiler path rather than
 dispatching `cdist/topk`: candidate tiles → stable local top-k → hierarchical
 merge → fused selected-edge consume. A second N4096/D5/k16 gate is 0.6589 ms
 versus 1.0713 ms (**1.626×**, CI low 1.619). The non-power-of-two
 N4096/D5/k13 gate is 0.6625 ms versus 1.0744 ms (**1.622×**, CI low 1.617);
 masked physical padding is additionally tested at k=3 stable ties and the k=63
-boundary. Remaining coverage work is large k, general metric UDF lowering and
+boundary. Remaining coverage work is large `k`, general metric UDF lowering and
 a memory-budgeted spill/task plan; ANN remains a separate recall-bearing
 contract.
 
 <figure class="gf-figure">
-  <object type="image/svg+xml" data="assets/dense-attention-performance.svg" aria-label="Dense Cartesian streaming comparison">
-    <img src="assets/dense-attention-performance.svg" alt="Dense Cartesian streaming comparison">
+  <object type="image/svg+xml" data="../assets/dense-attention-performance.svg" aria-label="Dense Cartesian streaming comparison">
+    <img src="../assets/dense-attention-performance.svg" alt="Dense Cartesian streaming comparison">
   </object>
   <figcaption>Exact, grouped-query and causal dense relation cases. Sparse and linear attention remain separate semantics.</figcaption>
 </figure>

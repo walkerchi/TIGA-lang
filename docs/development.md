@@ -71,9 +71,10 @@ The post-install command is:
 
 ## Documentation and media
 
-Public documentation has three layers: **Learn** for users, **Compiler** for
-architecture/runtime, and **Performance** for measured evidence. Design notes
-and research snapshots live under **Internals** and must not be used as the
+Public documentation has four reader paths: **Guide** for first use,
+**Compiler** for architecture/runtime, **Performance** for measured evidence,
+and **Reference** for the supported surface and contribution workflow. Long-form
+research snapshots live under **Design notes** and must not be used as the
 current support matrix.
 
 - Prefer semantic HTML for page structure and native SVG for architecture.

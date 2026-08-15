@@ -8,6 +8,7 @@ docs_dir: docs
 site_dir: site
 theme:
   name: material
+  language: en
   logo: assets/graphforge-mark.svg
   favicon: assets/graphforge-mark.svg
   palette:
@@ -15,17 +16,27 @@ theme:
       scheme: default
       primary: indigo
       accent: deep purple
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
     - media: "(prefers-color-scheme: dark)"
       scheme: slate
       primary: indigo
       accent: deep purple
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
   features:
     - navigation.instant
     - navigation.instant.progress
+    - navigation.tracking
     - navigation.tabs
+    - navigation.tabs.sticky
     - navigation.sections
+    - navigation.indexes
     - navigation.path
     - navigation.top
+    - navigation.footer
     - toc.follow
     - content.code.copy
     - content.code.annotate
@@ -43,6 +54,8 @@ markdown_extensions:
   - pymdownx.highlight:
       anchor_linenums: true
   - pymdownx.inlinehilite
+  - pymdownx.tabbed:
+      alternate_style: true
   - pymdownx.snippets:
       base_path:
         - .
@@ -51,29 +64,35 @@ plugins:
   - search
 extra_css:
   - stylesheets/graphforge.css
+extra_javascript:
+  - javascripts/graphforge.js
+extra:
+  generator: false
 nav:
   - Overview: index.md
-  - Learn:
-      - Getting started: getting-started.md
+  - Guide:
+      - Start here: getting-started.md
       - Programming model: programming-model.md
-      - Dynamic graph strategies: dynamic-graphs.md
       - Examples: examples.md
   - Compiler:
-      - Pipeline & IR: compiler-pipeline.md
+      - Pipeline and IR: compiler-pipeline.md
+      - Dynamic relations: dynamic-graphs.md
+      - Linear solvers and implicit VJP: linear-solvers.md
       - Tensor runtime & autograd: runtime-and-autograd.md
       - Memory & distributed: memory-and-distributed.md
   - Performance:
-      - Results: benchmark-results.md
-      - Methodology & reproduction: performance.md
+      - Measured results: benchmark-results.md
+      - Methodology and reproduction: performance.md
   - Reference:
       - Python API: api.md
       - Current status & roadmap: roadmap.md
       - Development: development.md
-  - Internals:
+  - Design notes:
+      - Design notes index: design-notes.md
+      - Architecture RFC: rfcs/0001-architecture.md
+      - IR implementation notes: IR_DESIGN.md
       - Related work: RELATED_WORK.md
       - Benchmark protocol: BENCHMARKS.md
-      - IR design: IR_DESIGN.md
       - Scheduling abstractions: SCHEDULING_ABSTRACTIONS.md
       - GPU graph optimization: GPU_GRAPH_OPTIMIZATION.md
-      - Architecture RFC: rfcs/0001-architecture.md
       - Compiler bootstrap: COMPILER_BOOTSTRAP.md

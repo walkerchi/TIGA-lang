@@ -85,7 +85,7 @@ kernel。
 - 本地 wheel 已捆绑 `gf-opt`、`gf-translate` 和 runtime，并在两个全新、无 Torch 的 venv
   验证相对 RPATH、native Tensor IR 和工具启动；manylinux_2_38 修复产物及从 sdist 独立重建
   也已通过。正式 PyPI wheel 仍须由 hosted trusted-publishing workflow 发布。当前本机 Python
-  suite 为 224 passed、0 skip、10 subtests，LLVM/MLIR 22.1.8 lit 为 63/63；这不是
+  suite 为 228 passed、0 skip、10 subtests，LLVM/MLIR 22.1.8 lit 为 63/63；这不是
   ROCm/DCU/Metal/PPU 支持声明。
 
 ### 文档权属
@@ -3156,7 +3156,7 @@ benchmark artifact 的能力，`PARTIAL` 不得用于发布声明。每关闭一
 
 | ID | 状态 | 收口项 | 完成证据 |
 |---|---|---|---|
-| C0 | DONE | LLVM/MLIR 22.1.8 权威 Linux CI | 本机用官方 SDK SHA256 pin 完成 clean build、63/63 lit、224 Python tests + 10 subtests、strict docs、manylinux_2_38 audit、两次 wheel/no-Torch smoke 与 sdist→wheel rebuild；hosted run `31793915112` 的 LLVM/MLIR clean-build 与独立 Torch compatibility jobs 均通过（该 hosted run 对应变更前的 53 lit/206 Python tests） |
+| C0 | DONE | LLVM/MLIR 22.1.8 权威 Linux CI | 本机用官方 SDK SHA256 pin 完成 clean build、63/63 lit、228 Python tests + 10 subtests、strict docs、manylinux_2_38 audit、两次 wheel/no-Torch smoke 与 sdist→wheel rebuild；hosted run `31793915112` 的 LLVM/MLIR clean-build 与独立 Torch compatibility jobs 均通过（该 hosted run 对应变更前的 53 lit/206 Python tests） |
 | C1 | DONE | straight-line GraphProgram SSA/canonical hash | native module composition/round-trip、relation CSE、跨 apply SSA 与 stale-version negative、optional `@gf.program` JIT；有依赖的 applies lower 为带显式 value read/write 与 depends-on 的 runtime `ExecutableBundle`，CPU differential 和 CUDA 两个独立 generated PTX leaf 均执行通过；无依赖 applies 仍走单个 horizontal product kernel |
 | C2 | DONE | multi-output apply、vector projection、horizontal fusion codegen | generic product Domain→TTIR differential；N=131072/D=16 matched gate 1.043x handwritten fused oracle，95% CI low=1.008 |
 | C3 | DONE | general Tensor canonicalization/layout/dtype coverage | strided/broadcast view、FP16/32/64/complex CPU 与 FP16/32/64/complex64/128 CUDA TTIR differential；`Dim/TensorSpec/ShapeSpecializer` 统一跨参数 guards 并以实际 binding 生成 concrete MLIR cache specialization |
@@ -3182,9 +3182,10 @@ benchmark artifact 的能力，`PARTIAL` 不得用于发布声明。每关闭一
 | A0 | DONE | optional Torch adapter productization | zero-copy/current-stream；CSR topology 与 UDF fields 均为显式 functional `torch.library` operands，FakeTensor/meta、registered autograd、四项 `opcheck` 与 Inductor fullgraph forward+backward test/example |
 | V0 | DONE | GPU-native visualization parallel track | 独立 `gf.visualize.heatmap` 只组合通用 Tensor IR，返回可查看 MLIR/TTIR 的 lazy `Raster`；`Tensor.prepare()` 绑定稳定动画 buffer，`to_numpy/save/show` 位于可选 interop/encoding 边界。2048² FP32 scalar→RGB 对 matched torch.compile/Inductor 为 1.153x（CI low 1.140），cold JIT 与 PNG encoding 分开报告；core 无 heatmap/render op |
 | G0 | PARTIAL | representative graph-algorithm compiler probes | fixed-iteration PageRank 已有 `gf_control.repeat`、CPU/CUDA correctness、bounded canonical IR、2-buffer/1-launch-per-iteration artifact，以及 degree 4/16/32 × N65536/262144 的 matched `torch.sparse.mm` roofline/latency benchmark；RTX 5070 Ti 完整 artifact 为 1.049–2.337x（CI low 1.043–2.312），首个 cold provider compile 后其余 shape 的 capture+compile+prepare wall 为 13.70–17.01 ms。fixed repeat 的 pointwise/CSR MessagePassing 自动 VJP correctness fallback 已通过，但反向结构化 loop/tape/performance、设备侧 convergence、BFS frontier/worklist、triangle sorted-intersection 仍待完成；没有用 NetworkX 作性能分母 |
+| L0 | PARTIAL | matrix-free solver compiler probe | `gf.linalg.LinearOperator` 已将 Tensor/MessagePassing `matvec`、adjoint callback、参数元数据保持为普通 compiler-visible application，`dot/vector_norm` 由可捕获 Tensor algebra 表达；一维 P1 FEM Poisson example 不组装 sparse matrix，并以 `gf.linalg.richardson` 捕获为单个 fixed-count `gf_control.repeat`，前向正确性与短循环自动 VJP 测试通过。关闭范围仍需 multi-value loop-carried SSA、bounded device-side `gf_control.while`、distributed reduction/collective semantics、CG/preconditioner、structured reverse loop/tape、residual-guarded implicit adjoint VJP，以及 matched forward/backward performance artifact |
 
 执行顺序固定为 `C0/C1/C2/C3/C4/C6 → S0/D0/D1/K0 → R0/M0/X0 → B*/J0/P0/A0`；V0 是独立
-track；G0 是以算法驱动 compiler 修改的独立 diagnostic track。外部硬件或发布凭据缺失不会把对应项伪标为 DONE，而应保留 PENDING 并记录可复现的
+track；G0/L0 是以算法驱动 compiler 修改的独立 diagnostic track。外部硬件或发布凭据缺失不会把对应项伪标为 DONE，而应保留 PENDING 并记录可复现的
 本地 conformance 输入。
 
 ---
