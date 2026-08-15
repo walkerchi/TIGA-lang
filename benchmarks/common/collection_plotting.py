@@ -19,6 +19,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.lines import Line2D
+from matplotlib.patches import Patch
 
 from benchmarks.common.plotting import (
     _number_marker,
@@ -279,17 +280,12 @@ def _report_method_color(provider: str) -> str:
     return provider_color(provider)
 
 
-def plot_compiler_report(manifest: dict, root: Path, output: Path) -> Path:
-    """Render an auditable, portrait all-in-one matched-case report.
-
-    Every panel is one exact workload bucket.  Its baseline is fixed in the
-    manifest, so the chart never chooses a favorable peer after reading the
-    measurements.  Latency is converted to relative throughput solely to make
-    otherwise incomparable units share a visual grammar.
-    """
-    panels = manifest.get("report_panels", [])
+def _matched_panel_records(
+    manifest: dict, root: Path, key: str,
+) -> list[tuple[dict, dict[str, dict], float]]:
+    panels = manifest.get(key, [])
     if not panels:
-        raise ValueError("manifest has no report_panels")
+        raise ValueError(f"manifest has no {key}")
     records = []
     for panel in panels:
         path = root / panel["operation"] / panel["case"] / "roofline.json"
@@ -308,8 +304,156 @@ def plot_compiler_report(manifest: dict, root: Path, output: Path) -> Path:
         baseline = panel["baseline"]
         if baseline not in selected:
             raise ValueError(f"{panel['title']} baseline {baseline!r} is absent")
-        baseline_ms = float(selected[baseline]["milliseconds"])
-        records.append((panel, selected, baseline_ms))
+        records.append(
+            (panel, selected, float(selected[baseline]["milliseconds"])))
+    return records
+
+
+def _showcase_badge(provider: str, primary: bool) -> str:
+    if primary:
+        return "GF"
+    if provider.startswith("graphforge."):
+        return "AUTO"
+    if provider.startswith("torch."):
+        return "PT"
+    if provider.startswith(("triton.", "handwritten.")):
+        return "TR"
+    if provider.startswith("flash_sparse_attn."):
+        return "FSA"
+    return "PEER"
+
+
+def plot_release_showcase(manifest: dict, root: Path, output: Path) -> Path:
+    """Render a wide release-style benchmark overview for the README.
+
+    This is a presentation layer over exact registered buckets, not a composite
+    score. Every mini-chart normalizes only to its predeclared matched baseline.
+    The portrait report remains the exhaustive view.
+    """
+    records = _matched_panel_records(manifest, root, "showcase_panels")
+    if len(records) != 6:
+        raise ValueError("the README showcase requires exactly six panels")
+
+    _style()
+    fig = plt.figure(figsize=(18.0, 10.6), facecolor="white")
+    grid = fig.add_gridspec(
+        2, 3, left=0.055, right=0.965, bottom=0.12, top=0.705,
+        wspace=0.34, hspace=0.56,
+    )
+    fig.text(
+        0.045, 0.94, "Compiler Performance Evaluation",
+        ha="left", va="top", fontsize=31, fontweight="normal", color="#101216",
+    )
+    fig.text(
+        0.045, 0.875,
+        "6 matched workloads · fixed semantics and baselines · median latency · higher is better",
+        ha="left", va="top", fontsize=15.5, color="#8a9098",
+    )
+    fig.add_artist(Line2D(
+        [0.045, 0.955], [0.825, 0.825], transform=fig.transFigure,
+        color="#aeb6c1", linewidth=2.4,
+    ))
+    fig.legend(
+        handles=(
+            Patch(facecolor="#168bff", label="GraphForge compiled path"),
+            Patch(facecolor="#34bd8a", label="GraphForge auto alternative"),
+            Patch(facecolor="#c8ced8", label="Matched peer"),
+        ),
+        loc="upper left", bbox_to_anchor=(0.043, 0.808), ncol=3,
+        frameon=False, fontsize=13.5, handlelength=0.8, handleheight=0.8,
+        columnspacing=2.0, handletextpad=0.45,
+    )
+    fig.text(
+        0.925, 0.92, "G›", ha="center", va="center", color="white",
+        fontsize=20, fontweight="bold",
+        bbox={"boxstyle": "round,pad=0.42,rounding_size=0.2",
+              "facecolor": "#0b0d10", "edgecolor": "none"},
+    )
+
+    peer_colors = ("#c4cad4", "#e1e4e9", "#eef0f3")
+    for index, (panel, selected, baseline_ms) in enumerate(records):
+        ax = fig.add_subplot(grid[index // 3, index % 3])
+        providers = panel["providers"]
+        relative = np.asarray([
+            baseline_ms / float(selected[name]["milliseconds"])
+            for name in providers
+        ])
+        colors = ["#168bff"] + [
+            "#34bd8a" if name.startswith("graphforge.")
+            else peer_colors[min(peer_index, len(peer_colors) - 1)]
+            for peer_index, name in enumerate(providers[1:])
+        ]
+        positions = np.arange(len(providers))
+        bars = ax.bar(
+            positions, relative, width=0.74, color=colors,
+            edgecolor="none", zorder=3,
+        )
+        ceiling = max(1.18, float(relative.max()) * 1.22)
+        ax.set_ylim(0, ceiling)
+        ax.set_xlim(-0.55, len(providers) - 0.45)
+        ax.axhline(0, color="#89919b", linewidth=1.2)
+        ax.set_xticks([])
+        ax.set_yticks([])
+        ax.grid(False)
+        for spine in ax.spines.values():
+            spine.set_visible(False)
+        for item_index, (bar, provider, ratio) in enumerate(
+            zip(bars, providers, relative, strict=True)
+        ):
+            ax.text(
+                bar.get_x() + bar.get_width() / 2,
+                bar.get_height() + ceiling * 0.025,
+                f"{ratio:.2f}×", ha="center", va="bottom",
+                fontsize=15.5,
+                fontweight="bold" if item_index == 0 else "normal",
+                color="#151719",
+            )
+            ax.text(
+                bar.get_x() + bar.get_width() / 2,
+                min(bar.get_height() * 0.72, ceiling * 0.34),
+                _showcase_badge(provider, item_index == 0),
+                ha="center", va="center", fontsize=9.5, fontweight="bold",
+                color="white" if item_index < 2 else "#34383d",
+                bbox={
+                    "boxstyle": "round,pad=0.34,rounding_size=0.18",
+                    "facecolor": "#0b0d10" if item_index < 2 else "white",
+                    "edgecolor": "#d0d5dc", "linewidth": 0.8,
+                },
+            )
+        ax.text(
+            0.5, -0.13, panel["title"], transform=ax.transAxes,
+            ha="center", va="center", fontsize=12.5, fontweight="bold",
+            color="#555a61",
+            bbox={"boxstyle": "round,pad=0.38,rounding_size=0.9",
+                  "facecolor": "white", "edgecolor": "#6f747a",
+                  "linewidth": 1.1},
+        )
+        detail = panel.get("detail")
+        if detail:
+            ax.text(
+                0.5, -0.25, detail, transform=ax.transAxes,
+                ha="center", va="top", fontsize=8.2, color="#969ba2",
+            )
+
+    fig.text(
+        0.955, 0.025,
+        "No aggregate score · each group uses its own declared 1.00× baseline",
+        ha="right", va="bottom", fontsize=9.5, color="#9aa0a7",
+    )
+    output.parent.mkdir(parents=True, exist_ok=True)
+    _save(fig, output.with_suffix(""))
+    return output.with_suffix(".png")
+
+
+def plot_compiler_report(manifest: dict, root: Path, output: Path) -> Path:
+    """Render an auditable, portrait all-in-one matched-case report.
+
+    Every panel is one exact workload bucket.  Its baseline is fixed in the
+    manifest, so the chart never chooses a favorable peer after reading the
+    measurements.  Latency is converted to relative throughput solely to make
+    otherwise incomparable units share a visual grammar.
+    """
+    records = _matched_panel_records(manifest, root, "report_panels")
 
     _style()
     fig, axes = plt.subplots(

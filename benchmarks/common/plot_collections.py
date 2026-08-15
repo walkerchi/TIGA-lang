@@ -11,6 +11,7 @@ from benchmarks.common.collection_plotting import (
     plot_compiler_report,
     plot_manifest_dashboard,
     plot_operation_summary,
+    plot_release_showcase,
 )
 
 
@@ -24,6 +25,10 @@ def main() -> None:
     parser.add_argument(
         "--report-output", type=Path,
         default=Path("docs/assets/compiler-performance-report.png"),
+    )
+    parser.add_argument(
+        "--showcase-output", type=Path,
+        default=Path("docs/assets/compiler-performance-overview.png"),
     )
     args = parser.parse_args()
     manifest = json.loads(args.manifest.read_text(encoding="utf-8"))
@@ -52,6 +57,8 @@ def main() -> None:
     print(plot_manifest_dashboard(manifest, args.root))
     print(plot_compiler_report(
         manifest, args.root, args.report_output))
+    print(plot_release_showcase(
+        manifest, args.root, args.showcase_output))
 
 
 if __name__ == "__main__":

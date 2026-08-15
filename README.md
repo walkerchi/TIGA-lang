@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="docs/assets/graphforge-logo.svg" alt="GraphForge" width="720">
+  <img src="docs/assets/graphforge-logo.svg" alt="GraphForge" width="560">
   <p><strong>An MLIR-based compiler for sparse relations, dynamic graphs, reducers, autograd, and heterogeneous execution.</strong></p>
   <p>
     <a href="https://github.com/walkerchi/graphforge/actions/workflows/compiler-ci.yml"><img alt="compiler CI" src="https://github.com/walkerchi/graphforge/actions/workflows/compiler-ci.yml/badge.svg?branch=main"></a>
@@ -37,15 +37,22 @@ providers, and a Torch-free tensor runtime.
 
 ## Performance report
 
-Every panel below is one matched workload bucket with a baseline fixed in
+Each group below is one matched workload bucket with its baseline fixed in
 [`benchmarks/evidence_manifest.json`](benchmarks/evidence_manifest.json).
-Bars report relative throughput while preserving the measured median latency;
-different shapes, mathematical semantics, and build/consume boundaries are not
-combined into one synthetic score.
+The release overview follows a consistent relative-throughput grammar, but it
+does not average unrelated workloads into a synthetic score.
 
 <div align="center">
-  <img src="docs/assets/compiler-performance-report.svg" alt="GraphForge compiler performance report across sparse, graph, attention, autograd, CPU, and tensor workloads" width="900">
+  <img src="docs/assets/compiler-performance-overview.svg" alt="GraphForge compiler performance evaluation across six matched workloads" width="1100">
 </div>
+
+<details>
+<summary><strong>Open the complete 13-workload compiler report</strong></summary>
+<br>
+<div align="center">
+  <img src="docs/assets/compiler-performance-report.svg" alt="Complete GraphForge compiler performance report across sparse, graph, attention, autograd, CPU, and tensor workloads" width="900">
+</div>
+</details>
 
 The report is generated from the same registered JSON used by the confidence
 gates. Reproduce the per-kernel rooflines and the all-in-one report with:

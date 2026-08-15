@@ -11,6 +11,62 @@
     }
   },
   "report_device": "NVIDIA GeForce RTX 5070 Ti · CPU relation panel measured on the paired host CPU",
+  "showcase_panels": [
+    {
+      "title": "Ragged CSR SpMM",
+      "detail": "N=131072 · degree 0–32 · F=16",
+      "operation": "weighted_aggregation",
+      "case": "irregular_random_cuda_i32_n131072_degree16_f16_64",
+      "filters": {"features": 16, "cache": "hot"},
+      "providers": ["graphforge.prepared_auto", "torch.sparse.mm", "triton.csr"],
+      "baseline": "torch.sparse.mm"
+    },
+    {
+      "title": "Power-law CSR",
+      "detail": "90% d8 · 9% d64 · 1% d256",
+      "operation": "weighted_aggregation",
+      "case": "powerlaw_random_cuda_i32_n131072_degree16_f1",
+      "filters": {"features": 1, "cache": "hot"},
+      "providers": ["graphforge.compiler_chunked_tail", "graphforge.prepared_auto", "torch.sparse.mm"],
+      "baseline": "torch.sparse.mm"
+    },
+    {
+      "title": "Radius build + consume",
+      "detail": "N=32768 · D=3 · degree≈32",
+      "operation": "radius_distance_aggregation",
+      "case": "cuda_n32768_d3_degree32",
+      "filters": {"features": 1, "cache": "fresh-build+consume"},
+      "providers": ["graphforge.generated_build_consume", "graphforge.materialized_build_consume"],
+      "baseline": "graphforge.materialized_build_consume"
+    },
+    {
+      "title": "Generated relation VJP",
+      "detail": "radius distance · source + position grad",
+      "operation": "message_passing_backward",
+      "case": "radius_fixed_snapshot_cuda_n32768_d3_degree32",
+      "filters": {"features": 4, "cache": "hot"},
+      "providers": ["graphforge.generated_vjp", "handwritten.triton", "torch.autograd"],
+      "baseline": "handwritten.triton"
+    },
+    {
+      "title": "Fixed-iteration PageRank",
+      "detail": "N=262144 · degree=16 · 20 iterations",
+      "operation": "pagerank",
+      "case": "cuda_fp32_iter20",
+      "filters": {"nodes": 262144, "edges": 4194304, "cache": "hot"},
+      "providers": ["graphforge.control", "torch.sparse.mm"],
+      "baseline": "torch.sparse.mm"
+    },
+    {
+      "title": "Tile-pruned attention",
+      "detail": "B=1 · H=16 · N=4096 · D=64",
+      "operation": "sparse_attention",
+      "case": "b1_h16_n4096_d64_fp16",
+      "filters": {"features": 64, "cache": "hot"},
+      "providers": ["graphforge.compiler_tile_pruned", "flash_sparse_attn.official"],
+      "baseline": "flash_sparse_attn.official"
+    }
+  ],
   "report_panels": [
     {
       "title": "Bounded-ragged CSR SpMM",

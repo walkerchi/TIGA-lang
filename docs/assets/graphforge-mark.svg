@@ -1,26 +1,8 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 160" role="img" aria-labelledby="title desc">
-  <title id="title">GraphForge compiler mark</title>
-  <desc id="desc">A sparse relation lowered through stacked IR into parallel machine lanes.</desc>
-  <defs>
-    <linearGradient id="brand" x1="10" y1="15" x2="150" y2="145" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#22d3ee"/><stop offset="0.55" stop-color="#2563eb"/><stop offset="1" stop-color="#7c3aed"/>
-    </linearGradient>
-  </defs>
-  <path d="M80 3 148 42v76l-68 39-68-39V42Z" fill="#0b1220"/>
-  <path d="M80 11 140 46v68l-60 35-60-35V46Z" fill="none" stroke="url(#brand)" stroke-width="5"/>
-  <g stroke="#22d3ee" stroke-width="3" stroke-linecap="round">
-    <path d="m31 44 20 21M31 83l20-18M33 119l18-54"/>
-  </g>
-  <g fill="#0b1220" stroke="#67e8f9" stroke-width="3">
-    <circle cx="30" cy="43" r="6"/><circle cx="29" cy="84" r="6"/><circle cx="32" cy="120" r="6"/><circle cx="53" cy="65" r="7"/>
-  </g>
-  <path d="M61 65h8m-4-5 7 5-7 5" fill="none" stroke="#60a5fa" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
-  <g fill="#172554" stroke="#93c5fd" stroke-width="2">
-    <rect x="74" y="43" width="32" height="13" rx="3"/><rect x="74" y="61" width="32" height="13" rx="3"/><rect x="74" y="79" width="32" height="13" rx="3"/>
-  </g>
-  <path d="M108 67h8m-4-5 7 5-7 5" fill="none" stroke="#a78bfa" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
-  <g fill="#312e81" stroke="#c4b5fd" stroke-width="2">
-    <rect x="121" y="43" width="15" height="15" rx="3"/><rect x="121" y="63" width="15" height="15" rx="3"/><rect x="121" y="83" width="15" height="15" rx="3"/>
-  </g>
-  <path d="M36 132h98" stroke="url(#brand)" stroke-width="3" stroke-linecap="round" opacity="0.7"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-labelledby="title desc">
+  <title id="title">GraphForge</title>
+  <desc id="desc">An open ring and lowering chevron.</desc>
+  <path d="M91 31A43 43 0 1 0 91 97"
+        fill="none" stroke="#101216" stroke-width="12" stroke-linecap="round"/>
+  <path d="m82 49 17 15-17 15" fill="none" stroke="#168bff" stroke-width="10"
+        stroke-linecap="round" stroke-linejoin="round"/>
 </svg>

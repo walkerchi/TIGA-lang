@@ -1,65 +1,10 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 920 210" role="img" aria-labelledby="title desc">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 700 128" role="img" aria-labelledby="title desc">
   <title id="title">GraphForge</title>
-  <desc id="desc">Sparse graph relations flow through compiler IR into parallel hardware kernels.</desc>
-  <defs>
-    <linearGradient id="brand" x1="18" y1="22" x2="184" y2="184" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#22d3ee"/>
-      <stop offset="0.5" stop-color="#2563eb"/>
-      <stop offset="1" stop-color="#7c3aed"/>
-    </linearGradient>
-    <linearGradient id="flow" x1="40" y1="0" x2="170" y2="0" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#22d3ee"/>
-      <stop offset="0.58" stop-color="#60a5fa"/>
-      <stop offset="1" stop-color="#a78bfa"/>
-    </linearGradient>
-  </defs>
-
-  <rect width="920" height="210" rx="24" fill="#ffffff"/>
-  <g transform="translate(15 15)">
-    <path d="M90 0 168 45v90l-78 45-78-45V45Z" fill="#0b1220"/>
-    <path d="M90 10 159 50v80l-69 40-69-40V50Z" fill="none" stroke="url(#brand)" stroke-width="5"/>
-
-    <!-- Sparse relation -->
-    <g stroke="#22d3ee" stroke-width="3" stroke-linecap="round" opacity="0.92">
-      <path d="M38 48 59 70M38 91l21-21M39 130l20-60"/>
-    </g>
-    <g fill="#0b1220" stroke="#67e8f9" stroke-width="3">
-      <circle cx="36" cy="46" r="6"/><circle cx="35" cy="92" r="6"/>
-      <circle cx="38" cy="132" r="6"/><circle cx="61" cy="70" r="7"/>
-    </g>
-
-    <!-- Compiler IR stack -->
-    <path d="M69 70h9" stroke="url(#flow)" stroke-width="3" stroke-linecap="round"/>
-    <path d="m76 65 7 5-7 5" fill="none" stroke="#60a5fa" stroke-width="2.5"/>
-    <g fill="#172554" stroke="#93c5fd" stroke-width="2">
-      <rect x="84" y="47" width="36" height="14" rx="4"/>
-      <rect x="84" y="66" width="36" height="14" rx="4"/>
-      <rect x="84" y="85" width="36" height="14" rx="4"/>
-    </g>
-    <g fill="#dbeafe" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="7" font-weight="700" text-anchor="middle">
-      <text x="102" y="57">DOMAIN</text><text x="102" y="76">ITER</text><text x="102" y="95">KERNEL</text>
-    </g>
-
-    <!-- Lowered parallel machine lanes -->
-    <path d="M121 73h9" stroke="url(#flow)" stroke-width="3" stroke-linecap="round"/>
-    <path d="m128 68 7 5-7 5" fill="none" stroke="#a78bfa" stroke-width="2.5"/>
-    <g fill="#312e81" stroke="#c4b5fd" stroke-width="2">
-      <rect x="136" y="45" width="17" height="17" rx="3"/>
-      <rect x="136" y="67" width="17" height="17" rx="3"/>
-      <rect x="136" y="89" width="17" height="17" rx="3"/>
-    </g>
-    <g stroke="#c4b5fd" stroke-width="2" opacity="0.85">
-      <path d="M140 50h9M140 54h9M140 72h9M140 76h9M140 94h9M140 98h9"/>
-    </g>
-    <path d="M43 145h105" stroke="url(#flow)" stroke-width="3" stroke-linecap="round" opacity="0.6"/>
-  </g>
-
-  <text x="214" y="105" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="70" font-weight="bold" fill="#0f172a">Graph</text>
-  <text x="427" y="105" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="70" font-weight="bold" fill="#2563eb">Forge</text>
-  <text x="218" y="145" font-family="Inter, Arial, Helvetica, sans-serif" font-size="15" font-weight="700" letter-spacing="2.6" fill="#475569">SPARSE RELATIONS → IR → KERNELS</text>
-  <g transform="translate(218 165)" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11" font-weight="650">
-    <rect width="82" height="24" rx="12" fill="#ecfeff"/><text x="41" y="16" text-anchor="middle" fill="#0e7490">CPU · LLVM</text>
-    <rect x="90" width="88" height="24" rx="12" fill="#eff6ff"/><text x="134" y="16" text-anchor="middle" fill="#1d4ed8">GPU · TTIR</text>
-    <rect x="186" width="126" height="24" rx="12" fill="#f5f3ff"/><text x="249" y="16" text-anchor="middle" fill="#6d28d9">DISTRIBUTED TASK</text>
-  </g>
+  <desc id="desc">GraphForge compiler wordmark.</desc>
+  <path d="M91 31A43 43 0 1 0 91 97"
+        fill="none" stroke="#101216" stroke-width="12" stroke-linecap="round"/>
+  <path d="m82 49 17 15-17 15" fill="none" stroke="#168bff" stroke-width="10"
+        stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="132" y="87" font-family="DejaVu Sans, Arial, sans-serif"
+        font-size="64" font-weight="700" fill="#101216">GraphForge</text>
 </svg>

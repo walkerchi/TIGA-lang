@@ -928,7 +928,10 @@ def plot_radius_pipeline(payload: dict, output: Path):
 def _save(fig, stem: Path):
     fig.savefig(stem.with_suffix(".png"), dpi=180, bbox_inches="tight")
     svg = stem.with_suffix(".svg")
-    fig.savefig(svg, bbox_inches="tight")
+    # Stable element IDs and omitted wall-clock metadata keep tracked SVG
+    # assets byte-for-byte reproducible across equivalent benchmark renders.
+    with matplotlib.rc_context({"svg.hashsalt": "graphforge"}):
+        fig.savefig(svg, bbox_inches="tight", metadata={"Date": None})
     # Matplotlib emits trailing spaces in multiline SVG path data.  Normalize
     # generated assets so publication updates remain reviewable and pass the
     # repository whitespace contract.

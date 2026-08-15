@@ -126,6 +126,7 @@ class PlotBenchmarksTest(unittest.TestCase):
             plot_compiler_report,
             plot_manifest_dashboard,
             plot_operation_summary,
+            plot_release_showcase,
         )
         from benchmarks.common.plotting import provider_color
 
@@ -173,6 +174,23 @@ class PlotBenchmarksTest(unittest.TestCase):
             }, output, output / "compiler-report.png")
             self.assertTrue(report.exists())
             self.assertTrue(report.with_suffix(".svg").exists())
+            showcase_panel = {
+                "title": "Sparse test kernel",
+                "detail": "N=1024 · degree=16 · F=16",
+                "operation": "test_operation", "case": "case",
+                "filters": {"features": 16, "cache": "hot"},
+                "providers": [
+                    "graphforge.compiler_ttir", "torch.sparse.mm"],
+                "baseline": "torch.sparse.mm",
+            }
+            showcase = plot_release_showcase({
+                "showcase_panels": [
+                    {**showcase_panel, "title": f"Kernel {index}"}
+                    for index in range(6)
+                ],
+            }, output, output / "compiler-overview.png")
+            self.assertTrue(showcase.exists())
+            self.assertTrue(showcase.with_suffix(".svg").exists())
 
     def test_knn_roofline_uses_specialized_overlap_view(self):
         from benchmarks.common.plotting import plot_roofline
