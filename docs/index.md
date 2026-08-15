@@ -15,6 +15,17 @@ The project also contains the minimal Tensor/runtime/autograd substrate needed
 to execute its compiler output without requiring a full framework. It does not
 include optimizer, NN or dataset layers.
 
+## Measured compiler impact
+
+![GraphForge structural compiler speedups](assets/benchmark-overview.svg)
+
+These are independent, semantically matched registered cases rather than one
+cross-workload geomean. They highlight transformations that remove
+materialization or change relation traversal; GEMM, exact-kNN and mature
+attention parity results are reported separately. See the
+[benchmark results](benchmark-results.md) for confidence intervals, exact
+boundaries and the full matrix.
+
 ```python
 import graphforge as gf
 
