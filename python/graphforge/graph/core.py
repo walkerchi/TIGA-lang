@@ -946,6 +946,21 @@ class Graph:
             else None
         )
 
+    def ranked_positions(self) -> tuple[Tensor, Tensor]:
+        """Return query/candidate coordinates for a procedural ranked relation.
+
+        This compiler-facing accessor preserves aliasing for self-kNN so the
+        Domain verifier can prove that self exclusion refers to one entity
+        domain. It never builds or caches adjacency.
+        """
+        if self._schema.realization != "procedural_knn" or self._positions is None:
+            raise TypeError("ranked_positions requires a procedural kNN graph")
+        return (
+            self._positions,
+            self._positions if self._source_positions is None
+            else self._source_positions,
+        )
+
     def generated_cell_directory(self):
         """Return an optional physical debug directory from the Torch oracle.
 

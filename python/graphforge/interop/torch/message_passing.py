@@ -841,6 +841,42 @@ class _CSRScalarExecutable(_DenseScalarExecutable):
         return self.runner(*inputs)
 
 
+@dataclass
+class _RankedExecutable(_DenseScalarExecutable):
+    """Shape-guarded dynamic ranked relation with live coordinate rebinding."""
+
+    position_specs: tuple[tuple[object, ...], tuple[object, ...]] | None = None
+
+    def try_run(self, graph, src, dst, edge, params=None):
+        if graph is not self.graph or graph.schema.realization != "procedural_knn":
+            return _EXECUTABLE_MISS
+        try:
+            query, candidate = graph.ranked_positions()
+        except TypeError:
+            return _EXECUTABLE_MISS
+        if self.position_specs is None or not all(
+            _matches_field(value, spec)
+            for value, spec in zip((query, candidate), self.position_specs)
+        ):
+            return _EXECUTABLE_MISS
+        namespaces = {
+            "src": src, "dst": dst, "edge": edge, "param": params or {}}
+        try:
+            inputs = tuple(
+                namespaces[role][name] for role, name in self.bindings)
+        except (KeyError, TypeError):
+            return _EXECUTABLE_MISS
+        for (role, _), value, spec in zip(
+            self.bindings, inputs, self.specs
+        ):
+            if role == "param":
+                if not isinstance(value, (int, float)):
+                    return _EXECUTABLE_MISS
+            elif spec is None or not _matches_field(value, spec):
+                return _EXECUTABLE_MISS
+        return self.runner(query, candidate, *inputs)
+
+
 class _CSRPlanLaunch:
     """Named runtime ABI wrapper around one compiler-produced TTIR plan."""
 
@@ -933,6 +969,7 @@ class MessagePassing(Kernel):
             | _StructuredExecutable
             | _DenseScalarExecutable
             | _CSRScalarExecutable
+            | _RankedExecutable
             | None
         ) = None
         self._generated_radius_executables: dict[tuple[object, ...], object] = {}
@@ -1042,6 +1079,11 @@ class MessagePassing(Kernel):
                 key, graph, src, dst, edge, params)
             if result is not None:
                 return result
+        if graph.schema.realization == "procedural_knn":
+            result = self._execute_ranked(
+                key, graph, src, dst, edge, params)
+            if result is not None:
+                return result
         pattern = self._weighted_sum_pattern(params)
         if pattern is not None and not edge:
             generated = self._execute_generated_radius_sum(
@@ -1063,6 +1105,142 @@ class MessagePassing(Kernel):
             self._record_variant(self._make_reference_variant(key, graph, src, dst, edge))
         return self._evaluate_reference(
             graph, row_ptr, col_idx, src, dst, edge, params)
+
+    def _execute_ranked(self, key, graph, src, dst, edge, params):
+        """Compile exact ranked selection and its edge consumer as one launch."""
+        k = getattr(graph, "_k", None)
+        if (
+            graph.device.type != "cuda"
+            or not isinstance(k, int)
+            or k <= 0
+            or k > 64
+            or k & (k - 1)
+        ):
+            return None
+        query, candidate = graph.ranked_positions()
+        if (
+            query.dtype != torch.float32
+            or candidate.dtype != torch.float32
+            or not query.is_contiguous()
+            or not candidate.is_contiguous()
+        ):
+            return None
+        self._validate_fields(
+            "edge", edge, graph.schema.num_dst * k, graph.device)
+        try:
+            from dataclasses import replace
+
+            from ...codegen import prepare_ttir_ranked
+            from ...compiler.domain_capture import capture_message_passing
+            from .compiler_bridge import (
+                find_gf_translate,
+                lower_kernel_to_ttir,
+                lower_mlir_stages,
+                message_passing_domain_mlir,
+                parse_kernel_ttir_plan,
+            )
+
+            descriptor = capture_message_passing(
+                kernel=self, graph=graph, src=src, dst=dst, edge=edge,
+                params=params, kernel_name=type(self).__qualname__)
+            bindings = tuple(
+                (field.role, field.name) for field in descriptor.fields)
+            bindings += tuple(
+                ("param", parameter.name) for parameter in descriptor.params)
+            namespaces = {
+                "src": src, "dst": dst, "edge": edge, "param": params}
+            inputs = tuple(
+                namespaces[role][name] for role, name in bindings)
+            if any(
+                value.requires_grad
+                for value in (query, candidate, *(
+                    value for (role, _), value in zip(bindings, inputs)
+                    if role != "param"
+                ))
+            ):
+                return None
+            if any(
+                not value.is_contiguous()
+                for (role, _), value in zip(bindings, inputs)
+                if role != "param"
+            ):
+                return None
+            module = message_passing_domain_mlir(
+                kernel=self, graph=graph, src=dict(src), dst=dict(dst),
+                edge=dict(edge), params=params,
+                kernel_name=type(self).__qualname__)
+            stages = lower_mlir_stages(module)
+            translator = find_gf_translate()
+            if translator is None:
+                return None
+            stages = replace(
+                stages,
+                provider_ttir=lower_kernel_to_ttir(
+                    stages.kernel, gf_translate=translator),
+            )
+            manifest = parse_kernel_ttir_plan(stages.provider_ttir)
+            if manifest.entry != "gf_ranked_select_consume":
+                return None
+            plan = prepare_ttir_ranked(
+                manifest.module,
+                num_queries=graph.schema.num_dst,
+                block_rows=manifest.block_rows,
+                num_warps=manifest.num_warps,
+            )
+            output = plan.run(query, candidate, *inputs)
+        except (KeyError, OSError, TypeError, ValueError,
+                NotImplementedError, RuntimeError):
+            return None
+
+        artifacts = {
+            name: value
+            for name, value in plan.result.artifacts.items()
+            if name in {"ttir", "ttgir", "llir", "ptx"}
+            and isinstance(value, str)
+        }
+        domain_plan, variant_passes, artifacts = self._merge_mlir_stages(
+            stages,
+            "",
+            (
+                "capture-ranked-relation",
+                "select-ranked-pairs-coordinate-hierarchy",
+                "select-candidate-tile",
+                "emit-local-stable-topk",
+                "emit-hierarchical-topk-merge",
+                "fuse-selected-edge-consumer",
+                "gf-kernel-to-ttir",
+                "provider-compile-serialized-ttir",
+            ),
+            artifacts,
+        )
+        variant = CompiledVariant(
+            key=key,
+            backend="cuda",
+            provider=plan.result.provider.display_name(),
+            lowering="gf-kernel-to-ttir-ranked-select-consume",
+            provider_key=plan.result.provider.cache_key(),
+            domain_plan=domain_plan,
+            passes=variant_passes,
+            artifacts=artifacts,
+            remarks=(
+                "exact candidate ranking and edge consumption share one launch",
+                "candidate tiles retain only k stable distance/index keys",
+                "no CSR row pointer or selected column tensor is materialized",
+            ),
+        )
+        self._record_variant(variant)
+        self._last_executable = _RankedExecutable(
+            graph=graph,
+            bindings=bindings,
+            specs=tuple(
+                None if role == "param" else _field_spec(value)
+                for (role, _), value in zip(bindings, inputs)
+            ),
+            variant=variant,
+            runner=plan.run,
+            position_specs=(_field_spec(query), _field_spec(candidate)),
+        )
+        return output
 
     def _execute_generated_radius_sum(
         self, key, pattern, graph, src, dst, params
@@ -2620,10 +2798,13 @@ def prepare(kernel, *, graph, src, dst, edge, params):
     kernel(graph=graph, src=src, dst=dst, edge=edge, **dict(params))
     executor = _executor(kernel)
     executable = executor._last_executable
-    if not isinstance(executable, (_GuardedExecutable, _CSRScalarExecutable)):
+    if not isinstance(
+        executable, (_GuardedExecutable, _CSRScalarExecutable,
+                     _RankedExecutable)
+    ):
         raise NotImplementedError(
             "prepared MessagePassing currently supports compiler-generated "
-            "scalar CSR executables")
+            "scalar CSR and ranked-relation executables")
     torch_graph = from_native(graph)
     if executable.graph is not torch_graph:
         raise RuntimeError("prepared executable graph identity changed")
@@ -2647,9 +2828,16 @@ def prepare(kernel, *, graph, src, dst, edge, params):
             raise ValueError(
                 f"missing prepared binding {error.args[0]!r}") from error
     runner = executable.runner
+    ranked_positions = (
+        executable.graph.ranked_positions()
+        if isinstance(executable, _RankedExecutable) else None
+    )
 
     def launch():
-        return runner(*inputs)
+        return (
+            runner(*ranked_positions, *inputs)
+            if ranked_positions is not None else runner(*inputs)
+        )
 
     launch.variant = executable.variant
     launch.graph = graph

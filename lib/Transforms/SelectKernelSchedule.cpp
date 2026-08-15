@@ -85,6 +85,13 @@ static void setSchedule(Operation *operation, StringRef kind,
     handoffs.insert(handoffs.begin() + 1, "reduce.subgroup");
     instructions = {"masked-memory", "vector-contraction",
                     deterministic ? "ordered-reduce" : "associative-reduce"};
+  } else if (kind == "ranked-candidate-select") {
+    resources.insert(resources.begin(), "selection.register.private");
+    roles = {"workgroup.destination-queries", "subgroup.ranked-selection",
+             "lane.feature"};
+    handoffs.insert(handoffs.begin() + 1, "reduce.subgroup");
+    instructions = {"masked-memory", "hierarchical-topk",
+                    "stable-index-tie-break"};
   } else if (kind == "provider-deferred") {
     roles = {"workgroup.destination-rows", "lane.scalar"};
     instructions = {"provider-selection-required"};
@@ -218,6 +225,23 @@ public:
               ? 64
               : 128;
       setSchedule(launch, "dense-query-key-tile", rows, 64, 4, builder);
+    });
+    getOperation().walk([&](kernel::RankedLaunchOp launch) {
+      // These are provider-neutral capacities.  A provider may refine the
+      // register layout, but must retain exact local selection and stable
+      // source-index tie breaking before hierarchical merge.
+      int64_t candidateTile = 256;
+      int64_t k = launch.getKAttr().getInt();
+      while (candidateTile < k) candidateTile *= 2;
+      // One destination per program keeps the candidate tile and its sorting
+      // network register-resident. Query packing is a provider refinement
+      // once register pressure is modeled for a concrete target.
+      int64_t rows = 1;
+      setSchedule(launch, "ranked-candidate-select", rows, candidateTile, 4,
+                  builder);
+      launch->setAttr("candidate_tile",
+                      builder.getI64IntegerAttr(candidateTile));
+      launch->setAttr("merge_fan_in", builder.getI64IntegerAttr(2));
     });
   }
 };

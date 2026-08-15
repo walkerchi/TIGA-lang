@@ -50,13 +50,14 @@ case 为 89.29 TFLOP/s，对比 external torch.mm/cuBLAS 88.86 TFLOP/s；
 artifact 位于
 `output/roofline/dense_matmul_calibration/m2048_n2048_k2048_fp16/`。
 
-exact kNN 的注册 N=8192/D=3/k=32 build+consume case 检查全部 N² pair，使用 provider
-Euclidean cdist 再做 top-k；固定 degree 的 row pointer 可复用，但 column indices 每次重建并
-重绑到同一个 compiler-generated TTIR weighted-consume executable，不触发重编译。Prepared
-当前仓库 clean rerun 的 GraphForge 为 3.9076 ms，matched
-cdist/top-k/gather-multiply-sum 为 3.9110 ms，严格 gate 仅 1.0009x、CI low 1.0003，
-因此只算 parity，不算 ranked-relation compiler win。该结果不外推其他 N/D/k 或 approximate kNN；build-only artifact
-只保留为历史辅助结果。
+exact kNN 现在以 `gf.ranked_relation` 进入 Domain IR，经 `ranked-pairs` lower 到
+`gf_kernel.ranked_launch`。生成的 TTIR 对 256-candidate tile 做 stable local top-k，随后
+pairwise hierarchical merge，并直接执行 selected-edge UDF/reducer；不物化 N² distance
+matrix、row pointer 或 column indices。clean rerun 的两个严格 gate 都通过：
+N=8192/D=3/k=32 为 2.9498 ms 对 3.9155 ms（1.327x，CI low 1.326）；
+N=4096/D=5/k=16 为 0.6589 ms 对 1.0713 ms（1.626x，CI low 1.619）。
+当前 executable contract 仍限定 FP32 squared-Euclidean、power-of-two k≤64 和 scalar
+additive reducer；不能外推到任意 metric、非二次幂 k、ANN 或大 k spill/task plan。
 
 线性 recurrence 的注册 `L=64,T=512,K=V=16,FP32` case 只向 compiler 提交普通
 `broadcast × cumsum × reduce` Tensor IR。结构匹配将 map→scan→contract 融成一个 TTIR

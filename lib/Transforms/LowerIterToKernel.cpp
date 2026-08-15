@@ -56,7 +56,9 @@ public:
       auto generated =
           traversal.getRelation().getDefiningOp<GeneratedRadiusOp>();
       auto cartesian = traversal.getRelation().getDefiningOp<CartesianOp>();
-      if (!relation && !generated && !cartesian) {
+      auto ranked =
+          traversal.getRelation().getDefiningOp<RankedRelationOp>();
+      if (!relation && !generated && !cartesian && !ranked) {
         traversal.emitError(
             "requires a GraphForge relation definition before physical lowering");
         signalPassFailure();
@@ -71,6 +73,8 @@ public:
         skeleton = "generated-tile";
       else if (hierarchy == "cartesian-product")
         skeleton = "dense-tile";
+      else if (hierarchy == "ranked-pairs")
+        skeleton = "ranked-candidate-tile";
       else {
         traversal.emitError("has no legal kernel skeleton");
         signalPassFailure();
@@ -81,6 +85,7 @@ public:
       OperationState state(
           traversal.getLoc(),
           generated ? kernel::GeneratedLaunchOp::getOperationName()
+          : ranked ? kernel::RankedLaunchOp::getOperationName()
           : cartesian ? kernel::DenseLaunchOp::getOperationName()
                       : kernel::LaunchOp::getOperationName());
       if (generated) {
@@ -90,6 +95,9 @@ public:
             generated.getExtents(), generated.getStrides(),
             generated.getNeighborOffsets(), generated.getLattice(),
             generated.getInverseLattice()});
+      } else if (ranked) {
+        state.addOperands(
+            {ranked.getQueryPositions(), ranked.getCandidatePositions()});
       } else if (relation) {
         state.addOperands({relation.getRowPtr(), relation.getColIdx()});
       }
@@ -109,6 +117,11 @@ public:
         state.addAttribute("cutoff", generated.getCutoffAttr());
         state.addAttribute("dimensions", generated.getDimensionsAttr());
         state.addAttribute("periodic", generated.getPeriodicAttr());
+      } else if (ranked) {
+        for (StringRef name : {"num_queries", "num_candidates", "dimensions",
+                               "k", "metric", "selection", "tie_break",
+                               "exclude_self", "same_entity_domain", "exact"})
+          state.addAttribute(name, ranked->getAttr(name));
       } else if (cartesian) {
         state.addAttribute("num_src", cartesian.getNumSrcAttr());
         state.addAttribute("num_dst", cartesian.getNumDstAttr());

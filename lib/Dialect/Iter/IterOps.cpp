@@ -11,7 +11,7 @@ LogicalResult TraverseOp::verify() {
       (*this)->getAttrOfType<StringAttr>("coordinate_hierarchy").getValue();
   if (!llvm::StringSwitch<bool>(hierarchy)
            .Cases("compressed-row", "generated-neighborhood",
-                  "cartesian-product", true)
+                  "cartesian-product", "ranked-pairs", true)
            .Default(false))
     return emitOpError("unknown coordinate hierarchy '") << hierarchy << "'";
   StringRef ordering =

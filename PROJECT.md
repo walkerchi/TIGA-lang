@@ -2616,10 +2616,14 @@ irregular 与 skewed hot cases 的严格 gate 均通过；raw/plots 位于
 2026-08-10 起新结果迁移到 per-operation layout；上述旧目录作为历史快照保留但不再追加。
 registered cases 已覆盖 weighted aggregation、diffusion、radius graph build、radius distance
 aggregation、exact kNN、standalone online-softmax 与 dense matmul calibration。exact kNN 的
-N=8192/D=3/k=32 build+weighted-consume 每次执行 exhaustive Euclidean cdist/top-k 并把新
-column snapshot 重绑到同一个 TTIR consumer；当前仓库 clean rerun 的 GraphForge 为
-3.9076 ms，对 matched cdist/top-k/gather-multiply-sum 3.9110 ms，严格 gate 仅 1.0009x
-（CI low 1.0003），只算 parity 而不是 ranked-relation compiler win；不外推其他 shape 或 ANN。online-softmax case 由 benchmark 自定义 reducer 经结构证明后生成
+M0 路径现由 `gf.ranked_relation` 保留 exact selection、stable source-index tie break 和
+build-consume 语义，经 `ranked-pairs` Iter IR、`gf_kernel.ranked_launch` 与通用 edge-region
+lowering 直接生成 TTIR；执行期分块选择、层次 top-k merge 并立即消费，不物化 NxN 距离矩阵、
+CSR 或 selected-column tensor。N=8192/D=3/k=32 为 2.9498 ms，对 matched
+cdist/top-k/gather-multiply-sum 3.9155 ms，严格 gate 1.327x（CI low 1.326）；
+N=4096/D=5/k=16 为 0.6589 ms 对 1.0713 ms，1.626x（CI low 1.619）。这些结果只覆盖
+CUDA/FP32、squared-Euclidean、power-of-two k≤64、scalar additive UDF；不外推 custom metric、
+large/non-power-of-two k、generated backward 或 ANN。online-softmax case 由 benchmark 自定义 reducer 经结构证明后生成
 max/exp/sum TTIR tile，对 matched handwritten Triton 为 1.007x（CI low 1.005），严格 gate
 通过。dense matmul auto 的 Torch-free
 cuBLASLt library dispatch 为 89.29 vs external torch.mm/cuBLAS 88.86 TFLOP/s，严格 gate
@@ -3165,7 +3169,7 @@ benchmark artifact 的能力，`PARTIAL` 不得用于发布声明。每关闭一
 | S0 | DONE | Static MessagePassing registered performance matrix | social-like power-law 已覆盖 local/random × i32/i64 × hot/cold 八个 public-auto gate（CI low 1.255–1.849）；i32 compiler-generated CDF bucket + chunked-tail TTIR 的 local/random × hot/cold 四项为 1.353–1.525x（CI low 1.337–1.495），log-normal/exponential generated hot/cold 也全部过线。fixed-degree vector TTIR 的 random/i32/degree16 F16 hot/cold 为 4.322x/3.801x、F64 为 1.966x/1.302x（最低 CI low 1.288）；bounded-ragged degree 0–32 的 F16 为 4.213x/3.270x、F64 为 1.595x/1.283x（最低 CI low 1.270）。provider 逐样本轮转交错，避免 thermal/order drift。irregular/skewed diffusion、regular degree 2–64 与 horizontal fusion 也严格通过；仅对 manifest 已登记 case 声明 |
 | D0 | DONE | default Euclidean RadiusGraph performance-ready | compiler generated relation ABI 已携带 box/skew lattice 与 inverse，wrapped cell traversal 在 kernel 内执行 minimum-image 并直接 reduction，不物化 CSR/distance；N=32768、D=2/3、none/box/skew、consume/reuse/rebind/rebuild 共 24 个严格 gate 全过，periodic rebuild 为 3.861–6.064x（CI low 3.769–5.909）。Torch-free runtime 也以通用 gather/square/sum/sqrt/reducer Tensor IR 执行 fixed-snapshot forward/VJP；CPU custom metric/select 接受一次 batched Tensor UDF，membership stop-gradient，selected-edge metric 保持可导 |
 | D1 | DONE | generated builder-consumer fusion | N=32768/D3/degree32 fresh pipeline 对 materialized 4.425x（CI low 4.397），显式 CSR/distance/message ABI 为零、modeled peak bytes 降 7.03x |
-| K0 | PARTIAL | exact procedural kNN build+consume | `Graph.knn` 的精确语义、位置 mutation differential、固定 row metadata 与 compiler-generated consume TTIR rebind 已通过；但 N=8192/D3/k32 仍 dispatch exhaustive Euclidean cdist/top-k 构图，GraphForge 3.9076 ms 对 matched pipeline 3.9110 ms 仅 1.0009x（CI low 1.0003），只能算 parity。关闭本项还需要 provider-neutral ranked-relation IR、candidate-tile local top-k + hierarchical merge、memory-budgeted task bundle、selected-edge consume fusion，以及至少两个 N/D/k bucket 的端到端严格 gate；缓存 cell directory 的 reuse 时间不得冒充完整 rebuild |
+| K0 | PARTIAL（ranked M0 已测） | exact procedural kNN build+consume | `Graph.knn` 已捕获为 provider-neutral `gf.ranked_relation`，经 `ranked-pairs` lower 到 `gf_kernel.ranked_launch`；compiler-emitted TTIR 完成 256-candidate stable local top-k、pairwise hierarchical merge 与 selected-edge UDF/reducer fusion，不物化 N² distance matrix/CSR，位置 mutation 复用同一 executable。两个端到端严格 gate 已通过：N8192/D3/k32 为 2.9498 ms 对 3.9155 ms（1.327x，CI low 1.326），N4096/D5/k16 为 0.6589 ms 对 1.0713 ms（1.626x，CI low 1.619）。关闭剩余范围仍需 non-power-of-two/large k、general metric UDF、memory-budgeted spill/task bundle 与 generated backward；不得外推到 ANN |
 | R0 | DONE | runtime-owned provider ABI | CPU ExecutionEngine；CUDA Driver primary context、allocator、stream/event、module/function/kernel launch；TTIR 经 runtime-owned launcher 执行，且 native CUDA Tensor 在禁止 import Torch 的子进程完成 compile/launch/readback |
 | M0 | DONE | hierarchy memory execution | `gf_storage.transfer/release` bundle lowering、capacity/peak-liveness、native pinned↔HBM async DMA、RAM↔NVMe spill/version differential；32 MiB artifact H2D/D2H 7.20/7.13 GB/s |
 | X0 | PARTIAL | distributed partition/halo execution | typed overlap DAG、exact owner/ghost、bundle resolver、CPU/CUDA rank-local forward/reverse VJP、版本化 `.gfg` paged shard 与 mpi4py/MPICH `mpiexec -n 2` 均通过；16 MiB MPI halo 为 8.87 ms/1.892 GB/s。CPU host-transport 自动执行器已缓存 interior/boundary subgraph，实际并行 halo worker 与 interior LLVM execution，并以 `gf_tensor.scatter_rows` 合并；N65536/degree16/F64 的受控 5 ms link model 测得 13.7224 ms overlap 和 1.069x 端到端收益。Torch-free NCCL provider 直接接受 native/external device-buffer slices；rank-one NCCL 2.28.9 communicator + local D2D byte gate 通过。CUDA device fixture 已验证 communication-stream halo enqueue、独立 compiler-stream interior、wait、boundary、CUDA scatter merge 及 automatic reverse VJP 的提交顺序；host trace 不冒充 GPU 并发计时或 NCCL P2P 证据。当前只有一张 GPU；RCCL、真实 2+ GPU NCCL correctness/profiler overlap timeline 和 peer-link performance 待完成 |

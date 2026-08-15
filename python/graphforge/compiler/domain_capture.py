@@ -56,6 +56,13 @@ class DomainGraph:
     cutoff: float | None = None
     periodic: bool = False
     dense_boundary: str = "full"
+    k: int | None = None
+    metric: str | None = None
+    selection: str | None = None
+    tie_break: str | None = None
+    exclude_self: bool = False
+    same_entity_domain: bool = False
+    exact: bool = True
 
 
 @dataclass(frozen=True)
@@ -163,9 +170,11 @@ def capture_message_passing(
             leaves.append(binding)
     order = {"src": 0, "dst": 1, "edge": 2, "param": 3}
     leaves.sort(key=lambda item: (order.get(item[0], 99), item[1]))
+    ranked = graph.schema.realization == "procedural_knn"
     input_leaves = [
         binding for binding in leaves
-        if not (directory is not None and binding == ("edge", "distance"))
+        if not ((directory is not None or ranked) and
+                binding == ("edge", "distance"))
     ]
     node_input_indices = tuple(
         input_leaves.index(binding)
@@ -183,7 +192,9 @@ def capture_message_passing(
                     f"captured parameter {name} must be a scalar int or float"
                 )
             continue
-        if directory is not None and (role, name) == ("edge", "distance"):
+        if (directory is not None or ranked) and (
+            role, name
+        ) == ("edge", "distance"):
             implicit_fields.append(DomainField(role, name, "float32", ()))
             continue
         try:
@@ -281,8 +292,10 @@ def capture_message_passing(
             None if placement is None else placement.partition.balance
         ),
         dimensions=(
-            None if directory is None
-            else int(graph.euclidean_positions().shape[1])
+            int(graph.ranked_positions()[0].shape[1])
+            if ranked else
+            None if directory is None else
+            int(graph.euclidean_positions().shape[1])
         ),
         neighbor_count=(
             None if directory is None
@@ -291,6 +304,13 @@ def capture_message_passing(
         cutoff=None if directory is None else float(directory.cutoff),
         periodic=False if directory is None else bool(directory.periodic),
         dense_boundary=getattr(graph, "_dense_boundary", "full"),
+        k=int(graph._k) if ranked else None,
+        metric="squared_euclidean" if ranked else None,
+        selection="smallest" if ranked else None,
+        tie_break="source_index" if ranked else None,
+        exclude_self=bool(graph._exclude_self) if ranked else False,
+        same_entity_domain=bool(graph._source_positions is None) if ranked else False,
+        exact=True,
     )
     symbol = _symbol(kernel_name)
     return DomainDescriptor(

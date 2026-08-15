@@ -557,6 +557,16 @@ class Graph:
             else None
         )
 
+    def ranked_positions(self) -> tuple[torch.Tensor, torch.Tensor]:
+        """Return query/candidate coordinates without materializing kNN CSR."""
+        if self._schema.realization != "procedural_knn" or self._positions is None:
+            raise TypeError("ranked_positions requires a procedural kNN graph")
+        return (
+            self._positions,
+            self._positions if self._source_positions is None
+            else self._source_positions,
+        )
+
     def generated_cell_directory(self) -> DenseCellDirectory | None:
         """Build an O(N + cells) directory without materializing graph edges.
 

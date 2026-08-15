@@ -131,6 +131,56 @@ LogicalResult CartesianOp::verify() {
   return success();
 }
 
+LogicalResult RankedRelationOp::verify() {
+  int64_t numQueries = getNumQueriesAttr().getInt();
+  int64_t numCandidates = getNumCandidatesAttr().getInt();
+  int64_t dimensions = getDimensionsAttr().getInt();
+  int64_t k = getKAttr().getInt();
+  if (numQueries < 0 || numCandidates < 0 || getVersionAttr().getInt() < 0)
+    return emitOpError("endpoint counts and version must be non-negative");
+  if (dimensions <= 0)
+    return emitOpError("dimensions must be positive");
+  int64_t available =
+      numCandidates - static_cast<int64_t>(getExcludeSelf());
+  if (k <= 0 || k > available)
+    return emitOpError("k exceeds the candidates available to each query");
+  if (getExcludeSelf() && !getSameEntityDomain())
+    return emitOpError("exclude_self requires one shared entity domain");
+  if (getSameEntityDomain() && numQueries != numCandidates)
+    return emitOpError("a shared entity domain requires equal endpoint counts");
+  if (getMetric() != "squared_euclidean")
+    return emitOpError("unsupported ranked metric '") << getMetric() << "'";
+  if (getSelection() != "smallest")
+    return emitOpError("unsupported ranked selection '") << getSelection()
+                                                           << "'";
+  if (getTieBreak() != "source_index")
+    return emitOpError("unsupported ranked tie_break '") << getTieBreak()
+                                                           << "'";
+  if (!getExact())
+    return emitOpError("M0 ranked relations require exact selection");
+  auto query = dyn_cast<RankedTensorType>(getQueryPositions().getType());
+  auto candidate =
+      dyn_cast<RankedTensorType>(getCandidatePositions().getType());
+  if (!query || !candidate || query.getRank() != 2 || candidate.getRank() != 2)
+    return emitOpError("position operands must be rank-two tensors");
+  if (!query.getElementType().isF32() || !candidate.getElementType().isF32())
+    return emitOpError("M0 ranked positions must use f32 elements");
+  auto agrees = [](int64_t dynamicOrStatic, int64_t expected) {
+    return ShapedType::isDynamic(dynamicOrStatic) ||
+           dynamicOrStatic == expected;
+  };
+  if (!agrees(query.getDimSize(0), numQueries) ||
+      !agrees(candidate.getDimSize(0), numCandidates) ||
+      !agrees(query.getDimSize(1), dimensions) ||
+      !agrees(candidate.getDimSize(1), dimensions))
+    return emitOpError("position tensor shape disagrees with relation attributes");
+  if (getSameEntityDomain() &&
+      getQueryPositions() != getCandidatePositions())
+    return emitOpError(
+        "a shared entity domain must reuse the same position SSA value");
+  return success();
+}
+
 LogicalResult ReducerOp::verify() {
   auto readTypes = [&](ArrayAttr attributes, StringRef name,
                        SmallVectorImpl<Type> &types) -> LogicalResult {

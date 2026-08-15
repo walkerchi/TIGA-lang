@@ -49,7 +49,7 @@ static LogicalResult verifyScheduleABI(LaunchOp launch) {
                    "bounded-ragged-row-neighbor-feature", "provider-deferred",
                    "fixed-row-neighbor", "bounded-ragged-row-neighbor",
                    "scalar-row-loop", "generated-cell-neighbor",
-                   "dense-query-key-tile"}, true)
+                   "dense-query-key-tile", "ranked-candidate-select"}, true)
            .Default(false))
     return launch.emitOpError("unknown schedule_kind '")
            << scheduleKind << "'";
@@ -68,12 +68,14 @@ static LogicalResult verifyScheduleABI(LaunchOp launch) {
           launch, "schedule_resources", launch.getScheduleResourcesAttr(),
           {"input.global.read", "relation.global.read",
            "directory.global.read", "state.register.private",
+           "selection.register.private",
            "output.global.write"})))
     return failure();
   if (failed(verifyVocabulary(
           launch, "execution_roles", launch.getExecutionRolesAttr(),
           {"workgroup.destination-rows", "workgroup.destination-queries",
            "subgroup.neighbor-reduction", "subgroup.key-reduction",
+           "subgroup.ranked-selection",
            "lane.feature", "lane.scalar"})))
     return failure();
   if (failed(verifyVocabulary(
@@ -85,6 +87,7 @@ static LogicalResult verifyScheduleABI(LaunchOp launch) {
       launch, "instruction_contracts", launch.getInstructionContractsAttr(),
       {"masked-memory", "distance-filter", "vector-contraction",
        "ordered-reduce", "associative-reduce", "scalar-control-flow",
+       "hierarchical-topk", "stable-index-tie-break",
        "provider-selection-required"});
 }
 
@@ -345,8 +348,81 @@ LogicalResult DenseLaunchOp::verify() {
   return success();
 }
 
+LogicalResult RankedLaunchOp::verify() {
+  int64_t numQueries = getNumQueriesAttr().getInt();
+  int64_t numCandidates = getNumCandidatesAttr().getInt();
+  int64_t dimensions = getDimensionsAttr().getInt();
+  int64_t k = getKAttr().getInt();
+  if (numQueries < 0 || numCandidates < 0 || dimensions <= 0)
+    return emitOpError("endpoint counts must be non-negative and dimensions positive");
+  int64_t available =
+      numCandidates - static_cast<int64_t>(getExcludeSelf());
+  if (k <= 0 || k > available)
+    return emitOpError("k exceeds the candidates available to each query");
+  if (getExcludeSelf() && !getSameEntityDomain())
+    return emitOpError("exclude_self requires one shared entity domain");
+  if (getSameEntityDomain() && numQueries != numCandidates)
+    return emitOpError("a shared entity domain requires equal endpoint counts");
+  if (getMetric() != "squared_euclidean" || getSelection() != "smallest" ||
+      getTieBreak() != "source_index" || !getExact())
+    return emitOpError(
+        "unsupported ranked selection contract; expected exact squared_euclidean/smallest/source_index");
+  if (getTraversal() != "ranked-candidate-tile")
+    return emitOpError("requires traversal 'ranked-candidate-tile'");
+  if (getSnapshotVersions().size() != getInputs().size())
+    return emitOpError("requires one snapshot version per input");
+  if (failed(verifyNodeInputABI(*this))) return failure();
+  if (ArrayAttr roles = getInputRolesAttr())
+    if (roles.size() != getInputs().size())
+      return emitOpError("requires one input role per input");
+  if (getInputSegmentSizes().size() != getReducers().size() ||
+      getReducers().size() != getNumResults())
+    return emitOpError("requires one reducer/input segment per result");
+  int64_t totalInputs = 0;
+  for (int64_t size : getInputSegmentSizes()) {
+    if (size < 0)
+      return emitOpError("input segment sizes must be non-negative");
+    totalInputs += size;
+  }
+  if (totalInputs != static_cast<int64_t>(getInputs().size()))
+    return emitOpError("input segment sizes do not cover all inputs");
+  if (static_cast<size_t>(getRegionKinds().size()) != getNumRegions())
+    return emitOpError("requires one kind for every local region");
+  int64_t edgeRegions = 0;
+  bool previousWasEdge = false;
+  for (int64_t kind : getRegionKinds()) {
+    if (kind == 0) {
+      ++edgeRegions;
+      previousWasEdge = true;
+    } else if (kind == 1 && previousWasEdge) {
+      previousWasEdge = false;
+    } else {
+      return emitOpError("region kinds must be edge(0), optional node(1)");
+    }
+  }
+  if (edgeRegions != static_cast<int64_t>(getNumResults()))
+    return emitOpError("requires one edge region per result");
+  for (Region &region : getRegions())
+    if (!llvm::hasSingleElement(region) ||
+        !isa<YieldOp>(region.front().getTerminator()))
+      return emitOpError(
+          "each local region must be single-block and end in gf_kernel.yield");
+  if (static_cast<bool>(getCandidateTileAttr()) !=
+      static_cast<bool>(getMergeFanInAttr()))
+    return emitOpError(
+        "candidate_tile and merge_fan_in must be absent or present together");
+  if (getCandidateTileAttr() &&
+      (getCandidateTileAttr().getInt() < k ||
+       getMergeFanInAttr().getInt() < 2))
+    return emitOpError("candidate_tile must cover k and merge_fan_in must be >= 2");
+  if (getMergeFanInAttr() && getMergeFanInAttr().getInt() != 2)
+    return emitOpError("M0 ranked launch requires pairwise merge_fan_in = 2");
+  return verifyScheduleABI(*this);
+}
+
 LogicalResult YieldOp::verify() {
-  if (!isa<LaunchOp, GeneratedLaunchOp, DenseLaunchOp>((*this)->getParentOp()))
+  if (!isa<LaunchOp, GeneratedLaunchOp, DenseLaunchOp, RankedLaunchOp>(
+          (*this)->getParentOp()))
     return emitOpError(
         "must terminate a region owned by a gf_kernel launch");
   return success();

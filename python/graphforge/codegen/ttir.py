@@ -35,6 +35,32 @@ class TTIRCompileResult:
     cache_load_ms: float | None = None
 
 
+@dataclass
+class TTIRRankedPlan:
+    """Exact ranked-relation build+consume plan with no adjacency output."""
+
+    num_queries: int
+    block_rows: int
+    result: TTIRCompileResult
+    output: Any | None = None
+
+    def run(self, query_positions: Any, candidate_positions: Any, *inputs: Any):
+        from ..interop.torch.provider import reusable_vector_output
+
+        self.output = reusable_vector_output(
+            self.output, query_positions, rows=self.num_queries)
+        grid = (
+            (self.num_queries + self.block_rows - 1) // self.block_rows,
+            1,
+            1,
+        )
+        _launch(
+            self.result, grid,
+            (query_positions, candidate_positions, *inputs, self.output),
+        )
+        return self.output
+
+
 class _CUDADriverLauncher:
     """Launch a vendor-compiled image through GraphForge's own runtime ABI."""
 
@@ -495,6 +521,22 @@ def prepare_ttir_weighted_sum(
         row_ptr=row_ptr,
         col_idx=col_idx,
         num_rows=num_rows,
+        block_rows=block_rows,
+        result=result,
+    )
+
+
+def prepare_ttir_ranked(
+    module: str,
+    *,
+    num_queries: int,
+    block_rows: int,
+    num_warps: int,
+) -> TTIRRankedPlan:
+    """Compile a ranked selection/consume kernel emitted from Kernel IR."""
+    result = compile_ttir(module, options={"num_warps": num_warps})
+    return TTIRRankedPlan(
+        num_queries=num_queries,
         block_rows=block_rows,
         result=result,
     )

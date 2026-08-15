@@ -20,7 +20,7 @@ realization, not the default meaning of `Graph.radius` or `Graph.knn`.
 | Dense Cartesian or triangular | no edge array; query/source tiles | fuse message, online reducer and value contraction; keep state in registers/shared memory | attention, all-pairs kernels whose output is much smaller than the relation | executable and benchmarked |
 | Euclidean radius, rebuilt | sorted cell directory plus occupied-cell ranges | generate candidates inside the consumer, reject by distance, and avoid CSR/distance/message tensors | low-dimensional particles with bounded cell occupancy | executable for 2D/3D default metric, including periodic box/skew cases |
 | Radius with bounded motion | cell directory or neighbor list plus a skin | reuse while the displacement certificate holds; rebuild only on invalidation | molecular dynamics and time stepping with coherent motion | snapshot/version reuse exists; a full Verlet invalidation policy is next work |
-| Exact kNN | candidate tiles plus hierarchical local top-k and merge | fuse distance, selection and consume; bound temporary storage by `queries × tiles × k` | exact low/moderate-dimensional search | semantic path exists; current exhaustive `cdist/top-k` is parity evidence, not a compiler win |
+| Exact kNN | candidate tiles plus hierarchical local top-k and merge | fuse distance, selection and consume; keep M0 selection state register-local | exact low/moderate-dimensional search | executable FP32 squared-Euclidean M0; two strict gates pass; general k/metric/spill remains partial |
 | Approximate kNN | IVF/HNSW/tree directory plus refinement relation | compile probe/refine as nested generated relations and expose recall as part of the contract | high-dimensional search where exact all-pairs is unnecessary | planned; no performance claim |
 | Mutable edge stream | immutable CSR base plus sorted delta segments/tombstones | fuse base and delta traversal, compact asynchronously, version snapshots | temporal/social graphs with small batches of edge updates | planned |
 | Skewed materialized graph | degree CDF worklists and chunked high-degree tails | different schedules for short rows and split rows; disjoint output ownership avoids atomics | power-law social graphs | executable and benchmarked |
@@ -60,11 +60,10 @@ A `select` UDF may remove candidates but cannot bypass the radius predicate.
 
 ## Exact kNN needs hierarchical selection
 
-The current exact-kNN result is parity only: 3.9076 ms for GraphForge versus
-3.9110 ms for the matched exhaustive cdist/top-k/gather pipeline (1.0009×, CI
-low 1.0003). GraphForge still dispatches exhaustive candidate selection and
-only compiles the selected-relation consumer. The missing compiler
-transformation is a general ranked-relation lowering:
+Exact kNN is now an executable ranked-relation lowering rather than a library
+dispatch. N8192/D3/k32 is 2.9498 ms versus 3.9155 ms for the matched exhaustive
+cdist/top-k/gather pipeline (1.327×, CI low 1.326); N4096/D5/k16 is 0.6589 ms
+versus 1.0713 ms (1.626×, CI low 1.619). The compiler path is:
 
 ```text
 query tile × candidate tile
@@ -74,10 +73,13 @@ query tile × candidate tile
   → selected-edge message/reducer
 ```
 
-It must be represented as a multi-task compiler plan, not as a workload-named
-Python or Triton kernel. The plan also needs a temporary-memory budget and may
-choose a spatial directory only when it can certify exactness. Approximate
-search is a different public contract and must report recall as well as speed.
+These steps are represented by provider-neutral Domain/Iter/Kernel IR and the
+core emits TTIR—there is no workload-named Python/Triton kernel. M0 keeps the
+`k` composite distance/index keys in registers and therefore allocates no
+global scratch. Larger/non-power-of-two k still needs a memory-budgeted
+multi-task spill plan; a spatial directory may be chosen only when exactness
+can be certified. Approximate search is a different public contract and must
+report recall as well as speed.
 
 ## Load balance for power-law graphs
 

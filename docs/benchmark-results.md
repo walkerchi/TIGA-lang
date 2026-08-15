@@ -53,16 +53,16 @@ main reason to use the compiler.
 | Grouped-query attention | Hq16/Hkv4/N4096/D64 FP16 | 0.7769 ms | Flash SDPA 0.8424 ms | **1.084×**, CI low 1.078 |
 | Tile-pruned sparse attention | B1/H16/N4096/D64 FP16 | 0.9073 ms | official FSA 1.0724 ms | **1.182×**, CI low 1.177 |
 | Linear attention | L64/T512/K16/V16 FP32 | 0.1056 ms | official FLA 0.1095 ms | **1.037×**, CI low 1.025 |
-| Exact kNN build + consume | N8192/D3/k32 FP32 | 3.9076 ms | cdist/top-k/gather 3.9110 ms | **1.0009×**, CI low 1.0003; parity only |
+| Exact kNN build + consume | N8192/D3/k32 FP32 | 2.9498 ms | cdist/top-k/gather 3.9155 ms | **1.327×**, CI low 1.326 |
 | Dense matmul | 2048³ FP16 | 89.29 TFLOP/s | torch.mm/cuBLAS 88.86 TFLOP/s | **1.005×**, CI low 1.004 |
 | GPU visualization prep | 2048² FP32 | 0.0996 ms | Inductor 0.1148 ms | **1.153×**, CI low 1.140 |
 
-Exact kNN is the clearest unfinished performance path. It still dispatches an
-exhaustive cdist/top-k build and only compiles the selected-relation consumer,
-so the measured result is parity rather than an algorithmic win. The next
-general compiler mechanism is a partitioned
-ranked relation: candidate tiles → local top-k → hierarchical merge → fused
-selected-edge consume. Cache-reuse timing is not accepted as rebuild timing.
+Exact kNN now exercises the general ranked-relation compiler path rather than
+dispatching `cdist/topk`: candidate tiles → stable local top-k → hierarchical
+merge → fused selected-edge consume. A second N4096/D5/k16 gate is 0.6589 ms
+versus 1.0713 ms (**1.626×**, CI low 1.619). Remaining coverage work is
+non-power-of-two/large k, general metric UDF lowering, and a memory-budgeted
+spill/task plan; ANN remains a separate recall-bearing contract.
 
 <figure class="gf-figure">
   <object type="image/svg+xml" data="assets/dense-attention-performance.svg" aria-label="Dense Cartesian streaming comparison">

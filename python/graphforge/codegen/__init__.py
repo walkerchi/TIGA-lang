@@ -12,6 +12,7 @@ from .registry import (
 )
 from .ttir import (
     TTIRCompileResult,
+    TTIRRankedPlan,
     TTIRGeneratedRadiusPlan,
     TTIRDenseStreamingPlan,
     TTIRDenseScalarPlan,
@@ -21,6 +22,7 @@ from .ttir import (
     TTIRWeightedSumPlan,
     compile_ttir,
     prepare_ttir_weighted_sum,
+    prepare_ttir_ranked,
     prepare_ttir_generated_radius,
     prepare_ttir_dense_streaming,
     prepare_ttir_dense_scalar,
@@ -34,6 +36,7 @@ __all__ = [
     "CodegenProvider",
     "ProviderCapabilities",
     "TTIRCompileResult",
+    "TTIRRankedPlan",
     "TTIRGeneratedRadiusPlan",
     "TTIRDenseStreamingPlan",
     "TTIRDenseScalarPlan",
@@ -45,6 +48,7 @@ __all__ = [
     "discover_providers",
     "get_provider",
     "prepare_ttir_weighted_sum",
+    "prepare_ttir_ranked",
     "prepare_ttir_generated_radius",
     "prepare_ttir_dense_streaming",
     "prepare_ttir_dense_scalar",

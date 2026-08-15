@@ -1240,6 +1240,14 @@ static PyObject *domainIR(PyObject *, PyObject *descriptor) {
         RankedTensorType::get({*dimensions, *dimensions}, f32),
         RankedTensorType::get({*dimensions, *dimensions}, f32),
     });
+  } else if (*realization == "procedural_knn") {
+    PyOwned dimensionsObject(attribute(graph.value, "dimensions"));
+    if (!dimensionsObject) return nullptr;
+    FailureOr<int64_t> dimensions = integer(dimensionsObject.value);
+    if (failed(dimensions) || *dimensions <= 0) return nullptr;
+    Type positions = RankedTensorType::get(
+        {ShapedType::kDynamic, *dimensions}, builder.getF32Type());
+    argumentTypes.append({positions, positions});
   } else if (*realization != "implicit_dense") {
     PyErr_SetString(PyExc_NotImplementedError,
                     "native Domain builder does not support this relation realization");
@@ -1375,7 +1383,7 @@ static PyObject *domainIR(PyObject *, PyObject *descriptor) {
         static_cast<uint64_t>(*numSrc), static_cast<uint64_t>(*numDst), 0);
     cartesian->setAttr("boundary", builder.getStringAttr(*denseBoundary));
     relation = cartesian.getResult();
-  } else {
+  } else if (*realization == "generated_radius") {
     PyOwned cutoffObject(attribute(graph.value, "cutoff"));
     PyOwned dimensionsObject(attribute(graph.value, "dimensions"));
     PyOwned periodicObject(attribute(graph.value, "periodic"));
@@ -1397,6 +1405,52 @@ static PyObject *domainIR(PyObject *, PyObject *descriptor) {
     relationState.addAttribute("version", builder.getI64IntegerAttr(0));
     relation = builder.create(relationState)->getResult(0);
     fieldOffset = 9;
+  } else {
+    PyOwned dimensionsObject(attribute(graph.value, "dimensions"));
+    PyOwned kObject(attribute(graph.value, "k"));
+    PyOwned metricObject(attribute(graph.value, "metric"));
+    PyOwned selectionObject(attribute(graph.value, "selection"));
+    PyOwned tieBreakObject(attribute(graph.value, "tie_break"));
+    PyOwned excludeSelfObject(attribute(graph.value, "exclude_self"));
+    PyOwned sameDomainObject(attribute(graph.value, "same_entity_domain"));
+    PyOwned exactObject(attribute(graph.value, "exact"));
+    if (!dimensionsObject || !kObject || !metricObject || !selectionObject ||
+        !tieBreakObject || !excludeSelfObject || !sameDomainObject ||
+        !exactObject)
+      return nullptr;
+    FailureOr<int64_t> dimensions = integer(dimensionsObject.value);
+    FailureOr<int64_t> k = integer(kObject.value);
+    const char *metric = PyUnicode_AsUTF8(metricObject.value);
+    const char *selection = PyUnicode_AsUTF8(selectionObject.value);
+    const char *tieBreak = PyUnicode_AsUTF8(tieBreakObject.value);
+    int excludeSelf = PyObject_IsTrue(excludeSelfObject.value);
+    int sameDomain = PyObject_IsTrue(sameDomainObject.value);
+    int exact = PyObject_IsTrue(exactObject.value);
+    if (failed(dimensions) || failed(k) || !metric || !selection || !tieBreak ||
+        excludeSelf < 0 || sameDomain < 0 || exact < 0)
+      return nullptr;
+    OperationState relationState(location,
+                                 gf::RankedRelationOp::getOperationName());
+    Value query = entry->getArgument(0);
+    Value candidate = sameDomain ? query : entry->getArgument(1);
+    relationState.addOperands({query, candidate});
+    relationState.addTypes(gf::RelationType::get(&context));
+    relationState.addAttribute("num_queries", builder.getI64IntegerAttr(*numDst));
+    relationState.addAttribute("num_candidates",
+                               builder.getI64IntegerAttr(*numSrc));
+    relationState.addAttribute("dimensions",
+                               builder.getI64IntegerAttr(*dimensions));
+    relationState.addAttribute("k", builder.getI64IntegerAttr(*k));
+    relationState.addAttribute("metric", builder.getStringAttr(metric));
+    relationState.addAttribute("selection", builder.getStringAttr(selection));
+    relationState.addAttribute("tie_break", builder.getStringAttr(tieBreak));
+    relationState.addAttribute("exclude_self", builder.getBoolAttr(excludeSelf));
+    relationState.addAttribute("same_entity_domain",
+                               builder.getBoolAttr(sameDomain));
+    relationState.addAttribute("exact", builder.getBoolAttr(exact));
+    relationState.addAttribute("version", builder.getI64IntegerAttr(0));
+    relation = builder.create(relationState)->getResult(0);
+    fieldOffset = 2;
   }
   SmallVector<Value> fieldValues;
   SmallVector<Attribute> roles;

@@ -642,6 +642,35 @@ class MLIRBridgeTest(unittest.TestCase):
         self.assertIn("%cell_sum = scf.for %neighbor", ttir)
         self.assertIn("%distance = math.sqrt", ttir)
 
+    @unittest.skipUnless(_gf_translate(), "a built gf-translate is required")
+    def test_knn_captures_ranked_relation_without_csr_materialization(self):
+        queries = torch.rand(32, 3)
+        candidates = torch.rand(48, 3)
+        graph = gf.Graph.knn(queries, 8, candidates=candidates)
+        x = torch.randn(48)
+        module = message_passing_domain_mlir(
+            kernel=RadiusDistanceAggregation(),
+            graph=graph,
+            src={"x": x}, dst={}, edge={}, params={},
+            kernel_name="KNNDistanceAggregation",
+        )
+        stages = lower_mlir_stages(module, gf_opt=_gf_opt())
+        ttir = lower_kernel_to_ttir(
+            stages.kernel, gf_translate=_gf_translate())
+
+        self.assertIsNone(graph.num_edges)
+        self.assertIn('"gf.ranked_relation"', stages.domain)
+        self.assertIn('k = 8 : i64', stages.domain)
+        self.assertIn('metric = "squared_euclidean"', stages.domain)
+        self.assertIn('tie_break = "source_index"', stages.domain)
+        self.assertIn('coordinate_hierarchy = "ranked-pairs"', stages.iteration)
+        self.assertIn('"gf_kernel.ranked_launch"', stages.kernel)
+        self.assertIn('candidate_tile = 256 : i64', stages.kernel)
+        self.assertIn('merge_fan_in = 2 : i64', stages.kernel)
+        self.assertIn("tt.func public @gf_ranked_select_consume", ttir)
+        self.assertIn("tt.gather", ttir)
+        self.assertIn("scf.for", ttir)
+
     def test_message_passing_variant_exposes_canonical_stages(self):
         class WeightedAggregation(gf.MessagePassing):
             reducer = gf.sum()

@@ -791,7 +791,7 @@ class TTIRProviderTest(unittest.TestCase):
         self.assertNotEqual(first_pid, _WORKER.pid)
         self.assertIn("cubin", recovered.artifacts)
 
-    def test_dynamic_knn_rebinds_compiled_fixed_degree_consumer(self):
+    def test_dynamic_knn_fuses_exact_ranked_build_and_consumer(self):
         nodes, degree = 512, 8
         generator = torch.Generator(device="cuda").manual_seed(91)
         positions = torch.rand(
@@ -805,8 +805,11 @@ class TTIRProviderTest(unittest.TestCase):
             actual = kernel(
                 graph=graph, src={"x": source}, dst={},
                 edge={"weight": weight})
-            _row_ptr, col_idx = graph.resolve_csr()
-            expected = source[col_idx].reshape(nodes, degree).sum(dim=1)
+            distances = torch.cdist(positions, positions)
+            distances.fill_diagonal_(float("inf"))
+            selected = distances.topk(
+                degree, largest=False, sorted=True, dim=1).indices
+            expected = source[selected].sum(dim=1)
             torch.testing.assert_close(actual, expected, rtol=3e-4, atol=3e-4)
             if step == 0:
                 positions.add_(
@@ -815,11 +818,42 @@ class TTIRProviderTest(unittest.TestCase):
 
         self.assertEqual(
             kernel.last_variant.lowering,
-            "gf-kernel-to-ttir-fixed-csr-weighted-sum")
+            "gf-kernel-to-ttir-ranked-select-consume")
         self.assertEqual(kernel.cache_info["misses"], 1)
         self.assertGreaterEqual(kernel.cache_info["hits"], 1)
-        self.assertIn("dynamic_csr_rebind procedural_knn", kernel.ir())
+        self.assertIsNone(graph.num_edges)
+        self.assertIn('"gf.ranked_relation"', kernel.ir("domain"))
+        self.assertIn('"gf_kernel.ranked_launch"', kernel.ir("kernel"))
+        self.assertIn("tt.gather", kernel.code("ttir"))
+        self.assertIn("scf.for", kernel.code("ttir"))
         self.assertIn("tt.store", kernel.code("ttir"))
+
+    def test_bipartite_knn_ranked_consumer_handles_live_queries(self):
+        queries, candidates, degree = 97, 129, 16
+        generator = torch.Generator(device="cuda").manual_seed(123)
+        query = torch.rand(queries, 5, device="cuda", generator=generator)
+        candidate = torch.rand(
+            candidates, 5, device="cuda", generator=generator)
+        source = torch.rand(candidates, device="cuda", generator=generator)
+        weight = torch.rand(
+            queries * degree, device="cuda", generator=generator)
+        graph = gf.Graph.knn(query, degree, candidates=candidate)
+        kernel = WeightedAggregation()
+
+        actual = kernel(
+            graph=graph, src={"x": source}, dst={},
+            edge={"weight": weight})
+        selected = torch.cdist(query, candidate).topk(
+            degree, largest=False, sorted=True, dim=1).indices
+        expected = (
+            source[selected] * weight.reshape(queries, degree)
+        ).sum(dim=1)
+
+        torch.testing.assert_close(actual, expected, rtol=3e-4, atol=3e-4)
+        self.assertEqual(
+            kernel.last_variant.lowering,
+            "gf-kernel-to-ttir-ranked-select-consume")
+        self.assertIsNone(graph.num_edges)
 
 
 if __name__ == "__main__":

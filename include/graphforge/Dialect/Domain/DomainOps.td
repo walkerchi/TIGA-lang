@@ -80,6 +80,39 @@ def GraphForge_CartesianOp : GraphForge_Op<"cartesian", [Pure]> {
   let hasVerifier = 1;
 }
 
+def GraphForge_RankedRelationOp
+    : GraphForge_Op<"ranked_relation", [Pure]> {
+  let summary = "Select an exact fixed-size ranked neighborhood per query";
+  let description = [{
+    `gf.ranked_relation` is a provider-neutral relation, not a materialized
+    adjacency list.  It ranks the Cartesian query/candidate pairs using the
+    declared metric and retains exactly `k` candidates for every query.
+    Physical candidate tiling and hierarchical selection are introduced only
+    by later iteration, kernel, and task passes.
+
+    M0 deliberately specifies squared Euclidean ranking with smallest-first
+    selection and source-index tie breaking.  Keeping tie breaking explicit is
+    required for exact differential tests and deterministic recompilation.
+  }];
+  let arguments = (ins
+    AnyType:$query_positions,
+    AnyType:$candidate_positions,
+    I64Attr:$num_queries,
+    I64Attr:$num_candidates,
+    I64Attr:$dimensions,
+    I64Attr:$k,
+    StrAttr:$metric,
+    StrAttr:$selection,
+    StrAttr:$tie_break,
+    BoolAttr:$exclude_self,
+    BoolAttr:$same_entity_domain,
+    BoolAttr:$exact,
+    I64Attr:$version
+  );
+  let results = (outs GraphForge_RelationType:$result);
+  let hasVerifier = 1;
+}
+
 def GraphForge_ReducerOp : GraphForge_Op<"reducer", [Symbol]> {
   let summary = "Define reducer identity, lift, combine, and finalize regions";
   let arguments = (ins

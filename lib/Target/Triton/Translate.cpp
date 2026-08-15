@@ -2072,6 +2072,363 @@ static LogicalResult translateDenseStreaming(
   return success();
 }
 
+static bool isDirectAdditiveScalarReducer(ReducerOp reducer) {
+  Type f32 = Float32Type::get(reducer.getContext());
+  if (!isZeroAdditiveState(reducer) || reducer.getMessageTypes().size() != 1 ||
+      reducer.getStateTypes().size() != 1 ||
+      reducer.getResultTypes().size() != 1 ||
+      cast<TypeAttr>(reducer.getMessageTypes()[0]).getValue() != f32 ||
+      cast<TypeAttr>(reducer.getStateTypes()[0]).getValue() != f32 ||
+      cast<TypeAttr>(reducer.getResultTypes()[0]).getValue() != f32)
+    return false;
+  Block &lift = reducer.getLift().front();
+  Block &finalize = reducer.getFinalize().front();
+  auto liftYield = dyn_cast<ReducerYieldOp>(lift.getTerminator());
+  auto finalizeYield = dyn_cast<ReducerYieldOp>(finalize.getTerminator());
+  return lift.getNumArguments() == 1 && liftYield &&
+         liftYield.getValues().size() == 1 &&
+         liftYield.getValues()[0] == lift.getArgument(0) &&
+         finalize.getNumArguments() == 1 && finalizeYield &&
+         finalizeYield.getValues().size() == 1 &&
+         finalizeYield.getValues()[0] == finalize.getArgument(0);
+}
+
+/// Emit an ascending bitonic network over one vector of stable composite
+/// distance/index keys. `tt.gather` makes the permutation explicit in TTIR;
+/// provider layout passes remain free to turn each compare/exchange stage into
+/// subgroup shuffles rather than memory traffic.
+static std::string emitBitonicKeySort(llvm::raw_ostream &output,
+                                     StringRef input, int64_t width,
+                                     StringRef indent, StringRef prefix) {
+  std::string lane = (Twine("%") + prefix + "_lane").str();
+  output << indent << lane << " = tt.make_range {end = " << width
+         << " : i32, start = 0 : i32} : tensor<" << width << "xi32>\n";
+  std::string current = input.str();
+  unsigned step = 0;
+  for (int64_t group = 2; group <= width; group *= 2) {
+    for (int64_t stride = group / 2; stride > 0; stride /= 2) {
+      std::string stem = (Twine("%") + prefix + "_s" + Twine(step++)).str();
+      output << indent << stem << "_stride = arith.constant dense<" << stride
+             << "> : tensor<" << width << "xi32>\n"
+             << indent << stem << "_group = arith.constant dense<" << group
+             << "> : tensor<" << width << "xi32>\n"
+             << indent << stem << "_zero = arith.constant dense<0> : tensor<"
+             << width << "xi32>\n"
+             << indent << stem << "_partner_index = arith.xori " << lane
+             << ", " << stem << "_stride : tensor<" << width << "xi32>\n"
+             << indent << stem << "_partner = tt.gather " << current << "["
+             << stem << "_partner_index] {axis = 0 : i32} : (tensor<" << width
+             << "xi64>, tensor<" << width << "xi32>) -> tensor<" << width
+             << "xi64>\n"
+             << indent << stem << "_lane_stride = arith.andi " << lane << ", "
+             << stem << "_stride : tensor<" << width << "xi32>\n"
+             << indent << stem << "_lane_group = arith.andi " << lane << ", "
+             << stem << "_group : tensor<" << width << "xi32>\n"
+             << indent << stem << "_lower = arith.cmpi eq, " << stem
+             << "_lane_stride, " << stem << "_zero : tensor<" << width
+             << "xi32>\n"
+             << indent << stem << "_ascending = arith.cmpi eq, " << stem
+             << "_lane_group, " << stem << "_zero : tensor<" << width
+             << "xi32>\n"
+             << indent << stem << "_want_min = arith.cmpi eq, " << stem
+             << "_lower, " << stem << "_ascending : tensor<" << width
+             << "xi1>\n"
+             << indent << stem << "_gt = arith.cmpi ugt, " << current << ", "
+             << stem << "_partner : tensor<" << width << "xi64>\n"
+             << indent << stem << "_lt = arith.cmpi ult, " << current << ", "
+             << stem << "_partner : tensor<" << width << "xi64>\n"
+             << indent << stem << "_swap = arith.select " << stem
+             << "_want_min, " << stem << "_gt, " << stem
+             << "_lt : tensor<" << width << "xi1>, tensor<" << width
+             << "xi1>\n"
+             << indent << stem << "_value = arith.select " << stem
+             << "_swap, " << stem << "_partner, " << current << " : tensor<"
+             << width << "xi1>, tensor<" << width << "xi64>\n";
+      current = stem + "_value";
+    }
+  }
+  return current;
+}
+
+static LogicalResult translateRankedRelation(
+    kernel::RankedLaunchOp launch, llvm::raw_ostream &output) {
+  MLIRContext *context = launch.getContext();
+  Type f32 = Float32Type::get(context);
+  if (launch.getMetric() != "squared_euclidean" ||
+      launch.getSelection() != "smallest" ||
+      launch.getTieBreak() != "source_index" || !launch.getExact())
+    return reject(launch, "unsupported ranked semantic contract");
+  auto queryType = dyn_cast<RankedTensorType>(launch.getQueryPositions().getType());
+  auto candidateType =
+      dyn_cast<RankedTensorType>(launch.getCandidatePositions().getType());
+  if (!queryType || !candidateType || queryType.getRank() != 2 ||
+      candidateType.getRank() != 2 || queryType.getElementType() != f32 ||
+      candidateType.getElementType() != f32)
+    return reject(launch, "ranked positions must be rank-two f32 tensors");
+  if (launch.getNumRegions() != 1 || launch.getNumResults() != 1 ||
+      launch.getReducers().size() != 1)
+    return reject(launch, "M0 ranked lowering requires one edge region/result");
+  auto reference = dyn_cast<FlatSymbolRefAttr>(launch.getReducers()[0]);
+  ReducerOp reducer = reference
+      ? SymbolTable::lookupNearestSymbolFrom<ReducerOp>(launch, reference)
+      : ReducerOp();
+  if (!reducer || !isDirectAdditiveScalarReducer(reducer))
+    return reject(launch, "M0 ranked lowering requires structurally proven scalar sum");
+  auto result = dyn_cast<RankedTensorType>(launch.getResult(0).getType());
+  if (!result || result.getRank() != 1 || result.getElementType() != f32)
+    return reject(launch, "ranked scalar reduction must return tensor<?xf32>");
+  ArrayAttr roles = launch.getInputRolesAttr();
+  ArrayAttr names = launch.getInputNamesAttr();
+  if (!roles || roles.size() != launch.getInputs().size())
+    return reject(launch, "ranked lowering requires input_roles");
+  for (auto [index, input] : llvm::enumerate(launch.getInputs())) {
+    StringRef role = cast<StringAttr>(roles[index]).getValue();
+    if (role == "param") {
+      if (input.getType() != f32)
+        return reject(launch, "ranked scalar parameters must be f32");
+      continue;
+    }
+    auto field = dyn_cast<RankedTensorType>(input.getType());
+    if (!field || field.getRank() != 1 || field.getElementType() != f32)
+      return reject(launch, "M0 ranked fields must be rank-one f32 tensors");
+  }
+  Block &edge = launch.getRegions().front().front();
+  if (edge.getNumArguments() < launch.getInputs().size() ||
+      edge.getNumArguments() > launch.getInputs().size() + 1 ||
+      (edge.getNumArguments() == launch.getInputs().size() + 1 &&
+       edge.getArgument(edge.getNumArguments() - 1).getType() != f32))
+    return reject(
+        launch, "ranked edge region may append one implicit f32 distance");
+  bool usesDistance = edge.getNumArguments() == launch.getInputs().size() + 1;
+  IntegerAttr tileAttr = launch.getCandidateTileAttr();
+  IntegerAttr rowsAttr = launch.getBlockRowsAttr();
+  IntegerAttr warpsAttr = launch.getNumWarpsAttr();
+  if (!tileAttr || !rowsAttr || !warpsAttr || rowsAttr.getInt() != 1)
+    return reject(launch, "ranked lowering requires a one-query candidate schedule");
+  int64_t tile = tileAttr.getInt();
+  int64_t k = launch.getKAttr().getInt();
+  if (tile < k || (tile & (tile - 1)) != 0 ||
+      (k & (k - 1)) != 0 || k > 64)
+    return reject(launch, "ranked tile and k must be powers of two with k <= 64");
+  if (launch.getNumCandidates() > 0xffffffffLL)
+    return reject(
+        launch,
+        "M0 ranked TTIR encodes stable source indices in 32 key bits");
+
+  SmallVector<std::string> arguments = {"query_positions", "candidate_positions"};
+  llvm::StringMap<unsigned> occurrences;
+  for (auto [index, attribute] : llvm::enumerate(names ? names : roles)) {
+    std::string base = sanitizeIdentifier(
+        cast<StringAttr>(attribute).getValue(), index);
+    unsigned occurrence = occurrences[base]++;
+    arguments.push_back(occurrence ? base + std::to_string(occurrence) : base);
+  }
+  arguments.push_back("out");
+  output << "// graphforge.launch entry=gf_ranked_select_consume block_rows=1 "
+            "num_warps=" << warpsAttr.getInt()
+         << " abi=query_positions,candidate_positions,inputs,out\n"
+         << "// graphforge.ranked candidate_tile=" << tile << " k=" << k
+         << " merge_fan_in=" << launch.getMergeFanInAttr().getInt()
+         << "\nmodule {\n"
+         << "  tt.func public @gf_ranked_select_consume(";
+  for (size_t index = 0; index < arguments.size(); ++index) {
+    if (index) output << ", ";
+    Type type = index >= 2 && index < 2 + launch.getInputs().size()
+                    ? launch.getInputs()[index - 2].getType()
+                    : Type();
+    bool scalar = type && isa<FloatType>(type);
+    output << "%" << arguments[index] << ": "
+           << (scalar ? "f32" : "!tt.ptr<f32>");
+  }
+  output << ") attributes {noinline = false} {\n"
+         << "    %c0_i64 = arith.constant 0 : i64\n"
+         << "    %c1_i64 = arith.constant 1 : i64\n"
+         << "    %tile_i64 = arith.constant " << tile << " : i64\n"
+         << "    %dimensions_i64 = arith.constant " << launch.getDimensions()
+         << " : i64\n"
+         << "    %dimensions_v = arith.constant dense<" << launch.getDimensions()
+         << "> : tensor<" << tile << "xi64>\n"
+         << "    %k_i64 = arith.constant " << k << " : i64\n"
+         << "    %candidates_i64 = arith.constant " << launch.getNumCandidates()
+         << " : i64\n"
+         << "    %candidate_lane_i32 = tt.make_range {end = " << tile
+         << " : i32, start = 0 : i32} : tensor<" << tile << "xi32>\n"
+         << "    %candidate_lane = arith.extui %candidate_lane_i32 : tensor<"
+         << tile << "xi32> to tensor<" << tile << "xi64>\n"
+         << "    %rank_i32 = tt.make_range {end = " << k
+         << " : i32, start = 0 : i32} : tensor<" << k << "xi32>\n"
+         << "    %rank = arith.extui %rank_i32 : tensor<" << k
+         << "xi32> to tensor<" << k << "xi64>\n"
+         << "    %row_i32 = tt.get_program_id x : i32\n"
+         << "    %row = arith.extui %row_i32 : i32 to i64\n"
+         << "    %max_keys = arith.constant dense<9223372036854775807> : tensor<"
+         << k << "xi64>\n"
+         << "    %selected = scf.for %tile_base = %c0_i64 to %candidates_i64 "
+            "step %tile_i64 iter_args(%best = %max_keys) -> (tensor<"
+         << k << "xi64>) : i64 {\n"
+         << "      %tile_base_v = tt.splat %tile_base : i64 -> tensor<" << tile
+         << "xi64>\n"
+         << "      %candidate = arith.addi %tile_base_v, %candidate_lane : tensor<"
+         << tile << "xi64>\n"
+         << "      %candidate_limit = arith.constant dense<"
+         << launch.getNumCandidates() << "> : tensor<" << tile << "xi64>\n"
+         << "      %valid_candidate = arith.cmpi ult, %candidate, %candidate_limit : tensor<"
+         << tile << "xi64>\n"
+         << "      %distance0 = arith.constant dense<0.000000e+00> : tensor<"
+         << tile << "xf32>\n";
+  std::string distance = "%distance0";
+  for (int64_t axis = 0; axis < static_cast<int64_t>(launch.getDimensions()); ++axis) {
+    output << "      %axis" << axis << " = arith.constant " << axis << " : i64\n"
+           << "      %query_base" << axis << " = arith.muli %row, %dimensions_i64 : i64\n"
+           << "      %query_index" << axis << " = arith.addi %query_base" << axis
+           << ", %axis" << axis << " : i64\n"
+           << "      %query_ptr" << axis << " = tt.addptr %query_positions, %query_index"
+           << axis << " : !tt.ptr<f32>, i64\n"
+           << "      %query" << axis << " = tt.load %query_ptr" << axis
+           << " : !tt.ptr<f32>\n"
+           << "      %query_v" << axis << " = tt.splat %query" << axis
+           << " : f32 -> tensor<" << tile << "xf32>\n"
+           << "      %candidate_base" << axis
+           << " = arith.muli %candidate, %dimensions_v : tensor<" << tile
+           << "xi64>\n"
+           << "      %axis_v" << axis << " = arith.constant dense<" << axis
+           << "> : tensor<" << tile << "xi64>\n"
+           << "      %candidate_index" << axis << " = arith.addi %candidate_base"
+           << axis << ", %axis_v" << axis << " : tensor<" << tile << "xi64>\n"
+           << "      %candidate_positions_base" << axis
+           << " = tt.splat %candidate_positions : !tt.ptr<f32> -> tensor<" << tile
+           << "x!tt.ptr<f32>>\n"
+           << "      %candidate_ptr" << axis << " = tt.addptr %candidate_positions_base"
+           << axis << ", %candidate_index" << axis << " : tensor<" << tile
+           << "x!tt.ptr<f32>>, tensor<" << tile << "xi64>\n"
+           << "      %candidate_position" << axis << " = tt.load %candidate_ptr"
+           << axis << ", %valid_candidate, %query_v" << axis << " : tensor<"
+           << tile << "x!tt.ptr<f32>>\n"
+           << "      %delta" << axis << " = arith.subf %candidate_position" << axis
+           << ", %query_v" << axis << " : tensor<" << tile << "xf32>\n"
+           << "      %square" << axis << " = arith.mulf %delta" << axis
+           << ", %delta" << axis << " : tensor<" << tile << "xf32>\n"
+           << "      %distance" << axis + 1 << " = arith.addf " << distance
+           << ", %square" << axis << " : tensor<" << tile << "xf32>\n";
+    distance = (Twine("%distance") + Twine(axis + 1)).str();
+  }
+  output << "      %distance_ordered = arith.cmpf ord, " << distance << ", "
+         << distance << " : tensor<" << tile << "xf32>\n"
+         << "      %valid_finite = arith.andi %valid_candidate, %distance_ordered : tensor<"
+         << tile << "xi1>\n";
+  std::string valid = "%valid_finite";
+  if (launch.getExcludeSelf()) {
+    output << "      %row_v = tt.splat %row : i64 -> tensor<" << tile << "xi64>\n"
+           << "      %not_self = arith.cmpi ne, %candidate, %row_v : tensor<"
+           << tile << "xi64>\n"
+           << "      %valid_ranked = arith.andi %valid_finite, %not_self : tensor<"
+           << tile << "xi1>\n";
+    valid = "%valid_ranked";
+  }
+  output << "      %distance_bits = tt.bitcast " << distance << " : tensor<" << tile
+         << "xf32> -> tensor<" << tile << "xi32>\n"
+         << "      %distance_bits64 = arith.extui %distance_bits : tensor<" << tile
+         << "xi32> to tensor<" << tile << "xi64>\n"
+         << "      %shift = arith.constant dense<32> : tensor<" << tile << "xi64>\n"
+         << "      %distance_key = arith.shli %distance_bits64, %shift : tensor<"
+         << tile << "xi64>\n"
+         << "      %candidate_key = arith.ori %distance_key, %candidate : tensor<"
+         << tile << "xi64>\n"
+         << "      %invalid_key = arith.constant dense<9223372036854775807> : tensor<"
+         << tile << "xi64>\n"
+         << "      %tile_keys = arith.select " << valid
+         << ", %candidate_key, %invalid_key : tensor<" << tile
+         << "xi1>, tensor<" << tile << "xi64>\n";
+  std::string localSorted =
+      emitBitonicKeySort(output, "%tile_keys", tile, "      ", "gf_local");
+  output << "      %local_best = tt.gather " << localSorted
+         << "[%rank_i32] {axis = 0 : i32} : (tensor<" << tile
+         << "xi64>, tensor<" << k << "xi32>) -> tensor<" << k << "xi64>\n"
+         << "      %joined = tt.join %best, %local_best : tensor<" << k
+         << "xi64> -> tensor<" << k << "x2xi64>\n"
+         << "      %merged = tt.reshape %joined : tensor<" << k
+         << "x2xi64> -> tensor<" << 2 * k << "xi64>\n";
+  std::string mergedSorted =
+      emitBitonicKeySort(output, "%merged", 2 * k, "      ", "gf_merge");
+  output << "      %next_best = tt.gather " << mergedSorted
+         << "[%rank_i32] {axis = 0 : i32} : (tensor<" << 2 * k
+         << "xi64>, tensor<" << k << "xi32>) -> tensor<" << k << "xi64>\n"
+         << "      scf.yield %next_best : tensor<" << k << "xi64>\n"
+         << "    }\n"
+         << "    %index32 = arith.trunci %selected : tensor<" << k
+         << "xi64> to tensor<" << k << "xi32>\n"
+         << "    %index = arith.extui %index32 : tensor<" << k
+         << "xi32> to tensor<" << k << "xi64>\n"
+         << "    %distance_shift = arith.constant dense<32> : tensor<" << k
+         << "xi64>\n"
+         << "    %distance_bits64_selected = arith.shrui %selected, %distance_shift : tensor<"
+         << k << "xi64>\n"
+         << "    %distance_bits_selected = arith.trunci %distance_bits64_selected : tensor<"
+         << k << "xi64> to tensor<" << k << "xi32>\n"
+         << "    %distance_squared = tt.bitcast %distance_bits_selected : tensor<"
+         << k << "xi32> -> tensor<" << k << "xf32>\n"
+         << "    %distance = math.sqrt %distance_squared : tensor<" << k << "xf32>\n";
+
+  SmallVector<std::string> edgeArguments;
+  for (auto [index, roleAttr] : llvm::enumerate(roles)) {
+    StringRef role = cast<StringAttr>(roleAttr).getValue();
+    std::string argument = "%" + arguments[index + 2];
+    std::string value = "%gf_input" + std::to_string(index);
+    if (role == "param") {
+      output << "    " << value << " = tt.splat " << argument
+             << " : f32 -> tensor<" << k << "xf32>\n";
+    } else {
+      output << "    " << value << "_base = tt.splat " << argument
+             << " : !tt.ptr<f32> -> tensor<" << k << "x!tt.ptr<f32>>\n";
+      if (role == "src") {
+        output << "    " << value << "_ptr = tt.addptr " << value
+               << "_base, %index : tensor<" << k << "x!tt.ptr<f32>>, tensor<"
+               << k << "xi64>\n";
+      } else if (role == "dst") {
+        output << "    %gf_row_index" << index
+               << " = tt.splat %row : i64 -> tensor<" << k << "xi64>\n"
+               << "    " << value << "_ptr = tt.addptr " << value
+               << "_base, %gf_row_index" << index << " : tensor<" << k
+               << "x!tt.ptr<f32>>, tensor<" << k << "xi64>\n";
+      } else if (role == "edge") {
+        output << "    %gf_edge_row_base" << index
+               << " = arith.muli %row, %k_i64 : i64\n"
+               << "    %gf_edge_row_v" << index
+               << " = tt.splat %gf_edge_row_base" << index << " : i64 -> tensor<"
+               << k << "xi64>\n"
+               << "    %gf_edge_index" << index << " = arith.addi %gf_edge_row_v"
+               << index << ", %rank : tensor<" << k << "xi64>\n"
+               << "    " << value << "_ptr = tt.addptr " << value
+               << "_base, %gf_edge_index" << index << " : tensor<" << k
+               << "x!tt.ptr<f32>>, tensor<" << k << "xi64>\n";
+      } else {
+        return reject(launch, "unknown ranked input role");
+      }
+      output << "    " << value << " = tt.load " << value
+             << "_ptr : tensor<" << k << "x!tt.ptr<f32>>\n";
+    }
+    edgeArguments.push_back(value);
+  }
+  if (usesDistance) edgeArguments.push_back("%distance");
+  TensorAlgebraEmitter emitter(launch, output,
+                               (Twine("tensor<") + Twine(k) + "xf32>").str(),
+                               "%gf_ranked_expr");
+  FailureOr<SmallVector<std::string>> messages =
+      emitter.emit(launch.getRegions().front(), edgeArguments, "    ");
+  if (failed(messages) || messages->size() != 1)
+    return reject(launch, "ranked edge algebra must yield one scalar message");
+  output << "    %gf_sum = \"tt.reduce\"(" << messages->front()
+         << ") <{axis = 0 : i32}> ({\n"
+         << "    ^bb0(%left: f32, %right: f32):\n"
+         << "      %combined = arith.addf %left, %right : f32\n"
+         << "      tt.reduce.return %combined : f32\n"
+         << "    }) : (tensor<" << k << "xf32>) -> f32\n"
+         << "    %out_ptr = tt.addptr %out, %row : !tt.ptr<f32>, i64\n"
+         << "    tt.store %out_ptr, %gf_sum : !tt.ptr<f32>\n"
+         << "    tt.return\n  }\n}\n";
+  return success();
+}
+
 static LogicalResult translateCSRAdditiveTile(
     kernel::LaunchOp launch, ReducerOp reducer, StringRef indexType,
     int64_t blockD, llvm::raw_ostream &output) {
@@ -3082,6 +3439,7 @@ static LogicalResult translateKernelToTriton(Operation *root,
   SmallVector<kernel::LaunchOp> launches;
   SmallVector<kernel::GeneratedLaunchOp> generatedLaunches;
   SmallVector<kernel::DenseLaunchOp> denseLaunches;
+  SmallVector<kernel::RankedLaunchOp> rankedLaunches;
   root->walk([&](kernel::LaunchOp launch) { launches.push_back(launch); });
   root->walk([&](kernel::GeneratedLaunchOp launch) {
     generatedLaunches.push_back(launch);
@@ -3089,15 +3447,22 @@ static LogicalResult translateKernelToTriton(Operation *root,
   root->walk([&](kernel::DenseLaunchOp launch) {
     denseLaunches.push_back(launch);
   });
-  if (launches.size() + generatedLaunches.size() + denseLaunches.size() != 1) {
+  root->walk([&](kernel::RankedLaunchOp launch) {
+    rankedLaunches.push_back(launch);
+  });
+  if (launches.size() + generatedLaunches.size() + denseLaunches.size() +
+          rankedLaunches.size() !=
+      1) {
     root->emitError() << "gf-kernel-to-ttir requires exactly one "
                          "GraphForge Kernel launch, found "
                       << launches.size() + generatedLaunches.size() +
-                             denseLaunches.size();
+                             denseLaunches.size() + rankedLaunches.size();
     return failure();
   }
   if (!generatedLaunches.empty())
     return translateGeneratedRadius(generatedLaunches.front(), output);
+  if (!rankedLaunches.empty())
+    return translateRankedRelation(rankedLaunches.front(), output);
   if (!denseLaunches.empty()) {
     kernel::DenseLaunchOp launch = denseLaunches.front();
     if (launch.getReducers().size() != 1)

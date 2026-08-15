@@ -124,7 +124,7 @@ the actual graph and target.
 | Static CSR | Given row pointers and source indices | destination-row tile, edge tile, warp/CTA row, or sparse-library dispatch |
 | Ragged / power-law CSR | Highly skewed degree distribution | degree bucketing, split high-degree rows, chunked edge worklists |
 | Radius graph | Neighbors selected from positions at runtime | cell-list build, materialized CSR, or generated build-consume fusion |
-| Exact kNN | `k` selected sources per destination | dynamic index snapshot plus compiled consumer reuse |
+| Exact kNN | `k` selected sources per destination | ranked candidate tiles + local top-k + hierarchical merge + fused consume |
 | Paged `.gfg` relation | Graph exceeds device or host memory | destination-sharded page stream through NVMe/RAM/HBM instances |
 | Distributed relation | Sources cross ownership boundaries | compiler-derived halo and an interior/communication/boundary task plan |
 
@@ -243,7 +243,7 @@ gates and limitations.
 | Dense grouped-query attention | Hq16/Hkv4/N4096/D64 FP16 | 0.7769 ms | PyTorch Flash SDPA 0.8424 ms | **1.084×** |
 | Tile-pruned sparse attention | B1/H16/N4096/D64 FP16 | 0.9073 ms | official FSA 1.0724 ms | **1.182×** |
 | Causal linear recurrence | L64/T512/K16/V16 FP32 | 0.1056 ms | official FLA 0.1095 ms | **1.037×** |
-| Exact kNN build + consume | N8192/D3/k32 FP32 | 3.9076 ms | cdist/top-k pipeline 3.9110 ms | **1.0009× · parity only** |
+| Exact kNN build + consume | N8192/D3/k32 FP32 | 2.9498 ms | cdist/top-k pipeline 3.9155 ms | **1.327× · CI low 1.326** |
 | Dense matmul | 2048³ FP16 | 89.29 TFLOP/s | torch.mm/cuBLAS 88.86 TFLOP/s | **1.005×** |
 | GPU heatmap preparation | 2048² FP32→RGB | 0.0996 ms | Inductor 0.1148 ms | **1.153×** |
 

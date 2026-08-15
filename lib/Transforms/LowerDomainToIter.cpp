@@ -53,7 +53,8 @@ public:
       auto generated =
           apply.getRelation().getDefiningOp<GeneratedRadiusOp>();
       auto cartesian = apply.getRelation().getDefiningOp<CartesianOp>();
-      if (!relation && !generated && !cartesian) {
+      auto ranked = apply.getRelation().getDefiningOp<RankedRelationOp>();
+      if (!relation && !generated && !cartesian && !ranked) {
         apply.emitError("requires a visible GraphForge relation definition");
         signalPassFailure();
         return;
@@ -61,6 +62,8 @@ public:
       StringRef hierarchy;
       if (cartesian)
         hierarchy = "cartesian-product";
+      else if (ranked)
+        hierarchy = "ranked-pairs";
       else if (generated)
         hierarchy = "generated-neighborhood";
       else if (relation.getRealization() == "materialized")

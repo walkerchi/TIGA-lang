@@ -70,10 +70,25 @@ def main() -> None:
         ).sum(dim=1)
 
     actual = graphforge_pipeline()
-    expected = torch_pipeline()
+    # GraphForge's ranked metric is explicitly pairwise squared Euclidean
+    # accumulation with source-index tie breaking. PyTorch's default cdist may
+    # switch to a GEMM identity and perturb nearly equal boundary distances;
+    # use its direct-distance mode for the one-time semantic oracle while
+    # retaining default cdist as the matched SOTA performance provider.
+    semantic_distance = torch.cdist(
+        positions, positions,
+        compute_mode="donot_use_mm_for_euclid_dist",
+    )
+    semantic_distance.fill_diagonal_(float("inf"))
+    semantic_index = torch.topk(
+        semantic_distance, args.k, dim=1, largest=False, sorted=True).indices
+    expected = (
+        source[semantic_index] * weight.reshape(args.nodes, args.k)
+    ).sum(dim=1)
     torch.testing.assert_close(actual, expected, rtol=3e-4, atol=3e-4)
-    if kernel.last_variant.lowering != "gf-kernel-to-ttir-fixed-csr-weighted-sum":
-        raise RuntimeError("kNN consumer did not select compiler-generated TTIR")
+    if kernel.last_variant.lowering != "gf-kernel-to-ttir-ranked-select-consume":
+        raise RuntimeError(
+            "kNN did not select the compiler-generated ranked build+consume TTIR")
     prepared_pipeline = kernel.prepare(
         graph=graph, src={"x": source}, dst={}, edge={"weight": weight})
 
@@ -85,7 +100,7 @@ def main() -> None:
     common_bytes = float(
         positions.numel() * positions.element_size()
         + source.numel() * source.element_size()
-        + edges * 8 + (args.nodes + 1) * 8
+        + weight.numel() * weight.element_size()
         + args.nodes * source.element_size())
     intensity = useful_flops / common_bytes
     providers = (
@@ -124,10 +139,10 @@ def main() -> None:
         "sota_gates": [gate.to_dict()],
         "config": {
             **vars(args), "output_dir": str(output),
-            "builder": graph.build_info["builder"],
+            "builder": "compiler-ranked-tile-select-consume",
             "consumer_lowering": kernel.last_variant.lowering,
             "consumer_provider": kernel.last_variant.provider,
-            "semantic_byte_model": "positions + source + CSR indices + output",
+            "semantic_byte_model": "positions + source + ranked-edge weight + output",
             "useful_flop_model": "N^2*(3D+sqrt) + 2*N*k",
         },
     }
@@ -145,9 +160,9 @@ def main() -> None:
         if item["provider"] == "torch.cdist_topk_gather_sum")
     (output / "REPORT.md").write_text(
         "# Exact kNN build + generated weighted consume\n\n"
-        "`Graph.knn` rebuilds exact neighbors from the current position version; "
-        "the fixed-k proof specializes one generic CSR weighted-sum TTIR kernel "
-        "and rebinds each new column-index snapshot without recompilation.\n\n"
+        "`Graph.knn` compiles exact ranked selection and the edge UDF into one "
+        "TTIR launch. Candidate tiles retain only k stable keys; no CSR or "
+        "pairwise distance matrix is materialized.\n\n"
         f"GraphForge prepared: {candidate['milliseconds']:.4f} ms; ordinary "
         f"lazy-JIT hot call: {ordinary['milliseconds']:.4f} ms; matched cdist/top-k/"
         f"gather-sum: {baseline['milliseconds']:.4f} ms. Strict gate: "
