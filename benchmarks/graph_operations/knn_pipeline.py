@@ -161,7 +161,8 @@ def main() -> None:
     (output / "REPORT.md").write_text(
         "# Exact kNN build + generated weighted consume\n\n"
         "`Graph.knn` compiles exact ranked selection and the edge UDF into one "
-        "TTIR launch. Candidate tiles retain only k stable keys; no CSR or "
+        "TTIR launch. Candidate tiles retain a masked next-power-of-two "
+        "selection state and consume exactly k stable keys; no CSR or "
         "pairwise distance matrix is materialized.\n\n"
         f"GraphForge prepared: {candidate['milliseconds']:.4f} ms; ordinary "
         f"lazy-JIT hot call: {ordinary['milliseconds']:.4f} ms; matched cdist/top-k/"

@@ -1114,7 +1114,6 @@ class MessagePassing(Kernel):
             or not isinstance(k, int)
             or k <= 0
             or k > 64
-            or k & (k - 1)
         ):
             return None
         query, candidate = graph.ranked_positions()
@@ -1224,7 +1223,7 @@ class MessagePassing(Kernel):
             artifacts=artifacts,
             remarks=(
                 "exact candidate ranking and edge consumption share one launch",
-                "candidate tiles retain only k stable distance/index keys",
+                "candidate tiles retain a power-of-two padded stable key state",
                 "no CSR row pointer or selected column tensor is materialized",
             ),
         )

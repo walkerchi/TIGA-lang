@@ -63,7 +63,8 @@ A `select` UDF may remove candidates but cannot bypass the radius predicate.
 Exact kNN is now an executable ranked-relation lowering rather than a library
 dispatch. N8192/D3/k32 is 2.9498 ms versus 3.9155 ms for the matched exhaustive
 cdist/top-k/gather pipeline (1.327×, CI low 1.326); N4096/D5/k16 is 0.6589 ms
-versus 1.0713 ms (1.626×, CI low 1.619). The compiler path is:
+versus 1.0713 ms (1.626×, CI low 1.619); non-power-of-two N4096/D5/k13 is
+0.6625 ms versus 1.0744 ms (1.622×, CI low 1.617). The compiler path is:
 
 ```text
 query tile × candidate tile
@@ -75,11 +76,11 @@ query tile × candidate tile
 
 These steps are represented by provider-neutral Domain/Iter/Kernel IR and the
 core emits TTIR—there is no workload-named Python/Triton kernel. M0 keeps the
-`k` composite distance/index keys in registers and therefore allocates no
-global scratch. Larger/non-power-of-two k still needs a memory-budgeted
-multi-task spill plan; a spatial directory may be chosen only when exactness
-can be certified. Approximate search is a different public contract and must
-report recall as well as speed.
+physical key state at `next_pow2(k)`, masks lanes beyond the exact semantic k
+and therefore supports every k≤64 without global scratch. Larger k still needs
+a memory-budgeted multi-task spill plan; a spatial directory may be chosen
+only when exactness can be certified. Approximate search is a different public
+contract and must report recall as well as speed.
 
 ## Load balance for power-law graphs
 

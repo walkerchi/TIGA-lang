@@ -238,8 +238,8 @@
     },
     "knn_graph": {
       "status": "measured-ranked-build-consume-fusion-partial-contract",
-      "cases": ["cuda_n8192_d3_k32_consume", "cuda_n4096_d5_k16_consume"],
-      "note": "Graph.knn now enters Domain IR as a provider-neutral gf.ranked_relation and lowers through ranked-pairs to gf_kernel.ranked_launch. The emitted TTIR performs exact 256-candidate local stable top-k, pairwise hierarchical merge and selected-edge UDF/reducer fusion without an NxN distance matrix or CSR. Clean gates: N8192/D3/k32 is 2.9498 ms versus 3.9155 ms (1.327x, CI low 1.326); N4096/D5/k16 is 0.6589 ms versus 1.0713 ms (1.626x, CI low 1.619). Current executable coverage is exact squared-Euclidean FP32, power-of-two k<=64 and scalar additive reducers; ANN and general metric UDFs are not inferred."
+      "cases": ["cuda_n8192_d3_k32_consume", "cuda_n4096_d5_k16_consume", "cuda_n4096_d5_k13_consume"],
+      "note": "Graph.knn enters Domain IR as a provider-neutral gf.ranked_relation and lowers through ranked-pairs to gf_kernel.ranked_launch. The emitted TTIR performs exact 256-candidate local stable top-k, pairwise hierarchical merge and selected-edge UDF/reducer fusion without an NxN distance matrix or CSR. Arbitrary k<=64 uses a masked next-power-of-two physical selection state; CUDA differential covers k=3 stable ties, k=13 bipartite search and the k=63 boundary. Clean gates: N8192/D3/k32 is 2.9498 ms versus 3.9155 ms (1.327x, CI low 1.326); N4096/D5/k16 is 0.6589 ms versus 1.0713 ms (1.626x, CI low 1.619); non-power-of-two N4096/D5/k13 is 0.6625 ms versus 1.0744 ms (1.622x, CI low 1.617). Current executable coverage is exact squared-Euclidean FP32, arbitrary k<=64 and scalar additive reducers; ANN, large k and general metric UDFs are not inferred."
     },
     "dense_matmul_calibration": {
       "status": "measured-compiler-library-dispatch-gate-passed",

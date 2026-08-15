@@ -35,7 +35,7 @@ the target hardware.
 
 | Ledger | Status | What exists | Required to close |
 |---|---|---|---|
-| K0 · exact procedural kNN | **partial — ranked M0 measured** | `gf.ranked_relation` → ranked-pairs → ranked launch; stable candidate-tile top-k, hierarchical merge, selected-edge fusion, live-coordinate rebind, two passing N/D/k gates | non-power-of-two/large k, general metric UDF, memory-budgeted spill/task plan, backward lowering |
+| K0 · exact procedural kNN | **partial — ranked M0 measured** | `gf.ranked_relation` → ranked-pairs → ranked launch; stable candidate-tile top-k, masked arbitrary k≤64, hierarchical merge, selected-edge fusion, live-coordinate rebind, three passing N/D/k gates | large k, general metric UDF, memory-budgeted spill/task plan, backward lowering |
 | X0 · distributed execution | **partial** | typed halo Event DAG, MPI two-process forward/VJP, CPU overlap, NCCL rank-one binding and CUDA submission-order fixture | real 2+ GPU NCCL correctness/profiler overlap/performance and RCCL evidence |
 | P0 · release engineering | **partial** | pinned LLVM build, local wheel audit, no-Torch smoke, sdist rebuild and hosted compiler CI | complete CPython/Linux/macOS release matrix, trusted publishing and first PyPI release |
 | G0 · graph-algorithm probes | **partial** | fixed-iteration PageRank compiler/control path and registered performance cases | reverse structured loop/tape performance, device-side convergence, representative frontier and sorted-intersection IR probes |
@@ -46,7 +46,7 @@ cached spatial-directory reuse is not substituted for rebuild timing.
 
 ## Engineering order
 
-1. Extend ranked-relation lowering beyond the measured FP32/power-of-two-k M0
+1. Extend ranked-relation lowering beyond the measured FP32/k≤64 M0
    contract, including bounded scratch/spill tasks and generated backward.
 2. Extend general sparse/vector/high-degree and nonlinear fusion coverage using
    registered natural degree distributions.

@@ -646,7 +646,7 @@ class MLIRBridgeTest(unittest.TestCase):
     def test_knn_captures_ranked_relation_without_csr_materialization(self):
         queries = torch.rand(32, 3)
         candidates = torch.rand(48, 3)
-        graph = gf.Graph.knn(queries, 8, candidates=candidates)
+        graph = gf.Graph.knn(queries, 13, candidates=candidates)
         x = torch.randn(48)
         module = message_passing_domain_mlir(
             kernel=RadiusDistanceAggregation(),
@@ -660,7 +660,7 @@ class MLIRBridgeTest(unittest.TestCase):
 
         self.assertIsNone(graph.num_edges)
         self.assertIn('"gf.ranked_relation"', stages.domain)
-        self.assertIn('k = 8 : i64', stages.domain)
+        self.assertIn('k = 13 : i64', stages.domain)
         self.assertIn('metric = "squared_euclidean"', stages.domain)
         self.assertIn('tie_break = "source_index"', stages.domain)
         self.assertIn('coordinate_hierarchy = "ranked-pairs"', stages.iteration)
@@ -668,6 +668,8 @@ class MLIRBridgeTest(unittest.TestCase):
         self.assertIn('candidate_tile = 256 : i64', stages.kernel)
         self.assertIn('merge_fan_in = 2 : i64', stages.kernel)
         self.assertIn("tt.func public @gf_ranked_select_consume", ttir)
+        self.assertIn("k=13 selection_width=16", ttir)
+        self.assertIn("tensor<16xi1>", ttir)
         self.assertIn("tt.gather", ttir)
         self.assertIn("scf.for", ttir)
 

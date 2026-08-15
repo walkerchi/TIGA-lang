@@ -56,8 +56,11 @@ pairwise hierarchical merge，并直接执行 selected-edge UDF/reducer；不物
 matrix、row pointer 或 column indices。clean rerun 的两个严格 gate 都通过：
 N=8192/D=3/k=32 为 2.9498 ms 对 3.9155 ms（1.327x，CI low 1.326）；
 N=4096/D=5/k=16 为 0.6589 ms 对 1.0713 ms（1.626x，CI low 1.619）。
-当前 executable contract 仍限定 FP32 squared-Euclidean、power-of-two k≤64 和 scalar
-additive reducer；不能外推到任意 metric、非二次幂 k、ANN 或大 k spill/task plan。
+non-power-of-two N=4096/D=5/k=13 为 0.6625 ms 对 1.0744 ms（1.622x，CI low
+1.617）。物理 selection state padding 到 `next_pow2(k)`，多余 lane 以 rank mask 隔离，
+CUDA differential 另覆盖 k=3 stable tie 与 k=63 上界。当前 executable contract 仍限定
+FP32 squared-Euclidean、k≤64 和 scalar additive reducer；不能外推到任意 metric、ANN 或
+大 k spill/task plan。
 
 线性 recurrence 的注册 `L=64,T=512,K=V=16,FP32` case 只向 compiler 提交普通
 `broadcast × cumsum × reduce` Tensor IR。结构匹配将 map→scan→contract 融成一个 TTIR

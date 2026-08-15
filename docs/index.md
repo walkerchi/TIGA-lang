@@ -121,7 +121,7 @@ print(program.code("ptx"))
 | Path | Current implementation | Boundary |
 |---|---|---|
 | Static relations | scalar/vector fixed and bounded-ragged CSR; power-law degree scheduling | compiler-emitted TTIR or explicit library dispatch outside proven shapes |
-| Dynamic/ranked relations | generated radius-cell traversal plus exact kNN ranked tile-select–consume TTIR | kNN M0 is CUDA/FP32 squared Euclidean with power-of-two k≤64; custom metrics, larger k and generated backward remain partial |
+| Dynamic/ranked relations | generated radius-cell traversal plus exact kNN ranked tile-select–consume TTIR | kNN M0 is CUDA/FP32 squared Euclidean with arbitrary k≤64; custom metrics, larger k and generated backward remain partial |
 | Dense relations | Cartesian and lower-triangular traversal, grouped lanes, online reducers | generated tensor-core TTIR for registered shapes |
 | Tensor + VJP | broadcast/view/reduce/scan/matmul, complex dtype, relation-aware automatic VJP | native CPU LLVM and CUDA TTIR subsets; unsupported programs fail or use the labeled oracle |
 | Hierarchical memory | capacity/version planning, pinned↔HBM DMA, RAM↔NVMe spill | single-node executable |

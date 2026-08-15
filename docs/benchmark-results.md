@@ -60,9 +60,12 @@ main reason to use the compiler.
 Exact kNN now exercises the general ranked-relation compiler path rather than
 dispatching `cdist/topk`: candidate tiles → stable local top-k → hierarchical
 merge → fused selected-edge consume. A second N4096/D5/k16 gate is 0.6589 ms
-versus 1.0713 ms (**1.626×**, CI low 1.619). Remaining coverage work is
-non-power-of-two/large k, general metric UDF lowering, and a memory-budgeted
-spill/task plan; ANN remains a separate recall-bearing contract.
+versus 1.0713 ms (**1.626×**, CI low 1.619). The non-power-of-two
+N4096/D5/k13 gate is 0.6625 ms versus 1.0744 ms (**1.622×**, CI low 1.617);
+masked physical padding is additionally tested at k=3 stable ties and the k=63
+boundary. Remaining coverage work is large k, general metric UDF lowering and
+a memory-budgeted spill/task plan; ANN remains a separate recall-bearing
+contract.
 
 <figure class="gf-figure">
   <object type="image/svg+xml" data="assets/dense-attention-performance.svg" aria-label="Dense Cartesian streaming comparison">

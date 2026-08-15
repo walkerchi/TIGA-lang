@@ -828,8 +828,8 @@ class TTIRProviderTest(unittest.TestCase):
         self.assertIn("scf.for", kernel.code("ttir"))
         self.assertIn("tt.store", kernel.code("ttir"))
 
-    def test_bipartite_knn_ranked_consumer_handles_live_queries(self):
-        queries, candidates, degree = 97, 129, 16
+    def test_bipartite_knn_ranked_consumer_handles_non_power_of_two_k(self):
+        queries, candidates, degree = 97, 129, 13
         generator = torch.Generator(device="cuda").manual_seed(123)
         query = torch.rand(queries, 5, device="cuda", generator=generator)
         candidate = torch.rand(
@@ -853,6 +853,61 @@ class TTIRProviderTest(unittest.TestCase):
         self.assertEqual(
             kernel.last_variant.lowering,
             "gf-kernel-to-ttir-ranked-select-consume")
+        self.assertIn("k=13 selection_width=16", kernel.ir("gf.kernel.ttir"))
+        self.assertNotIn("math.sqrt", kernel.ir("gf.kernel.ttir"))
+        self.assertIsNone(graph.num_edges)
+
+    def test_self_knn_non_power_of_two_k_uses_stable_source_ties(self):
+        nodes, degree = 11, 3
+        positions = torch.zeros(nodes, 2, device="cuda")
+        source = torch.arange(nodes, dtype=torch.float32, device="cuda")
+        weight = torch.ones(nodes * degree, device="cuda")
+        graph = gf.Graph.knn(positions, degree)
+        kernel = WeightedAggregation()
+
+        actual = kernel(
+            graph=graph, src={"x": source}, dst={},
+            edge={"weight": weight})
+        selected = torch.tensor(
+            [
+                [candidate for candidate in range(nodes) if candidate != row]
+                [:degree]
+                for row in range(nodes)
+            ],
+            device="cuda",
+        )
+        expected = source[selected].sum(dim=1)
+
+        torch.testing.assert_close(actual, expected)
+        self.assertIn("k=3 selection_width=4", kernel.ir("gf.kernel.ttir"))
+        self.assertIsNone(graph.num_edges)
+
+    def test_self_knn_accepts_non_power_of_two_k_at_m0_limit(self):
+        nodes, degree = 67, 63
+        generator = torch.Generator(device="cuda").manual_seed(144)
+        positions = torch.rand(
+            nodes, 2, device="cuda", generator=generator)
+        source = torch.rand(nodes, device="cuda", generator=generator)
+        weight = torch.rand(
+            nodes * degree, device="cuda", generator=generator)
+        graph = gf.Graph.knn(positions, degree)
+        kernel = WeightedAggregation()
+
+        actual = kernel(
+            graph=graph, src={"x": source}, dst={},
+            edge={"weight": weight})
+        distance = torch.cdist(
+            positions, positions,
+            compute_mode="donot_use_mm_for_euclid_dist")
+        distance.fill_diagonal_(float("inf"))
+        selected = distance.topk(
+            degree, largest=False, sorted=True, dim=1).indices
+        expected = (
+            source[selected] * weight.reshape(nodes, degree)
+        ).sum(dim=1)
+
+        torch.testing.assert_close(actual, expected, rtol=3e-4, atol=3e-4)
+        self.assertIn("k=63 selection_width=64", kernel.ir("gf.kernel.ttir"))
         self.assertIsNone(graph.num_edges)
 
 

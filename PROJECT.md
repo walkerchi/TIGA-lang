@@ -85,7 +85,7 @@ kernel。
 - 本地 wheel 已捆绑 `gf-opt`、`gf-translate` 和 runtime，并在两个全新、无 Torch 的 venv
   验证相对 RPATH、native Tensor IR 和工具启动；manylinux_2_38 修复产物及从 sdist 独立重建
   也已通过。正式 PyPI wheel 仍须由 hosted trusted-publishing workflow 发布。当前本机 Python
-  suite 为 220 passed、0 skip、10 subtests，LLVM/MLIR 22.1.8 lit 为 61/61；这不是
+  suite 为 224 passed、0 skip、10 subtests，LLVM/MLIR 22.1.8 lit 为 63/63；这不是
   ROCm/DCU/Metal/PPU 支持声明。
 
 ### 文档权属
@@ -2622,8 +2622,9 @@ lowering 直接生成 TTIR；执行期分块选择、层次 top-k merge 并立�
 CSR 或 selected-column tensor。N=8192/D=3/k=32 为 2.9498 ms，对 matched
 cdist/top-k/gather-multiply-sum 3.9155 ms，严格 gate 1.327x（CI low 1.326）；
 N=4096/D=5/k=16 为 0.6589 ms 对 1.0713 ms，1.626x（CI low 1.619）。这些结果只覆盖
-CUDA/FP32、squared-Euclidean、power-of-two k≤64、scalar additive UDF；不外推 custom metric、
-large/non-power-of-two k、generated backward 或 ANN。online-softmax case 由 benchmark 自定义 reducer 经结构证明后生成
+CUDA/FP32、squared-Euclidean、k≤64、scalar additive UDF；任意 k 以
+`next_pow2(k)` physical state 加 rank mask 执行，N4096/D5/k13 为 0.6625 ms 对 1.0744 ms，
+1.622x（CI low 1.617）。不外推 custom metric、large k、generated backward 或 ANN。online-softmax case 由 benchmark 自定义 reducer 经结构证明后生成
 max/exp/sum TTIR tile，对 matched handwritten Triton 为 1.007x（CI low 1.005），严格 gate
 通过。dense matmul auto 的 Torch-free
 cuBLASLt library dispatch 为 89.29 vs external torch.mm/cuBLAS 88.86 TFLOP/s，严格 gate
@@ -3045,10 +3046,10 @@ Tensor、scalar CSR/dense/generated-radius 以及 structured dense online reduce
 C++ OpBuilder 原生构造；Torch compatibility bridge 只保留 typed capture 和显式 tool/provider
 进程边界。native Domain→Iter→Kernel→Task 已改为同一 MLIRContext 内的 pass pipeline；
 serialized TTIR 只保留在 vendor provider ABI 边界。当前 Python suite 为 220 passed、
-0 skip、10 个参数化子测通过；LLVM/MLIR 22.1.8 lit 61/61。以下编号是实现审计，不是第二份
+0 skip、10 个参数化子测通过；LLVM/MLIR 22.1.8 lit 63/63。以下编号是实现审计，不是第二份
 TODO 台账；所有未完成项只在 §15.3 登记：
 
-1. 已在校验 SHA256 的官方 LLVM/MLIR 22.1.8 SDK 上完成 clean build、61/61 lit、完整 Python
+1. 已在校验 SHA256 的官方 LLVM/MLIR 22.1.8 SDK 上完成 clean build、63/63 lit、完整 Python
    suite、strict docs、wheel audit、无 Torch smoke 与 sdist→wheel rebuild；hosted 结果见 C0；
 2. `ReducerDef`、`gf_storage`、`gf_task`、global-ID/owner map 与可执行 planner 已落地；
    Field snapshot、typed Effect 与 Region privilege 已映射为 apply operands、storage instance
@@ -3155,7 +3156,7 @@ benchmark artifact 的能力，`PARTIAL` 不得用于发布声明。每关闭一
 
 | ID | 状态 | 收口项 | 完成证据 |
 |---|---|---|---|
-| C0 | DONE | LLVM/MLIR 22.1.8 权威 Linux CI | 本机用官方 SDK SHA256 pin 完成 clean build、61/61 lit、220 Python tests + 10 subtests、strict docs、manylinux_2_38 audit、两次 wheel/no-Torch smoke 与 sdist→wheel rebuild；hosted run `31793915112` 的 LLVM/MLIR clean-build 与独立 Torch compatibility jobs 均通过（该 hosted run 对应变更前的 53 lit/206 Python tests） |
+| C0 | DONE | LLVM/MLIR 22.1.8 权威 Linux CI | 本机用官方 SDK SHA256 pin 完成 clean build、63/63 lit、224 Python tests + 10 subtests、strict docs、manylinux_2_38 audit、两次 wheel/no-Torch smoke 与 sdist→wheel rebuild；hosted run `31793915112` 的 LLVM/MLIR clean-build 与独立 Torch compatibility jobs 均通过（该 hosted run 对应变更前的 53 lit/206 Python tests） |
 | C1 | DONE | straight-line GraphProgram SSA/canonical hash | native module composition/round-trip、relation CSE、跨 apply SSA 与 stale-version negative、optional `@gf.program` JIT；有依赖的 applies lower 为带显式 value read/write 与 depends-on 的 runtime `ExecutableBundle`，CPU differential 和 CUDA 两个独立 generated PTX leaf 均执行通过；无依赖 applies 仍走单个 horizontal product kernel |
 | C2 | DONE | multi-output apply、vector projection、horizontal fusion codegen | generic product Domain→TTIR differential；N=131072/D=16 matched gate 1.043x handwritten fused oracle，95% CI low=1.008 |
 | C3 | DONE | general Tensor canonicalization/layout/dtype coverage | strided/broadcast view、FP16/32/64/complex CPU 与 FP16/32/64/complex64/128 CUDA TTIR differential；`Dim/TensorSpec/ShapeSpecializer` 统一跨参数 guards 并以实际 binding 生成 concrete MLIR cache specialization |
@@ -3169,7 +3170,7 @@ benchmark artifact 的能力，`PARTIAL` 不得用于发布声明。每关闭一
 | S0 | DONE | Static MessagePassing registered performance matrix | social-like power-law 已覆盖 local/random × i32/i64 × hot/cold 八个 public-auto gate（CI low 1.255–1.849）；i32 compiler-generated CDF bucket + chunked-tail TTIR 的 local/random × hot/cold 四项为 1.353–1.525x（CI low 1.337–1.495），log-normal/exponential generated hot/cold 也全部过线。fixed-degree vector TTIR 的 random/i32/degree16 F16 hot/cold 为 4.322x/3.801x、F64 为 1.966x/1.302x（最低 CI low 1.288）；bounded-ragged degree 0–32 的 F16 为 4.213x/3.270x、F64 为 1.595x/1.283x（最低 CI low 1.270）。provider 逐样本轮转交错，避免 thermal/order drift。irregular/skewed diffusion、regular degree 2–64 与 horizontal fusion 也严格通过；仅对 manifest 已登记 case 声明 |
 | D0 | DONE | default Euclidean RadiusGraph performance-ready | compiler generated relation ABI 已携带 box/skew lattice 与 inverse，wrapped cell traversal 在 kernel 内执行 minimum-image 并直接 reduction，不物化 CSR/distance；N=32768、D=2/3、none/box/skew、consume/reuse/rebind/rebuild 共 24 个严格 gate 全过，periodic rebuild 为 3.861–6.064x（CI low 3.769–5.909）。Torch-free runtime 也以通用 gather/square/sum/sqrt/reducer Tensor IR 执行 fixed-snapshot forward/VJP；CPU custom metric/select 接受一次 batched Tensor UDF，membership stop-gradient，selected-edge metric 保持可导 |
 | D1 | DONE | generated builder-consumer fusion | N=32768/D3/degree32 fresh pipeline 对 materialized 4.425x（CI low 4.397），显式 CSR/distance/message ABI 为零、modeled peak bytes 降 7.03x |
-| K0 | PARTIAL（ranked M0 已测） | exact procedural kNN build+consume | `Graph.knn` 已捕获为 provider-neutral `gf.ranked_relation`，经 `ranked-pairs` lower 到 `gf_kernel.ranked_launch`；compiler-emitted TTIR 完成 256-candidate stable local top-k、pairwise hierarchical merge 与 selected-edge UDF/reducer fusion，不物化 N² distance matrix/CSR，位置 mutation 复用同一 executable。两个端到端严格 gate 已通过：N8192/D3/k32 为 2.9498 ms 对 3.9155 ms（1.327x，CI low 1.326），N4096/D5/k16 为 0.6589 ms 对 1.0713 ms（1.626x，CI low 1.619）。关闭剩余范围仍需 non-power-of-two/large k、general metric UDF、memory-budgeted spill/task bundle 与 generated backward；不得外推到 ANN |
+| K0 | PARTIAL（ranked M0 已测） | exact procedural kNN build+consume | `Graph.knn` 已捕获为 provider-neutral `gf.ranked_relation`，经 `ranked-pairs` lower 到 `gf_kernel.ranked_launch`；compiler-emitted TTIR 完成 256-candidate stable local top-k、pairwise hierarchical merge 与 selected-edge UDF/reducer fusion，不物化 N² distance matrix/CSR，位置 mutation 复用同一 executable。任意 k≤64 使用 masked `next_pow2(k)` physical state；CUDA differential 覆盖 k3 全重合 stable tie、k13 bipartite 与 k63 上界。三个端到端严格 gate 已通过：N8192/D3/k32 为 1.327x（CI low 1.326），N4096/D5/k16 为 1.626x（CI low 1.619），N4096/D5/k13 为 0.6625 ms 对 1.0744 ms、1.622x（CI low 1.617）。关闭剩余范围仍需 large k、general metric UDF、memory-budgeted spill/task bundle 与 generated backward；不得外推到 ANN |
 | R0 | DONE | runtime-owned provider ABI | CPU ExecutionEngine；CUDA Driver primary context、allocator、stream/event、module/function/kernel launch；TTIR 经 runtime-owned launcher 执行，且 native CUDA Tensor 在禁止 import Torch 的子进程完成 compile/launch/readback |
 | M0 | DONE | hierarchy memory execution | `gf_storage.transfer/release` bundle lowering、capacity/peak-liveness、native pinned↔HBM async DMA、RAM↔NVMe spill/version differential；32 MiB artifact H2D/D2H 7.20/7.13 GB/s |
 | X0 | PARTIAL | distributed partition/halo execution | typed overlap DAG、exact owner/ghost、bundle resolver、CPU/CUDA rank-local forward/reverse VJP、版本化 `.gfg` paged shard 与 mpi4py/MPICH `mpiexec -n 2` 均通过；16 MiB MPI halo 为 8.87 ms/1.892 GB/s。CPU host-transport 自动执行器已缓存 interior/boundary subgraph，实际并行 halo worker 与 interior LLVM execution，并以 `gf_tensor.scatter_rows` 合并；N65536/degree16/F64 的受控 5 ms link model 测得 13.7224 ms overlap 和 1.069x 端到端收益。Torch-free NCCL provider 直接接受 native/external device-buffer slices；rank-one NCCL 2.28.9 communicator + local D2D byte gate 通过。CUDA device fixture 已验证 communication-stream halo enqueue、独立 compiler-stream interior、wait、boundary、CUDA scatter merge 及 automatic reverse VJP 的提交顺序；host trace 不冒充 GPU 并发计时或 NCCL P2P 证据。当前只有一张 GPU；RCCL、真实 2+ GPU NCCL correctness/profiler overlap timeline 和 peer-link performance 待完成 |
