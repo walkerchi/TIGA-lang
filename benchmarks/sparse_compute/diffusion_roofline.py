@@ -9,9 +9,9 @@ import warnings
 from dataclasses import asdict
 from pathlib import Path
 
+import graphforge as gf
 import torch
 
-import graphforge as gf
 from benchmarks.common.hardware_roofline import (
     measure_roofs,
     samples_ms,
@@ -20,7 +20,7 @@ from benchmarks.common.hardware_roofline import (
 from benchmarks.common.output_layout import artifact_path
 from benchmarks.common.perf_protocol import evaluate_sota_gates
 from benchmarks.common.plotting import plot_latency, plot_roofline, write_report
-from benchmarks.sparse_compute.cases import make_graph
+from benchmarks.sparse_compute.cases import TOPOLOGIES, degree_statistics, make_graph
 
 try:
     import triton
@@ -79,7 +79,7 @@ def main():
     parser.add_argument("--device", choices=("auto", "cpu", "cuda"), default="auto")
     parser.add_argument("--nodes", type=int, default=1 << 17)
     parser.add_argument("--degree", type=int, default=16)
-    parser.add_argument("--topology", choices=("regular", "irregular", "skewed"),
+    parser.add_argument("--topology", choices=TOPOLOGIES,
                         default="regular")
     parser.add_argument("--locality", choices=("local", "random"), default="local")
     parser.add_argument("--cache", choices=("hot", "cold", "both"), default="both")
@@ -103,6 +103,7 @@ def main():
     row_ptr, col_idx, dst = make_graph(
         args.nodes, args.degree, args.topology, args.locality, device,
         torch.int32 if args.index_dtype == "i32" else torch.int64)
+    degree_stats = degree_statistics(row_ptr)
     edges = col_idx.numel()
     weight = torch.rand(edges, device=device)
     x = torch.rand(args.nodes, device=device)
@@ -151,7 +152,7 @@ def main():
     skipped = []
     try:
         pyg, reason = optional_pyg(col_idx, dst, weight, x, args.nodes)
-    except Exception as error:
+    except Exception as error:  # noqa: BLE001 - optional framework/ABI probe
         pyg, reason = None, f"initialization failed: {error}"
     if pyg is None:
         skipped.append(("pyg.message_passing", reason))
@@ -166,7 +167,7 @@ def main():
     for name, provider in providers.items():
         torch.testing.assert_close(
             provider(), expected, rtol=3e-4, atol=3e-4,
-            msg=lambda message: f"{name}: {message}")
+            msg=lambda message, name=name: f"{name}: {message}")
     synchronize(device)
 
     flops = 3.0 * edges
@@ -218,6 +219,15 @@ def main():
                 "ideal_cache_bytes": ideal_bytes,
                 "arithmetic_intensity_flop_per_byte": intensity,
                 "samples_ms": raw,
+                "degree_min": int(degree_stats["minimum"]),
+                "degree_mean": float(degree_stats["mean"]),
+                "degree_p50": float(degree_stats["p50"]),
+                "degree_p95": float(degree_stats["p95"]),
+                "degree_p99": float(degree_stats["p99"]),
+                "degree_max": int(degree_stats["maximum"]),
+                "degree_zero_fraction": float(degree_stats["zero_fraction"]),
+                "degree_coefficient_of_variation": float(
+                    degree_stats["coefficient_of_variation"]),
             }
             all_results.append(item)
             print(

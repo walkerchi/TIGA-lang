@@ -123,7 +123,9 @@ class PlotBenchmarksTest(unittest.TestCase):
 
     def test_provider_colors_are_stable_and_collection_plot_is_created(self):
         from benchmarks.common.collection_plotting import (
-            plot_manifest_dashboard, plot_operation_summary,
+            plot_compiler_report,
+            plot_manifest_dashboard,
+            plot_operation_summary,
         )
         from benchmarks.common.plotting import provider_color
 
@@ -154,6 +156,24 @@ class PlotBenchmarksTest(unittest.TestCase):
             self.assertTrue(dashboard.exists())
             self.assertTrue((output / "README.md").exists())
 
+            case = output / "test_operation" / "case"
+            case.mkdir(parents=True)
+            import json
+            (case / "roofline.json").write_text(json.dumps(first))
+            report = plot_compiler_report({
+                "report_device": "test device",
+                "report_panels": [{
+                    "title": "Sparse test kernel",
+                    "operation": "test_operation", "case": "case",
+                    "filters": {"features": 16, "cache": "hot"},
+                    "providers": [
+                        "graphforge.compiler_ttir", "torch.sparse.mm"],
+                    "baseline": "torch.sparse.mm",
+                }],
+            }, output, output / "compiler-report.png")
+            self.assertTrue(report.exists())
+            self.assertTrue(report.with_suffix(".svg").exists())
+
     def test_knn_roofline_uses_specialized_overlap_view(self):
         from benchmarks.common.plotting import plot_roofline
 
@@ -170,6 +190,7 @@ class PlotBenchmarksTest(unittest.TestCase):
 
     def test_non_roofline_diagnostic_json_gets_a_human_plot(self):
         import json
+
         from benchmarks.common.diagnostic_plotting import plot_json
 
         payload = {

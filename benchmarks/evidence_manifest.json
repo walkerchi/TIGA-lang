@@ -10,6 +10,126 @@
       "note": "Two CPU ranks, N=65536, degree=16, F=64, 25% boundary and an explicit 5 ms receive-delay model. The automatic interior||halo->boundary runtime measured 13.7224 ms median overlap and 38.2262 ms end-to-end versus 40.8632 ms serialized (1.069x). This is process/runtime evidence, not measured inter-node or multi-GPU performance."
     }
   },
+  "report_device": "NVIDIA GeForce RTX 5070 Ti · CPU relation panel measured on the paired host CPU",
+  "report_panels": [
+    {
+      "title": "Bounded-ragged CSR SpMM",
+      "detail": "N=131072 · degree 0–32 · F=16 · FP32/i32",
+      "operation": "weighted_aggregation",
+      "case": "irregular_random_cuda_i32_n131072_degree16_f16_64",
+      "filters": {"features": 16, "cache": "hot"},
+      "providers": ["graphforge.prepared_auto", "torch.sparse.mm", "triton.csr"],
+      "baseline": "torch.sparse.mm"
+    },
+    {
+      "title": "Log-normal social CSR aggregation",
+      "detail": "N=131072 · mean 15.70 · p99=137 · max=256 · auto-selected native CSR",
+      "operation": "weighted_aggregation",
+      "case": "lognormal_random_cuda_i32_n131072_degree16_f1",
+      "filters": {"features": 1, "cache": "hot"},
+      "providers": ["graphforge.prepared_auto", "torch.sparse.mm", "triton.csr"],
+      "baseline": "torch.sparse.mm"
+    },
+    {
+      "title": "Sparse anisotropic diffusion",
+      "detail": "N=131072 · degree 16 · FP32/i64",
+      "operation": "diffusion",
+      "case": "regular_local_cuda_i64_n131072_degree16",
+      "filters": {"features": 1, "cache": "hot"},
+      "providers": ["graphforge.auto", "torch.sparse_laplacian", "triton.csr"],
+      "baseline": "torch.sparse_laplacian"
+    },
+    {
+      "title": "Sparse online-softmax reducer",
+      "detail": "N=131072 · degree 32 · stable tuple state",
+      "operation": "online_softmax",
+      "case": "cuda_n131072_degree32_f1",
+      "filters": {"features": 1, "cache": "hot"},
+      "providers": ["graphforge.compiler_ttir", "triton.handwritten_fused", "torch.explicit"],
+      "baseline": "triton.handwritten_fused"
+    },
+    {
+      "title": "Radius-distance UDF backward",
+      "detail": "N=32768 · D=3 · degree≈32 · generated VJP",
+      "operation": "message_passing_backward",
+      "case": "radius_fixed_snapshot_cuda_n32768_d3_degree32",
+      "filters": {"features": 4, "cache": "hot"},
+      "providers": ["graphforge.generated_vjp", "handwritten.triton", "torch.autograd"],
+      "baseline": "handwritten.triton"
+    },
+    {
+      "title": "Fixed-iteration PageRank",
+      "detail": "N=262144 · degree 16 · 20 iterations",
+      "operation": "pagerank",
+      "case": "cuda_fp32_iter20",
+      "filters": {"nodes": 262144, "edges": 4194304, "cache": "hot"},
+      "providers": ["graphforge.control", "torch.sparse.mm"],
+      "baseline": "torch.sparse.mm"
+    },
+    {
+      "title": "Dense exact attention",
+      "detail": "B=1 · H=16 · N=4096 · D=64 · FP16",
+      "operation": "dense_attention",
+      "case": "b1_h16_n4096_d64_fp16",
+      "filters": {"features": 64, "cache": "consumer-only"},
+      "providers": ["graphforge.direct_ttir", "torch.sdpa.flash", "triton.streaming_oracle"],
+      "baseline": "torch.sdpa.flash"
+    },
+    {
+      "title": "Tile-pruned sparse attention",
+      "detail": "B=1 · H=16 · N=4096 · D=64 · matched pruning",
+      "operation": "sparse_attention",
+      "case": "b1_h16_n4096_d64_fp16",
+      "filters": {"features": 64, "cache": "hot"},
+      "providers": ["graphforge.compiler_tile_pruned", "flash_sparse_attn.official"],
+      "baseline": "flash_sparse_attn.official"
+    },
+    {
+      "title": "Causal linear-attention recurrence",
+      "detail": "L=64 · T=512 · K=V=16 · FP32",
+      "operation": "linear_attention",
+      "case": "l64_t512_k16_v16_fp32",
+      "filters": {"features": 256, "cache": "hot"},
+      "providers": ["graphforge.compiler_scan_contract", "fla.chunk", "fla.fused_recurrent"],
+      "baseline": "fla.chunk"
+    },
+    {
+      "title": "Exact kNN build + consume",
+      "detail": "N=8192 · D=3 · k=32 · FP32",
+      "operation": "knn_graph",
+      "case": "cuda_n8192_d3_k32_consume",
+      "filters": {"features": 3, "cache": "hot"},
+      "providers": ["graphforge.knn_build_consume_prepared_ttir", "torch.cdist_topk_gather_sum"],
+      "baseline": "torch.cdist_topk_gather_sum"
+    },
+    {
+      "title": "Dense matrix multiplication",
+      "detail": "M=N=K=2048 · FP16",
+      "operation": "dense_matmul_calibration",
+      "case": "m2048_n2048_k2048_fp16",
+      "filters": {"features": 2048, "cache": "hot"},
+      "providers": ["graphforge.compiler_auto", "torch.mm.cublas"],
+      "baseline": "torch.mm.cublas"
+    },
+    {
+      "title": "CPU sparse relation fusion",
+      "detail": "N=131072 · degree 16 · FP32/i32 · 16 threads",
+      "operation": "cpu_relation",
+      "case": "regular_permuted_i32_n131072_degree16_t16",
+      "filters": {"features": 1, "cache": "hot"},
+      "providers": ["graphforge.llvm.parallel_relation", "scipy.csr_matvec", "torch.sparse.mm"],
+      "baseline": "scipy.csr_matvec"
+    },
+    {
+      "title": "Fused GPU visualization preparation",
+      "detail": "2048×2048 scalar → RGB · FP32",
+      "operation": "visualization_heatmap",
+      "case": "h2048_w2048_rgb_f32",
+      "filters": {"features": 3, "cache": "consumer-only"},
+      "providers": ["graphforge.tensor_ttir", "torch.inductor.fused", "torch.eager"],
+      "baseline": "torch.inductor.fused"
+    }
+  ],
   "operations": {
     "weighted_aggregation": {
       "status": "measured-generated-scalar-and-bounded-vector",
@@ -19,9 +139,11 @@
         "powerlaw_local_cuda_i32_n131072_degree16_f1",
         "powerlaw_local_cuda_i64_n131072_degree16_f1",
         "powerlaw_random_cuda_i32_n131072_degree16_f1",
-        "powerlaw_random_cuda_i64_n131072_degree16_f1"
+        "powerlaw_random_cuda_i64_n131072_degree16_f1",
+        "lognormal_random_cuda_i32_n131072_degree16_f1",
+        "exponential_random_cuda_i32_n131072_degree16_f1"
       ],
-      "note": "Fixed-degree and bounded-ragged (maximum degree <=64) F=1/F=16/F=64 CSR use compiler-emitted TTIR; unsupported high-degree/general vector shapes explicitly dispatch to torch.sparse.mm. The fixed random/i32/N=131072/degree16 gate reports F16 hot/cold at 4.322x/3.801x and F64 at 1.966x/1.302x. The irregular degree-0..32 gate reports F16 hot/cold at 4.213x/3.270x and F64 at 1.595x/1.283x, with all 95% CI lows above 1.0. The four registered social-like power-law buckets cover local/random, i32/i64 and hot/cold. Compiler autotune selects register-resident chunked worklists for random gathers and reusable native CSR output for local graphs; public prepared_auto passes all eight gates with CI lows 1.255-2.015. Providers are sampled in rotating interleaved order to remove thermal/order drift.",
+      "note": "Fixed-degree and bounded-ragged (maximum degree <=64) F=1/F=16/F=64 CSR use compiler-emitted TTIR; unsupported high-degree/general vector shapes explicitly dispatch to torch.sparse.mm. The fixed random/i32/N=131072/degree16 gate reports F16 hot/cold at 4.322x/3.801x and F64 at 1.966x/1.302x. The irregular degree-0..32 gate reports F16 hot/cold at 4.213x/3.270x and F64 at 1.595x/1.283x, with all 95% CI lows above 1.0. The four discrete social-like power-law buckets cover local/random, i32/i64 and hot/cold; all eight gates use prepared_auto's reusable native CSR winner. The compiler-generated chunked-tail candidate is retained in the raw results but is slower and is not described as the winner. Continuous log-normal and exponential random/i32/F1 cases record degree quantiles and coefficient of variation in every result; prepared_auto passes their hot/cold gates with CI lows 1.249/1.209 and 1.257/1.198 respectively. Compiler-emitted high-degree split-row TTIR remains a performance gap. Providers are sampled in rotating interleaved order to remove thermal/order drift.",
       "auxiliary": ["kernel_ttir/results.json", "kernel_ttir/runtime.png"]
     },
     "diffusion": {

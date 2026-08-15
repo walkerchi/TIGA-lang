@@ -4,6 +4,40 @@ from __future__ import annotations
 
 import torch
 
+TOPOLOGIES = (
+    "regular", "irregular", "skewed", "powerlaw", "lognormal",
+    "exponential",
+)
+
+
+def degree_statistics(row_ptr: torch.Tensor) -> dict[str, float | int | str]:
+    """Return portable distribution metadata for a generated CSR relation."""
+    degrees = (row_ptr[1:] - row_ptr[:-1]).to(torch.float64)
+    if degrees.numel() == 0:
+        return {
+            "family": "empty", "minimum": 0, "mean": 0.0,
+            "p50": 0.0, "p95": 0.0, "p99": 0.0, "maximum": 0,
+            "zero_fraction": 0.0, "coefficient_of_variation": 0.0,
+        }
+    quantiles = torch.quantile(
+        degrees, torch.tensor(
+            [0.5, 0.95, 0.99], device=degrees.device,
+            dtype=degrees.dtype,
+        ),
+    )
+    mean = float(degrees.mean().item())
+    std = float(degrees.std(correction=0).item())
+    return {
+        "minimum": int(degrees.min().item()),
+        "mean": mean,
+        "p50": float(quantiles[0].item()),
+        "p95": float(quantiles[1].item()),
+        "p99": float(quantiles[2].item()),
+        "maximum": int(degrees.max().item()),
+        "zero_fraction": float((degrees == 0).to(torch.float64).mean().item()),
+        "coefficient_of_variation": std / mean if mean else 0.0,
+    }
+
 
 def make_graph(
     nodes: int,
@@ -45,6 +79,25 @@ def make_graph(
                 torch.full_like(bucket, 16 * degree, dtype=index_dtype),
             ),
         )
+    elif topology in {"lognormal", "exponential"}:
+        # Continuous, reproducible families complement the deliberately
+        # discrete power-law regression bucket above.  Both are rescaled to
+        # the requested mean degree before rounding, and their explicit cap
+        # prevents one sample from making a benchmark allocation unbounded.
+        cap = max(8, 16 * degree)
+        if topology == "lognormal":
+            raw = torch.exp(torch.randn(
+                (nodes,), device=device, generator=generator,
+                dtype=torch.float64,
+            ) * 1.25)
+        else:
+            uniform = torch.rand(
+                (nodes,), device=device, generator=generator,
+                dtype=torch.float64,
+            ).clamp_(min=torch.finfo(torch.float64).eps, max=1.0 - 1e-12)
+            raw = -torch.log1p(-uniform)
+        scaled = raw * (float(degree) / float(raw.mean().item()))
+        degrees = scaled.round().clamp_(0, cap).to(index_dtype)
     else:
         raise ValueError(topology)
     row_ptr = torch.empty(nodes + 1, device=device, dtype=index_dtype)

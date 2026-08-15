@@ -9,15 +9,16 @@ comparison; benchmark-only handwritten Triton remains outside GraphForge.
 from __future__ import annotations
 
 import argparse
-from dataclasses import asdict, dataclass
 import json
-from pathlib import Path
 import statistics
 import warnings
-
-import torch
+from dataclasses import asdict, dataclass
+from pathlib import Path
 
 import graphforge as gf
+import torch
+from graphforge.interop.torch.relation_vjp import compile_source_vjp
+
 from benchmarks.common.hardware_roofline import measure_roofs, samples_ms
 from benchmarks.common.output_layout import artifact_path
 from benchmarks.common.perf_protocol import evaluate_sota_gates
@@ -28,8 +29,7 @@ from benchmarks.kernels.sparse_triton_oracles import (
     prepare_saved_edge_weight_vjp,
     prepare_vector_edge_weight_vjp,
 )
-from benchmarks.sparse_compute.cases import make_graph
-from graphforge.interop.torch.relation_vjp import compile_source_vjp
+from benchmarks.sparse_compute.cases import TOPOLOGIES, make_graph
 
 
 class WeightedAggregation(gf.MessagePassing):
@@ -75,7 +75,7 @@ def main() -> None:
     parser.add_argument("--nodes", type=int, default=131072)
     parser.add_argument("--degree", type=int, default=16)
     parser.add_argument(
-        "--topology", choices=("regular", "irregular", "skewed", "powerlaw"),
+        "--topology", choices=TOPOLOGIES,
         default="regular")
     parser.add_argument("--repeat", type=int, default=100)
     parser.add_argument("--index-dtype", choices=("i32", "i64"), default="i64")
@@ -209,7 +209,7 @@ def main() -> None:
     for name, provider in providers.items():
         actual = provider()
         torch.testing.assert_close(actual, expected, rtol=3e-4, atol=3e-4,
-                                   msg=lambda error: f"{name}: {error}")
+                                   msg=lambda error, name=name: f"{name}: {error}")
     del actual, expected
     torch.cuda.synchronize()
 

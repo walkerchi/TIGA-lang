@@ -71,21 +71,22 @@ kernel。
   `direct-filter(<=64) + worklist-chunked(>64)`：tail kernel 从 reducer/UDF regions 生成，在
   寄存器中跨 64-edge tiles 合并状态，不再分配 partial buffer，也没有 finalize launch；带 node
   epilogue 的通用语义仍保留 `row_split_partial → row_split_finalize → release`。短/长行 writer
-  通过 `degree-worklist` output partition 在 Task IR 中证明互斥。RTX 5070 Ti 上正式 power-law
-  case（131072 行、90% degree-8 / 9% degree-64 / 1% degree-256、random locality、hot cache）
-  的公开 `auto` 为 0.0600 ms，对 Torch CSR 0.0618 ms 为 `1.030x PASS`，95% CI
-  `[1.027, 1.039]`；结果位于
+  通过 `degree-worklist` output partition 在 Task IR 中证明互斥。正式 power-law
+  case（131072 行、90% degree-8 / 9% degree-64 / 1% degree-256）中，compiler-generated
+  chunked-tail candidate 已执行但仍慢于 native CSR；公开 `auto` 因此合法选择并缓存 native
+  CSR，不把该 candidate 宣传为 winner。结果位于
   `output/roofline/weighted_aggregation/powerlaw_random_cuda_i64_n131072_degree16_f1/`。
-  该注册 bucket 已进入公开 `auto`；同一规模/tail 分布的 i32/i64、local/random、hot/cold
-  八项矩阵均已有独立 gate，仍不能外推其他规模或 tail 比例。此前 whole-domain chunk loop
-  的 0.0943 ms 失败实验已删除，
-  不能与新的 compact-worklist chunked kernel 混为一谈。
+  同一规模/tail 分布的 i32/i64、local/random、hot/cold 八项 prepared-auto native-dispatch
+  gate 均通过，CI low 为 1.255–2.015；这证明 dispatch/caching，不证明高 degree TTIR SOTA。
+  连续 log-normal（mean 15.70/p99 137/max 256）和 exponential（mean 16.00/p99 74/max 176）
+  random/i32/F1 hot/cold 也已登记并记录完整 degree quantile；其 winner 同样是 native CSR。
+  让 split-row TTIR 超过该 baseline 仍是 G0 性能缺口，不能外推其他规模或 tail 比例。
 - Torch 只存在于 lazy `interop/torch` oracle/provider 边界；公开 Graph、Reducer、Tensor、
   runtime 和 native compiler frontend 不以 Torch 为基类或必选依赖。
 - 本地 wheel 已捆绑 `gf-opt`、`gf-translate` 和 runtime，并在两个全新、无 Torch 的 venv
   验证相对 RPATH、native Tensor IR 和工具启动；manylinux_2_38 修复产物及从 sdist 独立重建
   也已通过。正式 PyPI wheel 仍须由 hosted trusted-publishing workflow 发布。当前本机 Python
-  suite 为 218 passed、0 skip、10 subtests，LLVM/MLIR 22.1.8 lit 为 60/60；这不是
+  suite 为 220 passed、0 skip、10 subtests，LLVM/MLIR 22.1.8 lit 为 60/60；这不是
   ROCm/DCU/Metal/PPU 支持声明。
 
 ### 文档权属
@@ -2440,7 +2441,7 @@ StaticGraph 的初始笛卡尔积为：
 
 ```text
 nodes:          2^12 ... 2^24
-degree:         1, 4, 8, 16, 32, 64, 256, heavy-tail
+degree:         1, 4, 8, 16, 32, 64, 256, discrete power-law, log-normal, exponential
 feature width:  1, 4, 16, 32, 64, 128
 topology reuse: 1, 2, 8, 100
 cache/locality: hot/cold × local/random
@@ -2595,6 +2596,9 @@ bounded ragged lowering 随后加入 degree-range proof、masked row×neighbor×
 output pool。历史 `output/irregular/`、`output/skewed_i32/`、`output/skewed_i64/` 是旧矩阵快照，
 不能代替当前 manifest 的正式 gate。当前正式 static evidence 包括 power-law random/i64/F1/hot、
 irregular/skewed diffusion，以及 regular mixed-width case；这些 case 均通过严格 matched-peer gate。
+power-law、log-normal 与 exponential 的高 degree scalar gate 当前由 auto-selected native CSR
+获胜；compiler-generated chunked-tail TTIR 只作为明确标注的失败 candidate 保留在 raw JSON，
+不算作 direct-lowering SOTA 证据。
 新增的 fixed random/i32/degree16 vector gate 直接执行 compiler-generated
 row-neighbor-feature TTIR：
 F16 hot/cold 对 `torch.sparse.mm` 为 4.322x/3.801x（CI low 4.245/3.759），F64 为

@@ -14,10 +14,9 @@ from pathlib import Path
 import matplotlib
 
 matplotlib.use("Agg")
-import matplotlib.pyplot as plt  # noqa: E402
-import numpy as np  # noqa: E402
-from matplotlib.lines import Line2D  # noqa: E402
-
+import matplotlib.pyplot as plt
+import numpy as np
+from matplotlib.lines import Line2D
 
 PALETTE = (
     "#2563eb", "#dc2626", "#059669", "#7c3aed", "#ea580c",
@@ -928,6 +927,15 @@ def plot_radius_pipeline(payload: dict, output: Path):
 
 def _save(fig, stem: Path):
     fig.savefig(stem.with_suffix(".png"), dpi=180, bbox_inches="tight")
+    svg = stem.with_suffix(".svg")
+    fig.savefig(svg, bbox_inches="tight")
+    # Matplotlib emits trailing spaces in multiline SVG path data.  Normalize
+    # generated assets so publication updates remain reviewable and pass the
+    # repository whitespace contract.
+    svg.write_text(
+        "\n".join(line.rstrip() for line in svg.read_text().splitlines()) + "\n",
+        encoding="utf-8",
+    )
     plt.close(fig)
 
 

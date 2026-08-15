@@ -17,20 +17,19 @@ import warnings
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
+import graphforge as gf
 import torch
 
-import graphforge as gf
 from benchmarks.common.hardware_roofline import (
     Roof,
     interleaved_samples_ms,
     measure_roofs,
-    samples_ms,
     synchronize,
 )
 from benchmarks.common.output_layout import artifact_path
 from benchmarks.common.perf_protocol import evaluate_sota_gates
 from benchmarks.common.plotting import plot_latency, plot_roofline, write_report
-from benchmarks.sparse_compute.cases import make_graph
+from benchmarks.sparse_compute.cases import TOPOLOGIES, degree_statistics, make_graph
 
 try:
     import triton
@@ -87,6 +86,14 @@ class Result:
     ideal_cache_bytes: int
     arithmetic_intensity_flop_per_byte: float
     samples_ms: list[float]
+    degree_min: int
+    degree_mean: float
+    degree_p50: float
+    degree_p95: float
+    degree_p99: float
+    degree_max: int
+    degree_zero_fraction: float
+    degree_coefficient_of_variation: float
     speedup_vs_torch_sparse: float | None = None
     lowering: str | None = None
     compile_ms: float | None = None
@@ -211,6 +218,7 @@ def benchmark_case(args, roof: Roof, device: torch.device, features: int,
     row_ptr, col_idx, dst = make_graph(
         args.nodes, args.degree, args.topology, args.locality, device,
         torch.int32 if args.index_dtype == "i32" else torch.int64)
+    degree_stats = degree_statistics(row_ptr)
     edges = col_idx.numel()
     weight = torch.rand(edges, device=device)
     scalar = features == 1
@@ -291,7 +299,7 @@ def benchmark_case(args, roof: Roof, device: torch.device, features: int,
         try:
             candidate = chunked_tail_candidate(
                 gf_kernel, graph, row_ptr, col_idx, x, weight)
-        except Exception as error:
+        except Exception as error:  # noqa: BLE001 - compiler candidate probe
             candidate = None
             skipped.append((
                 "graphforge.chunked_tail_candidate",
@@ -315,7 +323,7 @@ def benchmark_case(args, roof: Roof, device: torch.device, features: int,
     for name, factory in optional_factories:
         try:
             provider, reason = factory(col_idx, dst, weight, x, args.nodes)
-        except Exception as error:  # Optional frameworks often have ABI extras.
+        except Exception as error:  # noqa: BLE001 - optional framework/ABI probe
             provider, reason = None, f"initialization failed: {error}"
         if provider is None:
             skipped.append((name, reason))
@@ -326,7 +334,7 @@ def benchmark_case(args, roof: Roof, device: torch.device, features: int,
     for name, provider in providers.items():
         actual = provider()
         torch.testing.assert_close(actual, expected, rtol=3e-4, atol=3e-4,
-                                   msg=lambda message: f"{name}: {message}")
+                                   msg=lambda message, name=name: f"{name}: {message}")
     synchronize(device)
 
     flush = None
@@ -378,6 +386,15 @@ def benchmark_case(args, roof: Roof, device: torch.device, features: int,
             ideal_cache_bytes=ideal_cache_bytes,
             arithmetic_intensity_flop_per_byte=ideal_intensity,
             samples_ms=raw_samples,
+            degree_min=int(degree_stats["minimum"]),
+            degree_mean=float(degree_stats["mean"]),
+            degree_p50=float(degree_stats["p50"]),
+            degree_p95=float(degree_stats["p95"]),
+            degree_p99=float(degree_stats["p99"]),
+            degree_max=int(degree_stats["maximum"]),
+            degree_zero_fraction=float(degree_stats["zero_fraction"]),
+            degree_coefficient_of_variation=float(
+                degree_stats["coefficient_of_variation"]),
             lowering=(
                 gf_kernel.last_variant.lowering
                 if name == "graphforge.auto" else None),
@@ -427,8 +444,7 @@ def main():
     parser.add_argument("--degree", type=int, default=16)
     parser.add_argument("--features", default="1,16,64")
     parser.add_argument("--index-dtype", choices=("i32", "i64"), default="i64")
-    parser.add_argument("--topology", choices=(
-        "regular", "irregular", "skewed", "powerlaw"),
+    parser.add_argument("--topology", choices=TOPOLOGIES,
                         default="regular")
     parser.add_argument("--locality", choices=("local", "random"), default="local")
     parser.add_argument("--cache", choices=("hot", "cold", "both"), default="both")

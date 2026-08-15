@@ -1,30 +1,65 @@
 <div align="center">
-  <img src="docs/assets/graphforge-logo.svg" alt="GraphForge" width="560">
-  <p><strong>Compile sparse relations, messages, and reducers—not hand-written workload kernels.</strong></p>
+  <img src="docs/assets/graphforge-logo.svg" alt="GraphForge" width="720">
+  <p><strong>An MLIR-based compiler for sparse relations, dynamic graphs, reducers, autograd, and heterogeneous execution.</strong></p>
   <p>
     <a href="https://github.com/walkerchi/graphforge/actions/workflows/compiler-ci.yml"><img alt="compiler CI" src="https://github.com/walkerchi/graphforge/actions/workflows/compiler-ci.yml/badge.svg?branch=main"></a>
     <img alt="Python 3.10–3.12" src="https://img.shields.io/badge/Python-3.10–3.12-3776AB?logo=python&logoColor=white">
     <img alt="LLVM/MLIR 22.1.8" src="https://img.shields.io/badge/LLVM%2FMLIR-22.1.8-262D3A?logo=llvm">
     <a href="LICENSE"><img alt="Apache-2.0 license" src="https://img.shields.io/badge/License-Apache--2.0-blue.svg"></a>
   </p>
+  <p>
+    <a href="docs/getting-started.md">Getting started</a> ·
+    <a href="docs/programming-model.md">Programming model</a> ·
+    <a href="docs/compiler-pipeline.md">Compiler internals</a> ·
+    <a href="docs/benchmark-results.md">Benchmark report</a> ·
+    <a href="examples/README.md">Examples</a>
+  </p>
 </div>
 
-GraphForge is an experimental sparse-first, relation-oriented compiler. A user
-defines a graph, an edge UDF, and a reducer; the compiler chooses how to traverse
-and lower static CSR, irregular ragged, generated-neighborhood, or dense implicit
-relations. The first call JIT-compiles a guarded variant and later calls reuse
-it. The same program can participate in compiler-generated autograd,
-hierarchical storage planning, and distributed halo execution. The Task IR can
-plan overlap; on CPU host transports the runtime now derives interior and
-boundary rows, overlaps realized interior compute with halo progress, and
-assembles disjoint rows through compiler IR. CUDA device-buffer transports now
-enqueue halo work on a communication stream, execute the interior on an
-independent compiler stream, wait, and execute the boundary. True 2+ GPU
-NCCL/RCCL timeline and peer-link performance remain explicit alpha gaps.
+GraphForge captures **relation + message UDF + reducer** as compiler IR, then
+chooses the traversal, load-balancing strategy, fusion boundary, memory plan,
+and target lowering. Static CSR, ragged social graphs, runtime radius/kNN
+relations, and dense implicit relations use the same call surface. The first
+call JIT-compiles a guarded variant; later calls reuse it.
+
+| Program stays visible as | Compiler can decide | Current executable targets |
+|---|---|---|
+| graph/relation semantics, edge and node UDFs, reducer algebra | row vs edge tiles, degree buckets, hub splitting, build-consume fusion, VJP and halo tasks | LLVM CPU JIT; TTIR → vendor Triton → NVIDIA PTX; versioned provider ABI for additional targets |
+
+GraphForge is deliberately a compiler rather than a catalog of attention,
+kNN, or GNN kernels. Workload definitions live in `examples/` and performance
+peers live in `benchmarks/`; the core package contains reusable IR, passes,
+providers, and a Torch-free tensor runtime.
 
 > **Alpha software.** The measured paths below are real, but coverage is still
 > deliberately narrow. Unsupported target/shape combinations fail closed or
 > use an explicit correctness evaluator; they are never presented as optimized.
+
+## Performance report
+
+Every panel below is one matched workload bucket with a baseline fixed in
+[`benchmarks/evidence_manifest.json`](benchmarks/evidence_manifest.json).
+Bars report relative throughput while preserving the measured median latency;
+different shapes, mathematical semantics, and build/consume boundaries are not
+combined into one synthetic score.
+
+<div align="center">
+  <img src="docs/assets/compiler-performance-report.svg" alt="GraphForge compiler performance report across sparse, graph, attention, autograd, CPU, and tensor workloads" width="900">
+</div>
+
+The report is generated from the same registered JSON used by the confidence
+gates. Reproduce the per-kernel rooflines and the all-in-one report with:
+
+```bash
+python -m benchmarks.common.check_outputs
+python -m benchmarks.common.plot_cases
+python -m benchmarks.common.plot_collections
+```
+
+The [full benchmark report](docs/benchmark-results.md) records raw boundaries,
+confidence intervals, cold-JIT time, accuracy checks, and known losses. In
+particular, periodic/skew radius rebuild and some high-degree generated paths
+are not claimed as SOTA.
 
 ## One programming model
 
@@ -130,8 +165,6 @@ remain compiler IR, so a sparse UDF does not require a user-written backward.
 These RTX 5070 Ti results use matched sparse semantics and timing boundaries.
 `>1.00×` means GraphForge is faster than the named peer.
 
-![Sparse kernel provider leaderboard](docs/assets/sparse-kernel-comparison.png)
-
 | Sparse workload | Registered case | GraphForge | Matched peer | Result |
 |---|---|---:|---:|---:|
 | Scalar CSR weighted sum, random gather | 131,072 rows, degree 4, FP32 | 0.0183 ms | Triton CSR 0.0222 ms | **1.21×** |
@@ -139,7 +172,9 @@ These RTX 5070 Ti results use matched sparse semantics and timing boundaries.
 | Vector CSR SpMM, random/hot | 131,072 rows, degree 16, F=16, i32 | 0.0512 ms | `torch.sparse.mm` 0.2213 ms | **4.32×**, CI-low 4.245 |
 | Vector CSR SpMM, random/cold | same topology, F=64 | 0.2684 ms | `torch.sparse.mm` 0.3495 ms | **1.30×**, CI-low 1.288 |
 | Ragged vector CSR SpMM, random/hot | 131,072 rows, degree 0–32, F=16, i32 | 0.0548 ms | `torch.sparse.mm` 0.2308 ms | **4.21×**, CI-low 4.153 |
-| Social power-law CSR | 90% degree 8 / 9% degree 64 / 1% degree 256; i32/i64; local/random; hot/cold | auto row/worklist schedule | fastest registered peer per bucket | **8/8 gates pass**, CI-low 1.255–2.015× |
+| Social power-law CSR | 90% degree 8 / 9% degree 64 / 1% degree 256; i32/i64; local/random; hot/cold | auto-selected reusable native CSR | fastest registered peer per bucket | **8/8 gates pass**, CI-low 1.255–2.015×; split-row TTIR candidate is not yet the winner |
+| Log-normal social CSR | 131,072 rows; mean 15.70 / p50 7 / p99 137 / max 256; random i32 | 0.0552 ms hot / 0.0715 ms cold | `torch.sparse.mm` 0.0695 / 0.0874 ms | **1.259× / 1.222×**, CI-low 1.249 / 1.209 |
+| Exponential-degree CSR | 131,072 rows; mean 16.00 / p50 11 / p99 74 / max 176; random i32 | 0.0554 ms hot / 0.0716 ms cold | `torch.sparse.mm` 0.0702 / 0.0875 ms | **1.267× / 1.222×**, CI-low 1.257 / 1.198 |
 | Sparse online-softmax reducer | 131,072 rows, degree 32 | compiler-generated TTIR | hand-written Triton | **1.007×**, CI-low 1.005 |
 | Product-reducer backward | 131,072 rows, degree 16 | compiler-generated zero-safe VJP | hand-written Triton | **1.021×**, CI-low 1.016 |
 | Fixed-iteration PageRank | N=65,536/262,144, degree 4/16/32, 20 iterations | one fused CSR+node TTIR launch/iteration | matched `torch.sparse.mm` loop | **1.049–2.337×**, CI-low 1.043–2.312 |
@@ -150,6 +185,20 @@ still dispatch explicitly to an external sparse library and remain labeled as
 dispatch results.
 The [benchmark results](docs/benchmark-results.md) separate sparse consume,
 dynamic graph build, build+consume, backward, and cache regimes.
+
+### Benchmark coverage
+
+| Family | Registered workloads | Stress dimensions |
+|---|---|---|
+| Sparse compute | SpMV/SpMM, diffusion, horizontal fusion, online softmax and product reducers | fixed, bounded-ragged, discrete power-law, log-normal and exponential degree; local/random; hot/cold; i32/i64; scalar/vector |
+| Graph operations | radius build/consume/rebuild, periodic and skew boxes, exact kNN build+consume | particle count, dimension, target degree, topology lifecycle |
+| Neural workloads | exact/causal/GQA dense attention, tile-pruned sparse attention, linear recurrence, dense matmul | sequence shape, causality, grouped heads, accuracy contract |
+| Autograd | edge UDF VJP, reducer VJP, radius-distance VJP | `dx`, `dweight`, feature width, saved/recomputed state |
+| Systems | CPU fusion, JIT latency, RAM↔HBM↔NVMe transfer, halo overlap | threads, cold/warm compile, storage tier, interior/boundary ratio |
+
+The matrix is intentionally wider than one fixed-degree kernel, but it is not
+complete: real SNAP/OGB graph ingestion, high-degree vector split-row TTIR,
+multi-GPU NCCL/RCCL measurements, and non-NVIDIA hardware remain open gates.
 
 ## What is implemented
 
@@ -189,8 +238,6 @@ gates and limitations.
 | Exact kNN build + consume | N8192/D3/k32 FP32 | 3.9072 ms | cdist/top-k pipeline 3.9137 ms | **1.002×** |
 | Dense matmul | 2048³ FP16 | 89.29 TFLOP/s | torch.mm/cuBLAS 88.86 TFLOP/s | **1.005×** |
 | GPU heatmap preparation | 2048² FP32→RGB | 0.0996 ms | Inductor 0.1148 ms | **1.153×** |
-
-![Dense exact attention comparison](docs/assets/dense-attention-performance.svg)
 
 These are registered buckets, not universal claims. Exact dense attention,
 linear attention, sparse attention, relation build, and relation consume have

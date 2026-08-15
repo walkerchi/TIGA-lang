@@ -7,7 +7,10 @@ import json
 from pathlib import Path
 
 from benchmarks.common.collection_plotting import (
-    load_payloads, plot_manifest_dashboard, plot_operation_summary,
+    load_payloads,
+    plot_compiler_report,
+    plot_manifest_dashboard,
+    plot_operation_summary,
 )
 
 
@@ -18,6 +21,10 @@ def main() -> None:
         "--manifest", type=Path,
         default=Path("benchmarks/evidence_manifest.json"))
     parser.add_argument("--operation", action="append", default=[])
+    parser.add_argument(
+        "--report-output", type=Path,
+        default=Path("docs/assets/compiler-performance-report.png"),
+    )
     args = parser.parse_args()
     manifest = json.loads(args.manifest.read_text(encoding="utf-8"))
     requested = set(args.operation)
@@ -43,6 +50,8 @@ def main() -> None:
     for path in generated:
         print(path)
     print(plot_manifest_dashboard(manifest, args.root))
+    print(plot_compiler_report(
+        manifest, args.root, args.report_output))
 
 
 if __name__ == "__main__":

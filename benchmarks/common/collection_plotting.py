@@ -7,23 +7,26 @@ sizes are connected, while condition changes are separated by line style.
 
 from __future__ import annotations
 
-from collections import defaultdict
 import json
 import math
-from pathlib import Path
 import statistics
+from collections import defaultdict
+from pathlib import Path
 
 import matplotlib
 
 matplotlib.use("Agg")
-import matplotlib.pyplot as plt  # noqa: E402
-import numpy as np  # noqa: E402
-from matplotlib.lines import Line2D  # noqa: E402
+import matplotlib.pyplot as plt
+import numpy as np
+from matplotlib.lines import Line2D
 
 from benchmarks.common.plotting import (
-    _number_marker, _save, _style, provider_color, scatter_numbered,
+    _number_marker,
+    _save,
+    _style,
+    provider_color,
+    scatter_numbered,
 )
-
 
 CONDITION_CONFIG_KEYS = (
     "causal", "kv_heads", "dtype", "periodic", "dimensions", "device",
@@ -240,11 +243,144 @@ def plot_manifest_dashboard(manifest: dict, output: Path) -> Path:
     lines = [
         "# GraphForge benchmark dashboard", "",
         "![Registered evidence coverage](dashboard.png)", "",
-        "Operation summaries connect only cases with matching semantics; each "
-        "case directory remains the source-of-truth evidence boundary.", "",
+        ("Operation summaries connect only cases with matching semantics; each "
+         "case directory remains the source-of-truth evidence boundary."), "",
     ]
     for name in names:
         if len(operations[name].get("cases", [])) >= 2:
             lines.append(f"- [{name} summary]({name}/SUMMARY.md)")
     (output / "README.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
     return path
+
+
+def _matches_filters(item: dict, filters: dict) -> bool:
+    return all(item.get(key) == value for key, value in filters.items())
+
+
+def _short_provider(provider: str) -> str:
+    replacements = (
+        ("graphforge.", "GraphForge · "),
+        ("torch.", "PyTorch · "),
+        ("triton.", "Triton · "),
+        ("handwritten.", "Handwritten · "),
+        ("flash_sparse_attn.", "FSA · "),
+        ("fla.", "FLA · "),
+        ("scipy.", "SciPy · "),
+    )
+    for prefix, label in replacements:
+        if provider.startswith(prefix):
+            provider = label + provider[len(prefix):]
+            break
+    return provider.replace("_", " ")
+
+
+def _report_method_color(provider: str) -> str:
+    """Use one color per public method family throughout the report."""
+    families = {
+        "graphforge": "#2563eb",
+        "torch": "#dc2626",
+        "triton": "#7c3aed",
+        "handwritten": "#c026d3",
+        "flash_sparse_attn": "#0891b2",
+        "fla": "#10b981",
+        "scipy": "#0284c7",
+    }
+    return families.get(provider.split(".", 1)[0], provider_color(provider))
+
+
+def plot_compiler_report(manifest: dict, root: Path, output: Path) -> Path:
+    """Render an auditable, portrait all-in-one matched-case report.
+
+    Every panel is one exact workload bucket.  Its baseline is fixed in the
+    manifest, so the chart never chooses a favorable peer after reading the
+    measurements.  Latency is converted to relative throughput solely to make
+    otherwise incomparable units share a visual grammar.
+    """
+    panels = manifest.get("report_panels", [])
+    if not panels:
+        raise ValueError("manifest has no report_panels")
+    records = []
+    for panel in panels:
+        path = root / panel["operation"] / panel["case"] / "roofline.json"
+        if not path.is_file():
+            raise FileNotFoundError(path)
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        selected = {
+            item["provider"]: item for item in payload["results"]
+            if item["provider"] in panel["providers"]
+            and _matches_filters(item, panel.get("filters", {}))
+        }
+        missing = set(panel["providers"]) - set(selected)
+        if missing:
+            raise ValueError(
+                f"{panel['title']} is missing providers {sorted(missing)}")
+        baseline = panel["baseline"]
+        if baseline not in selected:
+            raise ValueError(f"{panel['title']} baseline {baseline!r} is absent")
+        baseline_ms = float(selected[baseline]["milliseconds"])
+        records.append((panel, selected, baseline_ms))
+
+    _style()
+    fig, axes = plt.subplots(
+        len(records) + 1, 1, squeeze=False,
+        figsize=(10.8, 2.45 * len(records) + 2.2),
+        gridspec_kw={"height_ratios": [0.42] + [1.0] * len(records)},
+        constrained_layout=True,
+    )
+    header = axes[0, 0]
+    header.axis("off")
+    device = manifest.get("report_device", "registered hardware")
+    header.text(
+        0.5, 0.74, "GraphForge compiler performance report",
+        ha="center", va="center", fontsize=18, fontweight="bold",
+        transform=header.transAxes,
+    )
+    header.text(
+        0.5, 0.22,
+        f"{device} · matched semantics · median hot latency · higher is better",
+        ha="center", va="center", fontsize=9.2, color="#475569",
+        transform=header.transAxes,
+    )
+    for index, (panel, selected, baseline_ms) in enumerate(records):
+        ax = axes[index + 1, 0]
+        providers = panel["providers"]
+        relative = [
+            baseline_ms / float(selected[name]["milliseconds"])
+            for name in providers
+        ]
+        positions = np.arange(len(providers))
+        bars = ax.barh(
+            positions, relative,
+            color=[_report_method_color(name) for name in providers],
+            edgecolor=["#0f172a" if name.startswith("graphforge.") else "white"
+                       for name in providers],
+            linewidth=[1.25 if name.startswith("graphforge.") else 0.8
+                       for name in providers],
+            height=0.62,
+        )
+        ax.set_yticks(positions, [_short_provider(name) for name in providers])
+        ax.invert_yaxis()
+        ax.axvline(1.0, color="#475569", linestyle="--", linewidth=1.15)
+        ax.set_xlim(0, max(1.18, max(relative) * 1.23))
+        ax.set_xlabel(f"Relative throughput · {_short_provider(panel['baseline'])} = 1.00×")
+        ax.set_title(panel["title"], loc="left", fontsize=11.2, pad=7)
+        ax.grid(True, axis="x")
+        ax.grid(False, axis="y")
+        for bar, name, ratio in zip(bars, providers, relative):
+            latency = float(selected[name]["milliseconds"])
+            ax.text(
+                bar.get_width() + max(relative) * 0.018,
+                bar.get_y() + bar.get_height() / 2,
+                f"{ratio:.2f}×  ·  {latency:.4g} ms",
+                va="center", fontsize=8.1, color="#334155",
+            )
+        detail = panel.get("detail")
+        if detail:
+            ax.text(
+                1.0, 1.03, detail, transform=ax.transAxes,
+                ha="right", va="bottom", fontsize=7.5, color="#64748b",
+            )
+
+    output.parent.mkdir(parents=True, exist_ok=True)
+    _save(fig, output.with_suffix(""))
+    return output.with_suffix(".png")

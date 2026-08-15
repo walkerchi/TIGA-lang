@@ -25,6 +25,8 @@ of the current working directory:
 export PYTHONPATH="$PWD/python"
 
 python -m benchmarks.sparse_compute.weighted_aggregation --quick
+python -m benchmarks.sparse_compute.weighted_aggregation --topology lognormal --locality random --features 1
+python -m benchmarks.sparse_compute.weighted_aggregation --topology exponential --locality random --features 1
 python -m benchmarks.sparse_compute.cpu_relation --quick --fail-on-gate
 python -m benchmarks.graph_operations.radius_roofline --quick
 python -m benchmarks.graph_operations.knn_build --quick
@@ -53,8 +55,20 @@ under `output/roofline/<operation>/<case>/`. Handwritten oracle code may set a
 performance target, but it is never reported as GraphForge compiler output.
 
 Machine JSON is the reproducible source of truth, but it is not the human
-interface. Every measured JSON directory has a PNG/SVG/HTML visualization.
+interface. Every measured JSON directory has a PNG/SVG visualization.
 Formal roofline cases additionally receive an operation-level `summary.png`:
 matching conditions are connected across input sizes, condition changes are
 faceted, provider colors are corpus-stable, and numeric markers expose
 coincident points without moving their measured coordinates.
+
+`plot_collections` also regenerates the portrait all-in-one compiler report at
+`docs/assets/compiler-performance-report.{png,svg}`. Panel filters, provider
+order, and baseline are declared in `evidence_manifest.json`; rendering fails
+if an exact matched bucket or provider is absent, so the README cannot silently
+substitute a favorable measurement.
+
+Static sparse generators cover fixed, bounded-uniform, discrete power-law,
+continuous log-normal, and exponential degree families. Continuous cases are
+seeded, rescaled to the requested mean, explicitly capped, and record
+min/mean/p50/p95/p99/max, zero-degree fraction, and coefficient of variation in
+every result.

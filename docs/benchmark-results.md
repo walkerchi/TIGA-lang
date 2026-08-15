@@ -46,7 +46,9 @@ evidence of a broad advantage across shapes.
 | Regular random vector CSR | same topology, F=64, hot/cold | compiler-generated row-neighbor-feature TTIR | **1.966×/1.302×** vs `torch.sparse.mm`; CI low 1.956/1.288 |
 | Irregular random vector CSR | 131,072 rows, degree 0–32, F=16, i32, hot/cold | compiler-generated bounded-ragged row-neighbor-feature TTIR | **4.213×/3.270×** vs `torch.sparse.mm`; CI low 4.153/3.230 |
 | Irregular random vector CSR | same topology, F=64, hot/cold | compiler-generated bounded-ragged row-neighbor-feature TTIR | **1.595×/1.283×** vs `torch.sparse.mm`; CI low 1.584/1.270 |
-| Power-law social slice | 90% degree 8, 9% degree 64, 1% degree 256; i32/i64; local/random; hot/cold | degree-bucket/worklist planner | all eight registered gates pass; CI-low range **1.255–2.015×** |
+| Power-law social slice | 90% degree 8, 9% degree 64, 1% degree 256; i32/i64; local/random; hot/cold | auto-selected reusable native CSR | all eight registered gates pass; CI-low range **1.255–2.015×**; compiler-generated chunked-tail TTIR is measured but not yet selected |
+| Log-normal social slice | mean 15.70, p50 7, p95 58, p99 137, max 256; 1.60% zero-degree; random i32 | auto-selected reusable CSR path | hot/cold **1.259×/1.222×** vs `torch.sparse.mm`; CI low 1.249/1.209 |
+| Exponential-degree slice | mean 16.00, p50 11, p95 48, p99 74, max 176; 3.09% zero-degree; random i32 | auto-selected reusable CSR path | hot/cold **1.267×/1.222×** vs `torch.sparse.mm`; CI low 1.257/1.198 |
 | Online-softmax reducer | 131,072 rows, degree 32 | compiler schedule, stable tuple state | **1.007×**, CI low 1.005 vs matched hand-written Triton |
 | Product reducer backward | 131,072 rows, degree 16 | zero-safe compiler-generated VJP | **1.021×**, CI low 1.016 vs matched hand-written Triton |
 | Radius distance backward | fixed selected snapshot, N32768/D3/degree≈32 | generated geometry VJP | **1.079×**, CI low 1.073 vs matched hand-written Triton; 4.36× vs Torch autograd |
@@ -56,6 +58,12 @@ Fixed-degree and bounded-ragged vector CSR use compiler-generated TTIR in the
 registered rows above. Shapes beyond the proven bounds that dispatch to an
 external sparse library are labeled as dispatch results. A correctness
 evaluator is never included in a “fastest backend” conclusion.
+
+The log-normal and exponential cases are continuous seeded generators, not
+renamed fixed-degree inputs. Each result stores degree min/mean/p50/p95/p99/max,
+zero-degree fraction, and coefficient of variation. Their current scalar
+high-degree winner is an auto-selected reusable native CSR path; they expose,
+rather than close, the missing compiler-emitted split-row TTIR performance gate.
 
 ## Dynamic graph boundaries
 
