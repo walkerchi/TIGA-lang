@@ -15,6 +15,7 @@ python3 examples/radius_autograd.py
 python3 examples/graph_program.py
 python3 examples/diffusion.py
 python3 examples/fem_poisson.py
+python3 examples/meshfree_linear_solve.py
 python3 examples/gcn.py
 python3 examples/custom_reducer.py
 python3 examples/torch_interop.py
@@ -57,7 +58,12 @@ python3 examples/compiler_probes/pagerank.py
 - `fem_poisson.py`: matrix-free one-dimensional P1 stiffness application as a
   MessagePassing `LinearOperator`; four-state fixed CG is captured inside one
   multi-result `gf_control.repeat`, and an algorithmic load VJP is generated
-  without a user backward; it is a compiler probe, not a CG performance claim;
+  without a user backward. The same example runs residual-driven CG as one
+  `gf_control.while` with mandatory `max_iterations`; it is a compiler probe,
+  not a CG performance claim;
+- `meshfree_linear_solve.py`: a generated radius relation feeds an ordinary
+  shifted-Laplacian MessagePassing `LinearOperator`; tolerance CG keeps its
+  four states and residual predicate inside one bounded device control region;
 - `gcn.py`: native multi-feature aggregation with edge broadcasting and
   automatic gradients, matching the SpMM/GCN tensor shape;
 - `custom_reducer.py`: Torch-free execution of a user-defined tuple-state mean

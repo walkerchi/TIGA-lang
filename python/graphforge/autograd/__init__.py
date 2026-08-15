@@ -103,6 +103,30 @@ def _expand_fixed_repeats(output: Tensor) -> tuple[Tensor, dict[int, Tensor]]:
     """
     inspected: set[int] = set()
 
+    def reject_data_dependent_control(value: Tensor, visited: set[int]) -> None:
+        if id(value) in visited:
+            return
+        visited.add(id(value))
+        expression = value._expr
+        if expression is None:
+            return
+        if expression.op == "while":
+            raise NotImplementedError(
+                "autograd through gf.while_loop requires structured control "
+                "VJP or an implicit-solve rule; GraphForge does not unroll a "
+                "data-dependent loop through host scalar synchronization")
+        for operand in expression.operands:
+            reject_data_dependent_control(operand, visited)
+        if expression.region is not None:
+            outputs = expression.region.output
+            for item in ((outputs,) if isinstance(outputs, Tensor) else outputs):
+                reject_data_dependent_control(item, visited)
+            if expression.region.condition is not None:
+                reject_data_dependent_control(
+                    expression.region.condition, visited)
+
+    reject_data_dependent_control(output, set())
+
     def contains_repeat(value: Tensor) -> bool:
         if id(value) in inspected:
             return False

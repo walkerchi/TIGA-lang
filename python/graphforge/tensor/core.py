@@ -91,6 +91,9 @@ class _Region:
 
     arguments: tuple[Tensor, ...]
     output: Tensor | tuple[Tensor, ...]
+    # Data-dependent control regions share the same explicit arguments and
+    # attach a scalar boolean condition. Fixed repeat leaves this as None.
+    condition: Tensor | None = None
     # Result handles are populated after their expressions have been created.
     # They let the native builder emit one multi-result control operation even
     # when inspection starts from only one projected Tensor result.
@@ -327,6 +330,8 @@ class Tensor:
                 region_key = (
                     tuple(argument._jit_key for argument in expression.region.arguments),
                     tuple(item._jit_key for item in region_outputs),
+                    None if expression.region.condition is None else
+                    expression.region.condition._jit_key,
                 )
             self._jit_key = (
                 expression.op, self.shape, self.dtype.name, expression.attrs,
@@ -492,9 +497,15 @@ class Tensor:
             other, dtype=self.dtype, device=self.device)
         return lhs + (-self)
 
-    def __ne__(self, other: object) -> Tensor:  # type: ignore[override]
-        if not isinstance(other, (Tensor, int, float, complex, builtins.bool)):
-            return NotImplemented
+    def _compare(
+        self,
+        predicate: str,
+        other: Tensor | int | float | builtins.bool,
+    ) -> Tensor:
+        if self.dtype.kind == "complex":
+            raise TypeError("Tensor comparisons do not accept complex operands")
+        if predicate not in {"eq", "ne", "lt", "le", "gt", "ge"}:
+            raise ValueError(f"unsupported comparison predicate {predicate!r}")
         rhs = other if isinstance(other, Tensor) else tensor(
             other, dtype=self.dtype, device=self.device)
         if self.device != rhs.device or self.dtype is not rhs.dtype:
@@ -504,9 +515,28 @@ class Tensor:
             dtype=bool,
             device=self.device,
             requires_grad=False,
-            expression=_Expr("not_equal", (self, rhs)),
+            expression=_Expr("compare", (self, rhs), (("predicate", predicate),)),
             version=max(self.version, rhs.version),
         )
+
+    def __ne__(self, other: object) -> Tensor:  # type: ignore[override]
+        if not isinstance(other, (Tensor, int, float, complex, builtins.bool)):
+            return NotImplemented
+        if isinstance(other, complex):
+            raise TypeError("Tensor comparisons do not accept complex operands")
+        return self._compare("ne", other)
+
+    def __lt__(self, other: Tensor | int | float) -> Tensor:
+        return self._compare("lt", other)
+
+    def __le__(self, other: Tensor | int | float) -> Tensor:
+        return self._compare("le", other)
+
+    def __gt__(self, other: Tensor | int | float) -> Tensor:
+        return self._compare("gt", other)
+
+    def __ge__(self, other: Tensor | int | float) -> Tensor:
+        return self._compare("ge", other)
 
     def __mul__(self, other: Tensor | int | float | complex) -> Tensor:
         return self._binary("mul", other)
@@ -1140,6 +1170,8 @@ class Tensor:
                     outputs = value._expr.region.output
                     for output in ((outputs,) if isinstance(outputs, Tensor) else outputs):
                         visit(output)
+                    if value._expr.region.condition is not None:
+                        visit(value._expr.region.condition)
             ordered.append(value)
 
         visit(self)
@@ -1202,18 +1234,20 @@ class Tensor:
 
         expression = self._expr
         values = [operand._evaluate_flat(cache) for operand in expression.operands]
-        if expression.op == "repeat":
+        if expression.op in {"repeat", "while"}:
             region = expression.region
             if region is None or not region.arguments:
-                raise RuntimeError("repeat expression is missing its body region")
-            iterations = int(expression.attr("iterations"))
+                raise RuntimeError(
+                    f"{expression.op} expression is missing its body region")
             num_carried = int(expression.attr("num_carried"))
             result_index = int(expression.attr("result_index"))
             current = values[:num_carried]
             captured_values = values[num_carried:]
             outputs = (region.output,) if isinstance(region.output, Tensor) \
                 else region.output
-            for _ in range(iterations):
+            limit = int(expression.attr(
+                "iterations" if expression.op == "repeat" else "max_iterations"))
+            for _ in range(limit):
                 iteration_cache = {
                     **{
                         id(argument): value
@@ -1229,6 +1263,15 @@ class Tensor:
                         )
                     },
                 }
+                if expression.op == "while":
+                    if region.condition is None:
+                        raise RuntimeError(
+                            "while expression is missing its condition region")
+                    predicate = region.condition._evaluate_flat(iteration_cache)
+                    if len(predicate) != 1:
+                        raise RuntimeError("while condition must be scalar")
+                    if not builtins.bool(predicate[0]):
+                        break
                 current = [
                     item._evaluate_flat(iteration_cache) for item in outputs
                 ]
@@ -1486,7 +1529,7 @@ class Tensor:
                             * values[1][contraction * columns + column]
                         )
                     result[row * columns + column] = total
-        elif expression.op in {"add", "mul", "div", "not_equal"}:
+        elif expression.op in {"add", "mul", "div", "compare"}:
             lhs, rhs = expression.operands
             lhs_indices = _broadcast_indices(lhs.shape, self.shape)
             rhs_indices = _broadcast_indices(rhs.shape, self.shape)
@@ -1494,8 +1537,19 @@ class Tensor:
                 result = [values[0][i] + values[1][j] for i, j in zip(lhs_indices, rhs_indices)]
             elif expression.op == "mul":
                 result = [values[0][i] * values[1][j] for i, j in zip(lhs_indices, rhs_indices)]
-            elif expression.op == "not_equal":
-                result = [values[0][i] != values[1][j] for i, j in zip(lhs_indices, rhs_indices)]
+            elif expression.op == "compare":
+                predicate = expression.attr("predicate")
+                comparisons = {
+                    "eq": lambda left, right: left == right,
+                    "ne": lambda left, right: left != right,
+                    "lt": lambda left, right: left < right,
+                    "le": lambda left, right: left <= right,
+                    "gt": lambda left, right: left > right,
+                    "ge": lambda left, right: left >= right,
+                }
+                compare = comparisons[str(predicate)]
+                result = [compare(values[0][i], values[1][j])
+                          for i, j in zip(lhs_indices, rhs_indices)]
             else:
                 result = [
                     _ieee_divide(values[0][i], values[1][j])

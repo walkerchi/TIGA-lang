@@ -170,7 +170,7 @@ def _materialize_nested_control(output: Tensor) -> None:
         expression = value._expr
         if expression is None:
             return
-        if not root and expression.op == "repeat":
+        if not root and expression.op in {"repeat", "while"}:
             value.realize()
             return
         for operand in expression.operands:
@@ -186,7 +186,9 @@ def compile_tensor(output: Tensor) -> CPUExecutable:
     # A control region owns references to its captured leaves. Rewriting only
     # the outer operand list would break that region's explicit capture ABI;
     # control physicalization therefore happens in its dedicated lowering.
-    root_is_control = output._expr is not None and output._expr.op == "repeat"
+    root_is_control = (
+        output._expr is not None and output._expr.op in {"repeat", "while"}
+    )
     if not root_is_control:
         _materialize_nested_control(output)
     physical_output = output if root_is_control else \

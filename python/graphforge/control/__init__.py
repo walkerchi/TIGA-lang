@@ -24,7 +24,7 @@ def _captures(
             ordered.append(value)
             return
         if expression.op == "loop_argument":
-            raise ValueError("repeat body used a loop argument from another region")
+            raise ValueError("control region used a loop argument from another region")
         if expression.region is not None:
             raise NotImplementedError("nested control regions are not supported yet")
         for operand in expression.operands:
@@ -114,4 +114,92 @@ def repeat(
     return results[0] if single else results
 
 
-__all__ = ["repeat"]
+def while_loop(
+    initial: Tensor | Sequence[Tensor],
+    condition: Callable[..., Tensor],
+    body: Callable[..., Tensor | Sequence[Tensor]],
+    *,
+    max_iterations: int,
+) -> Tensor | tuple[Tensor, ...]:
+    """Capture bounded data-dependent control without a host scalar check.
+
+    ``condition`` and ``body`` are each traced once over the same carried
+    Tensor placeholders. The condition must return a rank-zero boolean Tensor.
+    ``max_iterations`` is mandatory and remains in semantic IR as a finite
+    resource/specialization guard even when the loop converges earlier.
+    """
+    single = isinstance(initial, Tensor)
+    initials = (initial,) if single else tuple(initial)
+    if not initials or any(not isinstance(item, Tensor) for item in initials):
+        raise TypeError(
+            "while_loop initial state must be a Tensor or non-empty Tensor sequence")
+    if not callable(condition) or not callable(body):
+        raise TypeError("while_loop condition and body must be callable")
+    if not isinstance(max_iterations, int) or isinstance(max_iterations, bool):
+        raise TypeError("while_loop max_iterations must be an integer")
+    if max_iterations < 0:
+        raise ValueError("while_loop max_iterations must be non-negative")
+
+    states = tuple(
+        Tensor(
+            item.shape,
+            dtype=item.dtype,
+            device=item.device,
+            requires_grad=item.requires_grad,
+            expression=_Expr("loop_argument", ()),
+            version=item.version,
+        )
+        for item in initials
+    )
+    predicate = condition(*states)
+    if not isinstance(predicate, Tensor):
+        raise TypeError("while_loop condition must return a Tensor")
+    if predicate.shape != () or predicate.dtype.name != "bool":
+        raise ValueError(
+            "while_loop condition must return a rank-zero boolean Tensor")
+    if predicate.device != initials[0].device:
+        raise ValueError("while_loop condition must use the state device")
+    returned = body(*states)
+    outputs = (returned,) if isinstance(returned, Tensor) else tuple(returned)
+    if len(outputs) != len(initials) or any(
+        not isinstance(item, Tensor) for item in outputs
+    ):
+        raise TypeError(
+            "while_loop body must return one Tensor per loop-carried state")
+    for index, (output, item) in enumerate(zip(outputs, initials, strict=True)):
+        if (output.shape != item.shape or output.dtype is not item.dtype or
+                output.device != item.device):
+            raise ValueError(
+                f"while_loop body result {index} must preserve its state "
+                "shape, dtype, and device")
+    if any(item.device != initials[0].device for item in initials):
+        raise ValueError("while_loop carried states must use one device")
+    captures = _captures((predicate, *outputs), states)
+    region = _Region((*states, *captures), outputs, condition=predicate)
+    results = tuple(
+        Tensor(
+            item.shape,
+            dtype=item.dtype,
+            device=item.device,
+            requires_grad=item.requires_grad or output.requires_grad,
+            expression=_Expr(
+                "while",
+                (*initials, *captures),
+                (
+                    ("max_iterations", max_iterations),
+                    ("num_carried", len(initials)),
+                    ("result_index", index),
+                ),
+                region,
+            ),
+            version=max(item.version, output.version),
+        )
+        for index, (item, output) in enumerate(
+            zip(initials, outputs, strict=True)
+        )
+    )
+    region.results = results
+    return results[0] if single else results
+
+
+__all__ = ["repeat", "while_loop"]

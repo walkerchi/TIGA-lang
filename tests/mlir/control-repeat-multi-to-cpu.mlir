@@ -7,8 +7,8 @@
 // CHECK-COUNT-4: memref.alloc
 // CHECK: memref.alloca
 // CHECK: scf.for {{.*}} iter_args(
-// CHECK: arith.addf
 // CHECK: arith.mulf
+// CHECK: arith.addf
 // CHECK-COUNT-4: memref.dealloc
 func.func @repeat_multi(%vector: tensor<32xf32>, %scalar: tensor<f32>)
     -> tensor<32xf32> {

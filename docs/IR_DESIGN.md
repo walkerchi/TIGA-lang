@@ -652,11 +652,16 @@ fallback，绝不根据 `E/N` 猜测 uniform relation。
 CPU lowering 产生 `scf.for`，并为每个 carried value 复用两个 ping-pong MemRef；单状态 CUDA
 runtime 复用两个 device buffer 和 prepared executable，多状态 CUDA loop plan 尚待实现。
 CPU pass 还会将 body 内 rank-0 reduction 及其 scalar algebra 提升为每迭代一次的临时值，
-避免 CG 的 dot product 因被多个 vector update 引用而退化成 `O(N^2)`。当前
+避免 CG 的 dot product 因被多个 vector update 引用而退化成 `O(N^2)`；多次 use
+的 vector SSA（例如 `A(p)` 和 next residual）也按 block SSA 顺序每迭代只物化一次，
+单 use vector 仍融合到 consumer。当前
 fixed-degree weighted CSR + 逐节点 epilogue 会结构匹配到二维 row×neighbor TTIR tile，每次
 迭代一次 launch；未知/长尾 CSR 使用一行一 program、任意长度分块循环。这里没有
-PageRank-named op 或 codegen case。设备侧 `repeat_until`/convergence 尚未实现，因此
-fixed-iteration PageRank 只能作为 `G0` 的 partial evidence。
+PageRank-named op 或 codegen case。`gf_control.while` 使用 rank-0
+`gf_tensor.compare` condition 和强制 `max_iterations`；CPU 降到 `scf.while`，
+收敛后不再执行 body，也不把 scalar 转回 Python。GPU command-graph/cooperative
+persistent plan 及 distributed collective condition 仍未实现，因此 PageRank 仍只能作为
+`G0` 的 partial evidence。
 
 Reverse mode 对 fixed repeat 已有自动 correctness fallback：autograd transform 将 body 按
 iteration 特化，并直接复用已有 pointwise、CSR relation 和 reducer VJP，用户不写 backward。

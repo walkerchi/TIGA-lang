@@ -17,7 +17,7 @@ from .distributed import (
 )
 from .runtime import Device, DeviceType
 from .program import GraphProgram, ProgramValue, program
-from .control import repeat
+from .control import repeat, while_loop
 from .linalg import LinearOperator
 from .tensor import (
     DType,
@@ -139,6 +139,7 @@ __all__ = [
     "online_softmax",
     "program",
     "repeat",
+    "while_loop",
     "runtime",
     "visualize",
     "save",

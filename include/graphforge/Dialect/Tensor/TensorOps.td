@@ -43,6 +43,20 @@ def GraphForge_DivOp : GraphForge_TensorOp<"div"> {
   let hasVerifier = 1;
 }
 
+def GraphForge_CompareOp : GraphForge_TensorOp<"compare"> {
+  let summary = "Elementwise ordered comparison with broadcasting";
+  let description = [{
+    `predicate` is one of `eq`, `ne`, `lt`, `le`, `gt`, or `ge`. Operands
+    have identical real/integer element types; the result has the broadcast
+    shape and i1 elements. Keeping comparison semantic is required by bounded
+    device-side control flow and avoids host scalar synchronization.
+  }];
+  let arguments = (ins AnyRankedTensor:$lhs, AnyRankedTensor:$rhs,
+                       StrAttr:$predicate);
+  let results = (outs AnyRankedTensor:$result);
+  let hasVerifier = 1;
+}
+
 def GraphForge_NegOp : GraphForge_TensorOp<"neg"> {
   let summary = "Elementwise arithmetic negation";
   let arguments = (ins AnyRankedTensor:$input);

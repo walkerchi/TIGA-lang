@@ -395,10 +395,166 @@ struct TensorBuilder {
             repeat.getResults()[index];
       cached = repeat.getResults()[selectedResult];
     }
+    else if (*operation == "while") {
+      PyOwned attrs(attribute(expression.value, "attrs"));
+      PyOwned regionObject(attribute(expression.value, "region"));
+      if (!attrs || !regionObject || regionObject.value == Py_None)
+        return failure();
+      PyOwned attrsSequence(PySequence_Fast(attrs.value, "expected attrs"));
+      PyObject *maxIterationsObject = nullptr;
+      PyObject *numCarriedObject = nullptr;
+      PyObject *resultIndexObject = nullptr;
+      for (Py_ssize_t index = 0;
+           index < PySequence_Fast_GET_SIZE(attrsSequence.value); ++index) {
+        PyObject *pair = PySequence_Fast_GET_ITEM(attrsSequence.value, index);
+        PyObject *name = PyTuple_GetItem(pair, 0);
+        if (name && PyUnicode_CompareWithASCIIString(
+                        name, "max_iterations") == 0)
+          maxIterationsObject = PyTuple_GetItem(pair, 1);
+        else if (name && PyUnicode_CompareWithASCIIString(
+                              name, "num_carried") == 0)
+          numCarriedObject = PyTuple_GetItem(pair, 1);
+        else if (name && PyUnicode_CompareWithASCIIString(
+                              name, "result_index") == 0)
+          resultIndexObject = PyTuple_GetItem(pair, 1);
+      }
+      FailureOr<int64_t> maxIterations = maxIterationsObject
+          ? integer(maxIterationsObject) : FailureOr<int64_t>(failure());
+      FailureOr<int64_t> numCarried = numCarriedObject
+          ? integer(numCarriedObject) : FailureOr<int64_t>(failure());
+      FailureOr<int64_t> resultIndex = resultIndexObject
+          ? integer(resultIndexObject) : FailureOr<int64_t>(failure());
+      PyOwned argumentsObject(attribute(regionObject.value, "arguments"));
+      PyOwned outputObject(attribute(regionObject.value, "output"));
+      PyOwned conditionObject(attribute(regionObject.value, "condition"));
+      PyOwned resultsObject(attribute(regionObject.value, "results"));
+      PyOwned arguments(argumentsObject
+          ? PySequence_Fast(argumentsObject.value, "expected region arguments")
+          : nullptr);
+      PyOwned outputs(outputObject
+          ? PySequence_Fast(outputObject.value, "expected region outputs")
+          : nullptr);
+      PyOwned resultObjects(resultsObject
+          ? PySequence_Fast(resultsObject.value, "expected while results")
+          : nullptr);
+      if (failed(maxIterations) || failed(numCarried) ||
+          failed(resultIndex) || !arguments || !outputs || !conditionObject ||
+          conditionObject.value == Py_None || !resultObjects)
+        return failure();
+      const int64_t carriedCount = *numCarried;
+      const int64_t selectedResult = *resultIndex;
+      if (PySequence_Fast_GET_SIZE(arguments.value) !=
+              static_cast<Py_ssize_t>(inputs.size()) ||
+          PySequence_Fast_GET_SIZE(outputs.value) != carriedCount ||
+          PySequence_Fast_GET_SIZE(resultObjects.value) != carriedCount ||
+          carriedCount <= 0 ||
+          carriedCount > static_cast<int64_t>(inputs.size()) ||
+          selectedResult < 0 || selectedResult >= carriedCount)
+        return failure();
+
+      SmallVector<Type> resultTypes;
+      for (int64_t index = 0; index < carriedCount; ++index) {
+        FailureOr<RankedTensorType> type = tensorType(
+            context, PySequence_Fast_GET_ITEM(resultObjects.value, index));
+        if (failed(type)) return failure();
+        resultTypes.push_back(*type);
+      }
+      OperationState state(location, gfc::WhileOp::getOperationName());
+      state.addOperands(inputs);
+      state.addTypes(resultTypes);
+      state.addAttribute("num_carried",
+                         builder.getI64IntegerAttr(carriedCount));
+      state.addAttribute("max_iterations",
+                         builder.getI64IntegerAttr(*maxIterations));
+      state.addRegion();
+      state.addRegion();
+      auto bounded = cast<gfc::WhileOp>(builder.create(state));
+
+      struct SavedValue {
+        void *key;
+        Value value;
+        bool existed;
+      };
+      auto bindArguments = [&](Block *block) {
+        SmallVector<SavedValue> saved;
+        saved.reserve(inputs.size());
+        for (auto [index, argument] : llvm::enumerate(block->getArguments())) {
+          PyObject *object = PySequence_Fast_GET_ITEM(arguments.value, index);
+          auto found = values.find(object);
+          saved.push_back({object,
+                           found == values.end() ? Value() : found->second,
+                           found != values.end()});
+          values[object] = argument;
+        }
+        return saved;
+      };
+      auto restoreArguments = [&](ArrayRef<SavedValue> saved) {
+        for (const SavedValue &item : saved) {
+          if (item.existed) values[item.key] = item.value;
+          else values.erase(item.key);
+        }
+      };
+
+      Block *conditionBlock = new Block();
+      bounded.getCondition().push_back(conditionBlock);
+      for (Value input : inputs)
+        conditionBlock->addArgument(input.getType(), location);
+      SmallVector<SavedValue> saved = bindArguments(conditionBlock);
+      {
+        OpBuilder::InsertionGuard guard(builder);
+        builder.setInsertionPointToStart(conditionBlock);
+        FailureOr<Value> predicate = emit(conditionObject.value);
+        if (failed(predicate)) return failure();
+        builder.create<gfc::ConditionOp>(location, *predicate);
+      }
+      restoreArguments(saved);
+
+      Block *bodyBlock = new Block();
+      bounded.getBody().push_back(bodyBlock);
+      for (Value input : inputs)
+        bodyBlock->addArgument(input.getType(), location);
+      saved = bindArguments(bodyBlock);
+      {
+        OpBuilder::InsertionGuard guard(builder);
+        builder.setInsertionPointToStart(bodyBlock);
+        SmallVector<Value> bodyResults;
+        for (int64_t index = 0; index < carriedCount; ++index) {
+          FailureOr<Value> bodyResult = emit(
+              PySequence_Fast_GET_ITEM(outputs.value, index));
+          if (failed(bodyResult)) return failure();
+          bodyResults.push_back(*bodyResult);
+        }
+        builder.create<gfc::ControlYieldOp>(location, bodyResults);
+      }
+      restoreArguments(saved);
+      for (int64_t index = 0; index < carriedCount; ++index)
+        values[PySequence_Fast_GET_ITEM(resultObjects.value, index)] =
+            bounded.getResults()[index];
+      cached = bounded.getResults()[selectedResult];
+    }
     else if (*operation == "loop_argument") {
       PyErr_SetString(PyExc_RuntimeError,
-                      "loop argument escaped gf_control.repeat capture");
+                      "loop argument escaped gf_control region capture");
       return failure();
+    }
+    else if (*operation == "compare") {
+      PyOwned attrs(attribute(expression.value, "attrs"));
+      if (!attrs) return failure();
+      PyOwned sequence(PySequence_Fast(attrs.value, "expected attrs"));
+      PyObject *predicateObject = nullptr;
+      for (Py_ssize_t index = 0;
+           index < PySequence_Fast_GET_SIZE(sequence.value); ++index) {
+        PyObject *pair = PySequence_Fast_GET_ITEM(sequence.value, index);
+        PyObject *name = PyTuple_GetItem(pair, 0);
+        if (name && PyUnicode_CompareWithASCIIString(name, "predicate") == 0)
+          predicateObject = PyTuple_GetItem(pair, 1);
+      }
+      const char *predicateText = predicateObject
+          ? PyUnicode_AsUTF8(predicateObject) : nullptr;
+      if (!predicateText) return failure();
+      cached = builder.create<gft::CompareOp>(
+          location, *resultType, inputs[0], inputs[1],
+          builder.getStringAttr(predicateText));
     }
     else if (*operation == "add")
       cached = builder.create<gft::AddOp>(location, *resultType, inputs[0], inputs[1]);

@@ -31,18 +31,27 @@ A = gf.linalg.LinearOperator(
 )
 
 x = gf.linalg.cg(A, b, iterations=k)
+
+# Or stop from a scalar residual predicate inside bounded device control.
+x = gf.linalg.cg(A, b, tolerance=1e-6, max_iterations=1000)
 ```
 
-Both Richardson and CG are deliberately fixed-count. CG carries
-`(x, r, p, rᴴz)` as four typed SSA values in one `gf_control.repeat`; iteration
-count does not grow forward IR, and CPU lowering allocates two reusable buffers
-per carried value. Single-state CUDA repeat already reuses two buffers and one
-prepared operator launch per iteration; multi-state CUDA scheduling remains an
-explicit open performance item rather than silently returning to Python.
+Fixed Richardson/CG use `gf_control.repeat`; tolerance-driven CG uses a
+mandatory-bounded `gf_control.while`. Both carry `(x, r, p, rᴴz)` as four
+typed SSA values; iteration bounds do not grow forward IR, and CPU lowering
+allocates two reusable buffers per carried value. The while condition is a
+rank-zero `gf_tensor.compare` over the residual norm and lowers with the body to
+`scf.while`, so Python never polls a scalar. Single-state CUDA repeat already
+reuses two buffers and one prepared operator launch per iteration; multi-state
+CUDA repeat/while scheduling remains an explicit open performance item and
+fails closed instead of introducing host polling.
 CPU control lowering also hoists rank-zero body SSA (including dot-product
 reductions and dependent scalar algebra) ahead of element loops and stores each
 once per iteration; this prevents a scalar reduction referenced by three CG
-vector updates from being recomputed once per vector element.
+vector updates from being recomputed once per vector element. Multi-use vector
+SSA such as `A(p)` and the next residual are likewise materialized once per
+iteration; single-use vectors remain producer-consumer fused. The current CPU
+artifact reports both scalar and tensor temporary counts for inspection.
 Ordinary downstream Tensor algebra remains Pythonic (`loss = x.sum()`): the
 current single-output CPU executable ABI automatically stages a nested control
 result, while a future multi-output program ABI may fuse the loop epilogue.
@@ -54,6 +63,12 @@ The complete runnable example is [examples/fem_poisson.py](https://github.com/wa
 It applies a one-dimensional P1 Poisson stiffness operator through
 MessagePassing without assembling a sparse matrix and compares against the
 closed-form solution.
+
+[examples/meshfree_linear_solve.py](https://github.com/walkerchi/graphforge/blob/main/examples/meshfree_linear_solve.py)
+uses exactly the same solver interface with a procedural `Graph.radius`
+relation and a MessagePassing shifted graph Laplacian. The current position
+snapshot determines topology; a changed snapshot invalidates/rebuilds the
+physical relation without changing `LinearOperator` or CG source code.
 
 ### FEM topology is not always a radius graph
 
@@ -77,27 +92,28 @@ quadrature/layout metadata, and explicit essential-constraint semantics. It
 should lower through the same gather/UDF/reducer machinery, but must not be
 faked as pairwise edges when doing so loses the element tensor structure.
 
-## Fixed CG exists; convergence-driven CG needs bounded while
+## Fixed and convergence-driven CG
 
-`gf.linalg.cg(..., iterations=k)` is an executable matrix-free primitive, not a
-Python iteration helper. It accepts an optional compiler-visible
-preconditioner. It deliberately does not accept a tolerance yet: exact early
-convergence can otherwise make a later fixed CG step divide by zero, and a host
-residual check would insert a synchronization into every iteration.
+`gf.linalg.cg(..., iterations=k)` emits fixed `repeat` control, while
+`gf.linalg.cg(..., tolerance=eps, max_iterations=k)` emits bounded `while`
+control with an absolute Euclidean residual contract. Both accept an optional
+compiler-visible preconditioner. Early convergence prevents the next CG
+division from executing; `max_iterations` still provides a finite resource and
+failure bound.
 
 | Primitive | Why the compiler must see it | Status |
 |---|---|---|
 | `LinearOperator.apply` / `adjoint_apply` | preserve matrix-free graph/stencil application and differentiable parameters | executable frontend |
 | element gather/local tensor/scatter | retain higher-order and mixed FEM structure beyond pairwise P1 edges | design exists as hyperrelation; executable solver slice pending |
 | boundary/constraint projection | enforce essential constraints consistently in primal, adjoint, and distributed ownership | pending |
-| dot, norm, scalar comparison | expose reductions and their distributed collective boundary | `dot`/`vector_norm` Tensor algebra exists; comparison and solver-level collective semantics pending |
+| dot, norm, scalar comparison | expose reductions and their distributed collective boundary | native Tensor/MLIR/CPU LLVM execution; solver-level distributed collective semantics pending |
 | multi-value loop-carried SSA | keep CG vectors/scalars in one bounded region with reusable buffers | executable frontend + CPU LLVM lowering |
-| bounded `gf_control.while` | device-side convergence with `max_iterations` as a mandatory safety/resource bound | pending |
+| bounded `gf_control.while` | device-side convergence with `max_iterations` as a mandatory safety/resource bound | executable frontend/verifier + CPU `scf.while`; GPU provider plans pending |
 | preconditioner operator | permit Jacobi/block/multigrid or provider-library choice without changing CG semantics | callable/`LinearOperator` frontend; schedule/performance gates pending |
 | multi-state CUDA loop plan | reuse all carried buffers and choose host command graph vs persistent/cooperative execution | pending |
 | loop memory/checkpoint plan | choose saved states, recomputation, or hierarchy spill for reverse mode | fixed-repeat correctness fallback exists; structured reverse loop pending |
 
-The intended control form is structurally similar to:
+The emitted control form is structurally similar to:
 
 ```mlir
 %x, %r, %p, %rr = gf_control.while
@@ -152,6 +168,35 @@ must record those choices. Implicit VJP is valid only under a declared
 convergence/residual contract and must fail closed when the adjoint operator is
 missing or the solve did not converge.
 
+Generic `gf_control.while` is sufficient to execute the primal algorithm, but
+it is intentionally insufficient evidence for implicit differentiation: after
+arbitrary control lowering, the compiler cannot assume that the loop solved
+`A(x)=b`. The next semantic step is therefore a retained `gf_linalg.solve` op
+with operator/adjoint/preconditioner regions and an explicit stopping contract.
+It should return at least `(solution, converged, iterations, residual_norm)`.
+Autodiff may replace that op with an adjoint solve only when `converged` and the
+recorded residual policy prove the implicit rule valid; ordinary differentiation
+of `gf_control.repeat/while` remains algorithmic differentiation.
+
+This determines the remaining primitive boundary:
+
+- `gf_linalg.linear_operator`/apply and adjoint regions, including parameter
+  operands rather than opaque Python closures;
+- bounded multi-state control, dot/norm/compare, and first-class distributed
+  all-reduce dependencies;
+- solver status values and residual policy (`absolute`, `relative`, norm and
+  accumulation dtype), not a Python boolean;
+- constraint/projector and preconditioner regions, so primal and adjoint use
+  compatible boundary conditions;
+- a structured reverse-control pass with tape/checkpoint/hierarchy planning for
+  algorithmic VJP, plus a separate implicit-solve VJP rewrite;
+- element gather/local quadrature/scatter for general FEM, because pairwise
+  MessagePassing alone does not retain every element tensor contraction.
+
+`gf.linalg` is the appropriate Python namespace for these semantics. It should
+remain a thin staged frontend to retained IR, not grow into a SciPy-style
+collection of Python solver implementations.
+
 ## JIT, fusion, and variants
 
 There is no separate user-facing `autofuse` or `jit` module. Calling the solver
@@ -179,6 +224,6 @@ A solver claim must report more than kernel latency:
 - backward comparison against both an unrolled hand-written implementation and
   a matched implicit/adjoint implementation.
 
-Until bounded while, structured reverse lowering, implicit VJP and matched
-artifacts exist, the FEM/CG example is a compiler vertical slice—not a
+Until GPU/distributed while, structured reverse lowering, implicit VJP and
+matched artifacts exist, the FEM/CG example is a compiler vertical slice—not a
 CG/PETSc/FEniCS performance claim.

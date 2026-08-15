@@ -1,14 +1,17 @@
 """Framework-independent logical graph relations.
 
-This module owns graph semantics only. It deliberately contains no topology
-building primitives from NumPy, Torch, or another array framework. Dynamic
-relations stay procedural until compiler/runtime lowering selects a physical
-builder. Optional framework inputs are dispatched to ``graphforge.interop``.
+This module owns graph semantics and the framework-independent debug/runtime
+realizers needed by native GraphForge tensors. It contains no topology builder
+from NumPy, Torch, or another array framework. Dynamic relations stay
+procedural until compiler/runtime lowering selects a physical builder; an
+explicit native ``resolve_csr()`` may realize a cached snapshot for execution
+or inspection. Optional framework inputs are dispatched to ``graphforge.interop``.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+from itertools import product
 import math
 from types import SimpleNamespace
 from typing import Literal, Mapping
@@ -116,6 +119,7 @@ class Graph:
         self._torch_view_cache = None
         self._native_csr_snapshot: tuple[object, ...] | None = None
         self._native_csr_cache: tuple[Tensor, Tensor] | None = None
+        self._native_build_info: dict[str, object] | None = None
 
     @staticmethod
     def _is_native(value: object) -> bool:
@@ -646,11 +650,45 @@ class Graph:
         rows = [0]
         columns: list[int] = []
         cutoff_squared = cutoff * cutoff
+        candidate_pairs = 0
+        builder_name = "native_pair_scan"
         if self._metric is None and self._select is None:
-            for destination, dst_position in enumerate(positions):
+            # A native debug/materialization request should not silently become
+            # O(N^2) for the common non-periodic Euclidean case. Build a
+            # uniform cell directory and visit only adjacent cells. Provider
+            # code can use the same logical relation without materializing CSR.
+            use_cell_list = matrices is None and cutoff > 0.0
+            cells: dict[tuple[int, ...], list[int]] = {}
+            if use_cell_list:
                 for source, src_position in enumerate(positions):
+                    coordinate = tuple(
+                        math.floor(float(value) / cutoff)
+                        for value in src_position
+                    )
+                    cells.setdefault(coordinate, []).append(source)
+                offsets = tuple(product((-1, 0, 1), repeat=len(positions[0]))) \
+                    if positions else ()
+                builder_name = "uniform_cell_list"
+            for destination, dst_position in enumerate(positions):
+                if use_cell_list:
+                    home = tuple(
+                        math.floor(float(value) / cutoff)
+                        for value in dst_position
+                    )
+                    sources = sorted(
+                        source
+                        for offset in offsets
+                        for source in cells.get(tuple(
+                            cell + shift for cell, shift in zip(home, offset)
+                        ), ())
+                    )
+                else:
+                    sources = range(len(positions))
+                for source in sources:
                     if self._exclude_self and source == destination:
                         continue
+                    candidate_pairs += 1
+                    src_position = positions[source]
                     delta = [
                         float(src_position[axis]) - float(dst_position[axis])
                         for axis in range(len(src_position))
@@ -670,6 +708,8 @@ class Graph:
                 for source in range(len(positions))
                 if not self._exclude_self or source != destination
             ]
+            candidate_pairs = len(sources)
+            builder_name = "native_pair_scan_udf"
             source_index = tensor(sources, dtype=int64, device=self.device)
             destination_index = tensor(
                 destinations, dtype=int64, device=self.device)
@@ -717,6 +757,12 @@ class Graph:
         )
         self._native_csr_snapshot = snapshot
         self._native_csr_cache = result
+        self._native_build_info = {
+            "builder": builder_name,
+            "candidate_pairs": candidate_pairs,
+            "selected_pairs": len(columns),
+            "reused_snapshot": False,
+        }
         return result
 
     def _builder_pair_views(
@@ -1044,6 +1090,19 @@ class Graph:
 
     @property
     def build_info(self) -> dict[str, object]:
+        if (self._schema.realization == "procedural_radius" and
+                isinstance(self._positions, Tensor) and
+                not getattr(
+                    getattr(self._positions, "_buffer", None),
+                    "_graphforge_torch_buffer", False,
+                )):
+            reused = (
+                self._native_csr_snapshot == self._dynamic_snapshot()
+                and self._native_csr_cache is not None
+            )
+            self._resolve_native_radius_csr()
+            assert self._native_build_info is not None
+            return {**self._native_build_info, "reused_snapshot": reused}
         from ..interop.torch.graph import from_native
 
         return from_native(self).build_info

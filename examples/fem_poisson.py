@@ -82,6 +82,28 @@ def run(interior_nodes: int = 8, iterations: int | None = None):
     return solution, exact, error
 
 
+def run_until_converged(
+    interior_nodes: int = 8,
+    *,
+    tolerance: float = 1.0e-6,
+    max_iterations: int = 100,
+):
+    """Solve with a residual condition captured as bounded device control."""
+    operator, spacing = poisson_operator(interior_nodes)
+    load = gf.tensor([spacing] * interior_nodes, dtype=gf.float32)
+    solution = gf.linalg.cg(
+        operator,
+        load,
+        tolerance=tolerance,
+        max_iterations=max_iterations,
+    )
+    coordinates = [(index + 1) * spacing for index in range(interior_nodes)]
+    exact = [0.5 * x * (1.0 - x) for x in coordinates]
+    error = max(abs(actual - expected) for actual, expected in zip(
+        solution.tolist(), exact, strict=True))
+    return solution, exact, error
+
+
 def load_gradient(interior_nodes: int = 4):
     """Differentiate through the captured iterations (algorithmic VJP)."""
     operator, spacing = poisson_operator(interior_nodes)
@@ -98,4 +120,7 @@ if __name__ == "__main__":
     print("exact:   ", [round(value, 6) for value in expected])
     print(f"max error: {maximum_error:.3e}")
     print("d sum(u) / d load:", load_gradient().tolist())
+    converged, _, converged_error = run_until_converged()
+    print(f"bounded-while max error: {converged_error:.3e}")
+    print("uses gf_control.while:", "gf_control.while" in converged.mlir())
     print(result.mlir())

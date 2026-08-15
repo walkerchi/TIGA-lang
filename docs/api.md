@@ -106,9 +106,14 @@ NCCL/RCCL or a vendor communicator.
   preconditioner=None)` carries solution/residual/direction/scalar state in one
   multi-result `gf_control.repeat`. The preconditioner may be a
   `LinearOperator` or Tensor callable.
+- `gf.linalg.cg(operator, rhs, tolerance=..., max_iterations=...,
+  preconditioner=None)` emits a rank-zero residual comparison and a bounded
+  multi-result `gf_control.while`; CPU lowers it to `scf.while` without host
+  polling. CUDA currently fails closed until a provider loop plan exists.
+- `gf.while_loop(initial, condition, body, max_iterations=...)` is the generic
+  bounded control primitive. Condition must return a scalar boolean Tensor.
 
-Tolerance-driven device-side convergence, structured reverse loops, and
-implicit solve VJP are not yet public APIs. The
+Structured reverse loops and implicit solve VJP are not yet public APIs. The
 [solver design page](linear-solvers.md) defines their required compiler
 contracts and explains why they are not hidden in a Python loop.
 

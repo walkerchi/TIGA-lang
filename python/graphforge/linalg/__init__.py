@@ -10,8 +10,8 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from ..control import repeat
-from ..tensor import Tensor, zeros_like
+from ..control import repeat, while_loop
+from ..tensor import Tensor, tensor, zeros_like
 
 
 Matvec = Callable[[Tensor], Tensor]
@@ -178,21 +178,23 @@ def cg(
     operator: LinearOperator,
     rhs: Tensor,
     *,
-    iterations: int,
+    iterations: int | None = None,
+    tolerance: Tensor | float | None = None,
+    max_iterations: int | None = None,
     initial: Tensor | None = None,
     preconditioner: LinearOperator | Preconditioner | None = None,
 ) -> Tensor:
-    """Capture fixed-count matrix-free (preconditioned) conjugate gradient.
+    """Capture bounded matrix-free (preconditioned) conjugate gradient.
 
     Four values (solution, residual, search direction, residual inner product)
     are carried through one ``gf_control.repeat`` region. ``operator`` and an
     optional ``preconditioner`` therefore remain ordinary compiler-visible
     Tensor/MessagePassing programs and can be fused or scheduled by providers.
 
-    This fixed-count API never performs a host synchronization to inspect a
-    residual. A future tolerance-driven overload will lower to bounded
-    ``gf_control.while``; callers should not infer convergence merely because
-    this routine returned.
+    Pass ``iterations=k`` for a fixed ``gf_control.repeat`` or pass both
+    ``tolerance=eps`` and ``max_iterations=k`` for a device-side bounded
+    ``gf_control.while``. The convergence condition is the absolute Euclidean
+    residual norm and never synchronizes a scalar through Python.
     """
     if not isinstance(operator, LinearOperator):
         raise TypeError("cg operator must be a LinearOperator")
@@ -206,10 +208,26 @@ def cg(
         raise ValueError(f"cg rhs shape must be {(operator.shape[0],)}")
     if rhs.dtype.kind != "float":
         raise TypeError("cg currently requires a real floating Tensor")
-    if not isinstance(iterations, int) or isinstance(iterations, bool):
-        raise TypeError("cg iterations must be an integer")
-    if iterations < 0:
-        raise ValueError("cg iterations must be non-negative")
+    fixed = iterations is not None
+    convergent = tolerance is not None or max_iterations is not None
+    if fixed == convergent:
+        raise ValueError(
+            "cg requires exactly one stopping contract: iterations, or "
+            "tolerance with max_iterations")
+    if fixed:
+        if not isinstance(iterations, int) or isinstance(iterations, bool):
+            raise TypeError("cg iterations must be an integer")
+        if iterations < 0:
+            raise ValueError("cg iterations must be non-negative")
+    else:
+        if tolerance is None or max_iterations is None:
+            raise ValueError(
+                "tolerance-driven cg requires tolerance and max_iterations")
+        if (not isinstance(max_iterations, int) or
+                isinstance(max_iterations, bool)):
+            raise TypeError("cg max_iterations must be an integer")
+        if max_iterations < 0:
+            raise ValueError("cg max_iterations must be non-negative")
     if (preconditioner is not None and
             not isinstance(preconditioner, LinearOperator) and
             not callable(preconditioner)):
@@ -249,11 +267,33 @@ def cg(
         next_direction = next_preconditioned + beta * direction
         return next_solution, next_residual, next_direction, next_product
 
-    result = repeat(
-        (solution, residual, preconditioned, residual_product),
-        step,
-        iterations=iterations,
-    )
+    states = (solution, residual, preconditioned, residual_product)
+    if fixed:
+        assert iterations is not None
+        result = repeat(states, step, iterations=iterations)
+    else:
+        assert tolerance is not None and max_iterations is not None
+        if isinstance(tolerance, Tensor):
+            threshold = tolerance
+            if (threshold.shape != () or threshold.dtype is not rhs.dtype or
+                    threshold.device != rhs.device):
+                raise ValueError(
+                    "cg Tensor tolerance must be scalar and match rhs dtype/device")
+        else:
+            if not isinstance(tolerance, (int, float)) or isinstance(tolerance, bool):
+                raise TypeError("cg tolerance must be a scalar Tensor or real number")
+            if tolerance < 0:
+                raise ValueError("cg tolerance must be non-negative")
+            threshold = tensor(tolerance, dtype=rhs.dtype, device=rhs.device)
+        threshold_squared = threshold * threshold
+        result = while_loop(
+            states,
+            lambda _x, current_residual, _p, _product: (
+                dot(current_residual, current_residual) > threshold_squared
+            ),
+            step,
+            max_iterations=max_iterations,
+        )
     assert isinstance(result, tuple)
     return result[0]
 

@@ -39,7 +39,7 @@ the target hardware.
 | X0 · distributed execution | **partial** | typed halo Event DAG, MPI two-process forward/VJP, CPU overlap, NCCL rank-one binding and CUDA submission-order fixture | real 2+ GPU NCCL correctness/profiler overlap/performance and RCCL evidence |
 | P0 · release engineering | **partial** | pinned LLVM build, local wheel audit, no-Torch smoke, sdist rebuild and hosted compiler CI | complete CPython/Linux/macOS release matrix, trusted publishing and first PyPI release |
 | G0 · graph-algorithm probes | **partial** | fixed-iteration PageRank compiler/control path and registered performance cases | reverse structured loop/tape performance, device-side convergence, representative frontier and sorted-intersection IR probes |
-| L0 · matrix-free solvers | **partial** | `LinearOperator`, multi-result control SSA + CPU typed double buffers, MessagePassing FEM stiffness apply, fixed Richardson and four-state fixed CG with optional preconditioner | bounded device while, multi-state CUDA plan, distributed reductions, structured reverse loop, implicit adjoint VJP, and matched forward/backward artifacts |
+| L0 · matrix-free solvers | **partial** | `LinearOperator`, multi-result `repeat/while` + CPU typed double buffers and `scf.while`, MessagePassing FEM stiffness apply, fixed/residual-driven CG with optional preconditioner | multi-state CUDA loop plan, distributed reductions, structured reverse loop, implicit adjoint VJP, and matched forward/backward artifacts |
 | Vendor providers | **pending** | provider ABI, plugin entry point and fail-closed conformance command | independently distributed provider plus target-hardware artifacts for each vendor |
 
 The exact-kNN gates time live all-pairs rebuild plus consume in one launch;

@@ -114,6 +114,29 @@ LogicalResult DivOp::verify() {
   return verifyBinary(*this, getLhs(), getRhs(), getResult());
 }
 
+LogicalResult CompareOp::verify() {
+  auto lhs = getLhs().getType();
+  auto rhs = getRhs().getType();
+  auto result = getResult().getType();
+  if (lhs.getElementType() != rhs.getElementType())
+    return emitOpError("requires identical operand element types");
+  if (!isa<IntegerType, FloatType>(lhs.getElementType()))
+    return emitOpError("requires real floating-point or integer operands");
+  if (!result.getElementType().isInteger(1))
+    return emitOpError("requires an i1 result element type");
+  StringRef predicate = getPredicate();
+  if (predicate != "eq" && predicate != "ne" && predicate != "lt" &&
+      predicate != "le" && predicate != "gt" && predicate != "ge")
+    return emitOpError("predicate must be eq, ne, lt, le, gt, or ge");
+  SmallVector<int64_t> expected = broadcastShape(
+      lhs.getShape(), rhs.getShape());
+  if (expected.empty() && std::max(lhs.getRank(), rhs.getRank()) != 0)
+    return emitOpError("operands are not broadcast-compatible");
+  if (ArrayRef<int64_t>(expected) != result.getShape())
+    return emitOpError("result shape does not match broadcasting");
+  return success();
+}
+
 LogicalResult NegOp::verify() {
   if (getInput().getType() != getResult().getType())
     return emitOpError("must preserve shape and element type");

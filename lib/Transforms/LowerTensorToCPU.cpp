@@ -153,13 +153,21 @@ public:
         tensorAliases(std::move(tensorAliases)), location(source.getLoc()) {}
 
   FailureOr<Value> emit(Value value, ArrayRef<Value> coordinates) {
+    // Loop lowering materializes shared tensor SSA and every scalar SSA into
+    // scratch storage once per iteration.  These entries are not restricted
+    // to region block arguments: reductions and dependent scalar algebra are
+    // ordinary operation results.  Check the complete value map before
+    // recursively following producers, otherwise a consumer expands a saved
+    // reduction again inside its element loop and turns O(n) solver steps
+    // into O(n^2) work.
+    auto saved = tensorBuffers.find(value);
+    if (saved != tensorBuffers.end()) {
+      auto type = cast<RankedTensorType>(value.getType());
+      return Value(builder.create<memref::LoadOp>(
+          location, saved->second,
+          ValueRange{linearize(coordinates, type.getShape())}));
+    }
     if (auto argument = dyn_cast<BlockArgument>(value)) {
-      auto buffer = tensorBuffers.find(argument);
-      if (buffer != tensorBuffers.end())
-        return Value(builder.create<memref::LoadOp>(
-            location, buffer->second,
-            ValueRange{linearize(coordinates,
-                                 cast<RankedTensorType>(value.getType()).getShape())}));
       auto alias = tensorAliases.find(argument);
       if (alias != tensorAliases.end())
         return emit(alias->second, coordinates);
@@ -179,6 +187,8 @@ public:
     if (auto divide = dyn_cast_or_null<gft::DivOp>(operation))
       return emitBinary(divide.getLhs(), divide.getRhs(), divide.getResult(),
                         coordinates, BinaryKind::Div);
+    if (auto compare = dyn_cast_or_null<gft::CompareOp>(operation))
+      return emitCompare(compare, coordinates);
     if (auto neg = dyn_cast_or_null<gft::NegOp>(operation)) {
       FailureOr<Value> operand = emit(neg.getInput(), coordinates);
       if (failed(operand)) return failure();
@@ -365,6 +375,39 @@ private:
     if (kind == BinaryKind::Mul)
       return Value(builder.create<arith::MulIOp>(location, *left, *right));
     return Value(builder.create<arith::DivSIOp>(location, *left, *right));
+  }
+
+  FailureOr<Value> emitCompare(gft::CompareOp compare,
+                               ArrayRef<Value> coordinates) {
+    auto resultType = compare.getResult().getType();
+    auto lhsType = compare.getLhs().getType();
+    auto rhsType = compare.getRhs().getType();
+    FailureOr<Value> left = emit(
+        compare.getLhs(), broadcastCoordinates(
+            lhsType.getShape(), resultType.getShape(), coordinates));
+    FailureOr<Value> right = emit(
+        compare.getRhs(), broadcastCoordinates(
+            rhsType.getShape(), resultType.getShape(), coordinates));
+    if (failed(left) || failed(right)) return failure();
+    StringRef predicate = compare.getPredicate();
+    if (isa<FloatType>(left->getType())) {
+      arith::CmpFPredicate mapped = arith::CmpFPredicate::OEQ;
+      if (predicate == "ne") mapped = arith::CmpFPredicate::ONE;
+      else if (predicate == "lt") mapped = arith::CmpFPredicate::OLT;
+      else if (predicate == "le") mapped = arith::CmpFPredicate::OLE;
+      else if (predicate == "gt") mapped = arith::CmpFPredicate::OGT;
+      else if (predicate == "ge") mapped = arith::CmpFPredicate::OGE;
+      return Value(builder.create<arith::CmpFOp>(
+          location, mapped, *left, *right));
+    }
+    arith::CmpIPredicate mapped = arith::CmpIPredicate::eq;
+    if (predicate == "ne") mapped = arith::CmpIPredicate::ne;
+    else if (predicate == "lt") mapped = arith::CmpIPredicate::slt;
+    else if (predicate == "le") mapped = arith::CmpIPredicate::sle;
+    else if (predicate == "gt") mapped = arith::CmpIPredicate::sgt;
+    else if (predicate == "ge") mapped = arith::CmpIPredicate::sge;
+    return Value(builder.create<arith::CmpIOp>(
+        location, mapped, *left, *right));
   }
 
   Value zero(Type type) {
@@ -793,6 +836,13 @@ private:
   Location location;
 };
 
+struct LoopTemporary {
+  Value semanticValue;
+  Value storage;
+  RankedTensorType type;
+  bool heapAllocated;
+};
+
 class LowerTensorToCPUPass
     : public impl::GFLowerTensorToCPUBase<LowerTensorToCPUPass> {
 public:
@@ -893,26 +943,42 @@ public:
           secondBuffers.push_back(builder.create<memref::AllocOp>(
               source.getLoc(), scratchType, ValueRange{extent}));
         }
-        // Scalar reductions and their scalar algebra are invariant across the
-        // element loop of a vector result. Materialize every rank-zero body
-        // SSA value once per control iteration, in block order, so CG dot
-        // products do not accidentally become O(N^2). These one-element
-        // buffers also make the reduction boundary explicit for later
-        // collective and hierarchy planning.
-        SmallVector<std::pair<Value, Value>> scalarTemporaries;
+        // Materialize scalar SSA and shared vector SSA once per iteration, in
+        // block order. Scalars include reductions and their dependent algebra;
+        // shared vectors include values such as CG's A(p) and next residual,
+        // which would otherwise be recursively recomputed by each consumer.
+        // Single-use vector values remain fused into their consumer.
+        SmallVector<LoopTemporary> temporaries;
+        SmallVector<Value> tensorTemporaryBuffers;
+        int64_t scalarTemporaryCount = 0;
+        int64_t tensorTemporaryCount = 0;
         for (Operation &operation : semanticBody.without_terminator()) {
           for (Value result : operation.getResults()) {
             auto type = dyn_cast<RankedTensorType>(result.getType());
-            if (!type || type.getRank() != 0) continue;
-            auto scratchType = MemRefType::get({1}, type.getElementType());
-            Value storage = builder.create<memref::AllocaOp>(
-                source.getLoc(), scratchType);
-            scalarTemporaries.emplace_back(result, storage);
+            if (!type || (type.getRank() != 0 && result.hasOneUse())) continue;
+            Value storage;
+            bool heapAllocated = type.getRank() != 0;
+            if (heapAllocated) {
+              auto scratchType = MemRefType::get(
+                  {ShapedType::kDynamic}, type.getElementType());
+              storage = builder.create<memref::AllocOp>(
+                  source.getLoc(), scratchType,
+                  ValueRange{constantIndex(elementCount(type))});
+              tensorTemporaryBuffers.push_back(storage);
+              ++tensorTemporaryCount;
+            } else {
+              auto scratchType = MemRefType::get({1}, type.getElementType());
+              storage = builder.create<memref::AllocaOp>(
+                  source.getLoc(), scratchType);
+              ++scalarTemporaryCount;
+            }
+            temporaries.push_back({result, storage, type, heapAllocated});
           }
         }
         target->setAttr("graphforge.cpu.loop_scalar_temporaries",
-                        builder.getI64IntegerAttr(
-                            scalarTemporaries.size()));
+                        builder.getI64IntegerAttr(scalarTemporaryCount));
+        target->setAttr("graphforge.cpu.loop_tensor_temporaries",
+                        builder.getI64IntegerAttr(tensorTemporaryCount));
 
         auto coordinatesFor = [&](Value linear, RankedTensorType type) {
           int64_t localStride = 1;
@@ -974,14 +1040,31 @@ public:
         for (unsigned index = carried;
              index < semanticBody.getNumArguments(); ++index)
           aliases[semanticBody.getArgument(index)] = repeat.getInputs()[index];
-        for (auto [semanticValue, storage] : scalarTemporaries) {
-          ScalarEmitter emitter(source, target, builder, buffers, aliases);
-          FailureOr<Value> scalar = emitter.emit(semanticValue, {});
-          if (failed(scalar)) return signalPassFailure();
-          builder.create<memref::StoreOp>(
-              source.getLoc(), *scalar, storage,
-              ValueRange{constantIndex(0)});
-          buffers[semanticValue] = storage;
+        for (const LoopTemporary &temporary : temporaries) {
+          if (temporary.type.getRank() == 0) {
+            ScalarEmitter emitter(source, target, builder, buffers, aliases);
+            FailureOr<Value> scalar = emitter.emit(
+                temporary.semanticValue, {});
+            if (failed(scalar)) return signalPassFailure();
+            builder.create<memref::StoreOp>(
+                source.getLoc(), *scalar, temporary.storage,
+                ValueRange{constantIndex(0)});
+          } else {
+            Value extent = constantIndex(elementCount(temporary.type));
+            auto compute = builder.create<scf::ForOp>(
+                source.getLoc(), constantIndex(0), extent, constantIndex(1));
+            builder.setInsertionPoint(compute.getBody()->getTerminator());
+            ScalarEmitter emitter(source, target, builder, buffers, aliases);
+            FailureOr<Value> item = emitter.emit(
+                temporary.semanticValue,
+                coordinatesFor(compute.getInductionVar(), temporary.type));
+            if (failed(item)) return signalPassFailure();
+            builder.create<memref::StoreOp>(
+                source.getLoc(), *item, temporary.storage,
+                ValueRange{compute.getInductionVar()});
+            builder.setInsertionPoint(iterationYield);
+          }
+          buffers[temporary.semanticValue] = temporary.storage;
         }
         for (int64_t index = 0; index < carried; ++index) {
           Value extent = constantIndex(elementCount(carriedTypes[index]));
@@ -1024,6 +1107,274 @@ public:
         for (Value buffer : firstBuffers)
           builder.create<memref::DeallocOp>(source.getLoc(), buffer);
         for (Value buffer : secondBuffers)
+          builder.create<memref::DeallocOp>(source.getLoc(), buffer);
+        for (Value buffer : tensorTemporaryBuffers)
+          builder.create<memref::DeallocOp>(source.getLoc(), buffer);
+        builder.create<func::ReturnOp>(source.getLoc());
+        source.erase();
+        continue;
+      }
+
+      if (auto bounded = dyn_cast_or_null<gfc::WhileOp>(
+              returnOp.getOperand(0).getDefiningOp())) {
+        if (!llvm::hasSingleElement(bounded.getCondition()) ||
+            !llvm::hasSingleElement(bounded.getBody())) {
+          bounded.emitError(
+              "CPU lowering requires one condition and one body block");
+          return signalPassFailure();
+        }
+        auto condition = dyn_cast<gfc::ConditionOp>(
+            bounded.getCondition().front().getTerminator());
+        auto yield = dyn_cast<gfc::ControlYieldOp>(
+            bounded.getBody().front().getTerminator());
+        if (!condition || !yield) {
+          bounded.emitError("CPU lowering requires control terminators");
+          return signalPassFailure();
+        }
+        target->setAttr("graphforge.cpu.serial_control", builder.getUnitAttr());
+        target->setAttr("graphforge.cpu.bounded_while", builder.getUnitAttr());
+        target->setAttr(
+            "graphforge.cpu.max_iterations",
+            builder.getI64IntegerAttr(bounded.getMaxIterations()));
+        int64_t carried = bounded.getNumCarried();
+        Block &semanticCondition = bounded.getCondition().front();
+        Block &semanticBody = bounded.getBody().front();
+        target->setAttr("graphforge.cpu.loop_buffers",
+                        builder.getI64IntegerAttr(2 * carried));
+        SmallVector<RankedTensorType> carriedTypes;
+        SmallVector<Value> firstBuffers;
+        SmallVector<Value> secondBuffers;
+        for (int64_t index = 0; index < carried; ++index) {
+          auto type = cast<RankedTensorType>(bounded.getInputs()[index].getType());
+          carriedTypes.push_back(type);
+          auto scratchType = MemRefType::get(
+              {ShapedType::kDynamic}, type.getElementType());
+          Value extent = constantIndex(elementCount(type));
+          firstBuffers.push_back(builder.create<memref::AllocOp>(
+              source.getLoc(), scratchType, ValueRange{extent}));
+          secondBuffers.push_back(builder.create<memref::AllocOp>(
+              source.getLoc(), scratchType, ValueRange{extent}));
+        }
+
+        SmallVector<LoopTemporary> temporaries;
+        SmallVector<Value> tensorTemporaryBuffers;
+        int64_t scalarTemporaryCount = 0;
+        int64_t tensorTemporaryCount = 0;
+        for (Operation &operation : semanticBody.without_terminator()) {
+          for (Value result : operation.getResults()) {
+            auto type = dyn_cast<RankedTensorType>(result.getType());
+            if (!type || (type.getRank() != 0 && result.hasOneUse())) continue;
+            Value storage;
+            bool heapAllocated = type.getRank() != 0;
+            if (heapAllocated) {
+              auto scratchType = MemRefType::get(
+                  {ShapedType::kDynamic}, type.getElementType());
+              storage = builder.create<memref::AllocOp>(
+                  source.getLoc(), scratchType,
+                  ValueRange{constantIndex(elementCount(type))});
+              tensorTemporaryBuffers.push_back(storage);
+              ++tensorTemporaryCount;
+            } else {
+              auto scratchType = MemRefType::get({1}, type.getElementType());
+              storage = builder.create<memref::AllocaOp>(
+                  source.getLoc(), scratchType);
+              ++scalarTemporaryCount;
+            }
+            temporaries.push_back({result, storage, type, heapAllocated});
+          }
+        }
+        target->setAttr(
+            "graphforge.cpu.loop_scalar_temporaries",
+            builder.getI64IntegerAttr(scalarTemporaryCount));
+        target->setAttr(
+            "graphforge.cpu.loop_tensor_temporaries",
+            builder.getI64IntegerAttr(tensorTemporaryCount));
+
+        auto coordinatesFor = [&](OpBuilder &nested, Value linear,
+                                  RankedTensorType type) {
+          auto localConstant = [&](int64_t value) {
+            return Value(nested.create<arith::ConstantIndexOp>(
+                source.getLoc(), value));
+          };
+          int64_t localStride = 1;
+          SmallVector<int64_t> localStrides(type.getRank());
+          for (int64_t axis = type.getRank() - 1; axis >= 0; --axis) {
+            localStrides[axis] = localStride;
+            localStride *= type.getDimSize(axis);
+          }
+          SmallVector<Value> coordinates(type.getRank());
+          for (int64_t axis = 0; axis < type.getRank(); ++axis) {
+            Value coordinate = linear;
+            if (localStrides[axis] != 1)
+              coordinate = nested.create<arith::DivUIOp>(
+                  source.getLoc(), coordinate,
+                  localConstant(localStrides[axis]));
+            if (axis != 0)
+              coordinate = nested.create<arith::RemUIOp>(
+                  source.getLoc(), coordinate,
+                  localConstant(type.getDimSize(axis)));
+            coordinates[axis] = coordinate;
+          }
+          return coordinates;
+        };
+
+        for (int64_t index = 0; index < carried; ++index) {
+          Value extent = constantIndex(elementCount(carriedTypes[index]));
+          auto initialize = builder.create<scf::ForOp>(
+              source.getLoc(), constantIndex(0), extent, constantIndex(1));
+          builder.setInsertionPoint(initialize.getBody()->getTerminator());
+          ScalarEmitter emitter(source, target, builder);
+          FailureOr<Value> item = emitter.emit(
+              bounded.getInputs()[index], coordinatesFor(
+                  builder, initialize.getInductionVar(), carriedTypes[index]));
+          if (failed(item)) return signalPassFailure();
+          builder.create<memref::StoreOp>(
+              source.getLoc(), *item, firstBuffers[index],
+              ValueRange{initialize.getInductionVar()});
+          builder.setInsertionPointAfter(initialize);
+        }
+
+        SmallVector<Value> loopInputs{constantIndex(0)};
+        llvm::append_range(loopInputs, firstBuffers);
+        llvm::append_range(loopInputs, secondBuffers);
+        SmallVector<Type> loopTypes;
+        for (Value input : loopInputs) loopTypes.push_back(input.getType());
+        bool loweringFailed = false;
+        auto loop = builder.create<scf::WhileOp>(
+            source.getLoc(), TypeRange(loopTypes), ValueRange(loopInputs),
+            [&](OpBuilder &nested, Location location, ValueRange arguments) {
+              DenseMap<Value, Value> buffers;
+              DenseMap<Value, Value> aliases;
+              for (int64_t index = 0; index < carried; ++index)
+                buffers[semanticCondition.getArgument(index)] =
+                    arguments[1 + index];
+              for (unsigned index = carried;
+                   index < semanticCondition.getNumArguments(); ++index)
+                aliases[semanticCondition.getArgument(index)] =
+                    bounded.getInputs()[index];
+              ScalarEmitter emitter(
+                  source, target, nested, buffers, aliases);
+              FailureOr<Value> predicate = emitter.emit(
+                  condition.getValue(), {});
+              if (failed(predicate)) {
+                loweringFailed = true;
+                nested.create<scf::ConditionOp>(
+                    location,
+                    nested.create<arith::ConstantIntOp>(location, 0, 1),
+                    arguments);
+                return;
+              }
+              Value limit = nested.create<arith::ConstantIndexOp>(
+                  location, bounded.getMaxIterations());
+              Value underLimit = nested.create<arith::CmpIOp>(
+                  location, arith::CmpIPredicate::ult, arguments.front(), limit);
+              Value active = nested.create<arith::AndIOp>(
+                  location, underLimit, *predicate);
+              nested.create<scf::ConditionOp>(location, active, arguments);
+            },
+            [&](OpBuilder &nested, Location location, ValueRange arguments) {
+              DenseMap<Value, Value> buffers;
+              DenseMap<Value, Value> aliases;
+              for (int64_t index = 0; index < carried; ++index)
+                buffers[semanticBody.getArgument(index)] =
+                    arguments[1 + index];
+              for (unsigned index = carried;
+                   index < semanticBody.getNumArguments(); ++index)
+                aliases[semanticBody.getArgument(index)] =
+                    bounded.getInputs()[index];
+              for (const LoopTemporary &temporary : temporaries) {
+                if (temporary.type.getRank() == 0) {
+                  ScalarEmitter emitter(
+                      source, target, nested, buffers, aliases);
+                  FailureOr<Value> scalar = emitter.emit(
+                      temporary.semanticValue, {});
+                  if (failed(scalar)) {
+                    loweringFailed = true;
+                    continue;
+                  }
+                  nested.create<memref::StoreOp>(
+                      location, *scalar, temporary.storage,
+                      ValueRange{nested.create<arith::ConstantIndexOp>(
+                          location, 0)});
+                } else {
+                  Value extent = nested.create<arith::ConstantIndexOp>(
+                      location, elementCount(temporary.type));
+                  auto compute = nested.create<scf::ForOp>(
+                      location,
+                      nested.create<arith::ConstantIndexOp>(location, 0),
+                      extent,
+                      nested.create<arith::ConstantIndexOp>(location, 1));
+                  nested.setInsertionPoint(compute.getBody()->getTerminator());
+                  ScalarEmitter emitter(
+                      source, target, nested, buffers, aliases);
+                  FailureOr<Value> item = emitter.emit(
+                      temporary.semanticValue, coordinatesFor(
+                          nested, compute.getInductionVar(), temporary.type));
+                  if (failed(item)) {
+                    loweringFailed = true;
+                  } else {
+                    nested.create<memref::StoreOp>(
+                        location, *item, temporary.storage,
+                        ValueRange{compute.getInductionVar()});
+                  }
+                  nested.setInsertionPointAfter(compute);
+                }
+                buffers[temporary.semanticValue] = temporary.storage;
+              }
+              for (int64_t index = 0; index < carried; ++index) {
+                Value extent = nested.create<arith::ConstantIndexOp>(
+                    location, elementCount(carriedTypes[index]));
+                auto compute = nested.create<scf::ForOp>(
+                    location,
+                    nested.create<arith::ConstantIndexOp>(location, 0),
+                    extent,
+                    nested.create<arith::ConstantIndexOp>(location, 1));
+                nested.setInsertionPoint(compute.getBody()->getTerminator());
+                ScalarEmitter emitter(
+                    source, target, nested, buffers, aliases);
+                FailureOr<Value> item = emitter.emit(
+                    yield.getValues()[index], coordinatesFor(
+                        nested, compute.getInductionVar(), carriedTypes[index]));
+                if (failed(item)) {
+                  loweringFailed = true;
+                } else {
+                  nested.create<memref::StoreOp>(
+                      location, *item, arguments[1 + carried + index],
+                      ValueRange{compute.getInductionVar()});
+                }
+                nested.setInsertionPointAfter(compute);
+              }
+              SmallVector<Value> next;
+              next.push_back(nested.create<arith::AddIOp>(
+                  location, arguments.front(),
+                  nested.create<arith::ConstantIndexOp>(location, 1)));
+              for (int64_t index = 0; index < carried; ++index)
+                next.push_back(arguments[1 + carried + index]);
+              for (int64_t index = 0; index < carried; ++index)
+                next.push_back(arguments[1 + index]);
+              nested.create<scf::YieldOp>(location, next);
+            });
+        if (loweringFailed) return signalPassFailure();
+        builder.setInsertionPointAfter(loop);
+
+        auto returnedResult = cast<OpResult>(returnOp.getOperand(0));
+        unsigned selectedResult = returnedResult.getResultNumber();
+        Value finalState = loop.getResult(1 + selectedResult);
+        auto copy = builder.create<scf::ForOp>(
+            source.getLoc(), target.getArgument(outputArgument + 1),
+            target.getArgument(outputArgument + 2), constantIndex(1));
+        builder.setInsertionPoint(copy.getBody()->getTerminator());
+        Value finalItem = builder.create<memref::LoadOp>(
+            source.getLoc(), finalState, ValueRange{copy.getInductionVar()});
+        builder.create<memref::StoreOp>(
+            source.getLoc(), finalItem, target.getArgument(outputArgument),
+            ValueRange{copy.getInductionVar()});
+        builder.setInsertionPointAfter(copy);
+        for (Value buffer : firstBuffers)
+          builder.create<memref::DeallocOp>(source.getLoc(), buffer);
+        for (Value buffer : secondBuffers)
+          builder.create<memref::DeallocOp>(source.getLoc(), buffer);
+        for (Value buffer : tensorTemporaryBuffers)
           builder.create<memref::DeallocOp>(source.getLoc(), buffer);
         builder.create<func::ReturnOp>(source.getLoc());
         source.erase();

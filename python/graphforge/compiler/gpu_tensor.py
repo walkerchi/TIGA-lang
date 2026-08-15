@@ -533,7 +533,7 @@ def _physicalize_storage(
     # the structure that selects its specialized lowering.
     pointwise_view_ops = {
         "reshape", "permute", "broadcast", "add", "mul", "div", "neg",
-        "exp", "sqrt", "conj", "not_equal",
+        "exp", "sqrt", "conj", "compare",
     }
     expression_ops = {
         item._expr.op
@@ -1052,6 +1052,11 @@ def compile_tensor(
         raise ValueError("GPU Tensor compiler requires a CUDA output")
     if output._expr is not None and output._expr.op == "repeat":
         return _compile_repeat(output)
+    if output._expr is not None and output._expr.op == "while":
+        raise NotImplementedError(
+            "CUDA execution of gf_control.while requires a provider command-"
+            "graph or cooperative persistent-loop plan; host polling is not "
+            "a valid fallback")
     if output.dtype.name not in {
         "float16", "float32", "float64", "complex64", "complex128"
     }:
