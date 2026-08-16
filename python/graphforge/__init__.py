@@ -9,16 +9,20 @@ from __future__ import annotations
 
 from importlib import import_module
 
+from . import autograd, compiler, control, math, runtime, visualize
 from ._version import __version__
-from . import autograd, compiler, control, linalg, math, runtime, visualize
-from .distributed import (
-    ByDestination, DeviceMesh, GraphPlacement, HaloMap, derive_halo_map,
-    collective_halo_maps, exchange_halo,
-)
-from .runtime import Device, DeviceType
-from .program import GraphProgram, ProgramValue, program
 from .control import repeat, while_loop
-from .linalg import LinearOperator
+from .distributed import (
+    ByDestination,
+    DeviceMesh,
+    GraphPlacement,
+    HaloMap,
+    collective_halo_maps,
+    derive_halo_map,
+    exchange_halo,
+)
+from .program import GraphProgram, ProgramValue, program
+from .runtime import Device, DeviceType
 from .tensor import (
     DType,
     Tensor,
@@ -36,7 +40,6 @@ from .tensor import (
     tensor,
     zeros_like,
 )
-
 
 _LAZY_EXPORTS = {
     "AnalysisFinding": (".kernel", "AnalysisFinding"),
@@ -92,38 +95,37 @@ def __getattr__(name: str):
 
 
 __all__ = [
-    "__version__",
     "AnalysisFinding",
     "ByDestination",
     "CompiledVariant",
     "DType",
     "Device",
-    "DeviceType",
     "DeviceMesh",
+    "DeviceType",
     "Graph",
     "GraphPlacement",
-    "HaloMap",
-    "GraphSchema",
     "GraphProgram",
+    "GraphSchema",
+    "HaloMap",
     "Kernel",
-    "LinearOperator",
     "MachineSchedule",
     "MessagePassing",
     "OnlineSoftmaxItem",
     "OnlineSoftmaxReducer",
-    "RadiusGraph",
     "ProgramValue",
+    "RadiusGraph",
     "Reducer",
     "ReducerCall",
     "SumReducer",
     "Tensor",
+    "__version__",
     "autograd",
     "bool",
+    "collective_halo_maps",
+    "compiler",
     "complex64",
     "complex128",
-    "compiler",
     "control",
-    "collective_halo_maps",
     "derive_halo_map",
     "empty",
     "exchange_halo",
@@ -135,17 +137,16 @@ __all__ = [
     "int64",
     "jit",
     "load",
-    "linalg",
     "math",
     "ones_like",
     "online_softmax",
     "program",
     "repeat",
-    "while_loop",
     "runtime",
-    "visualize",
     "save",
     "sum",
     "tensor",
+    "visualize",
+    "while_loop",
     "zeros_like",
 ]

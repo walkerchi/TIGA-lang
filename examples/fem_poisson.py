@@ -9,6 +9,7 @@ Run with ``PYTHONPATH=python python examples/fem_poisson.py``.
 from __future__ import annotations
 
 import graphforge as gf
+from solvers import cg
 
 
 class StiffnessApply(gf.MessagePassing):
@@ -44,27 +45,11 @@ def poisson_operator(interior_nodes: int):
         num_src=interior_nodes,
     )
     stiffness = gf.tensor(values, dtype=gf.float32, requires_grad=True)
-    kernel = StiffnessApply()
-
-    def matvec(displacement: gf.Tensor) -> gf.Tensor:
-        return kernel(
-            graph=graph,
-            src={"u": displacement},
-            dst={},
-            edge={"value": stiffness},
-        )
-
-    return gf.linalg.LinearOperator(
-        (interior_nodes, interior_nodes),
-        matvec=matvec,
-        parameters=(stiffness,),
-        symmetric=True,
-        name="P1PoissonStiffness",
-    ), spacing
+    return StiffnessApply(), graph, stiffness, spacing
 
 
 def run(interior_nodes: int = 8, iterations: int | None = None):
-    operator, spacing = poisson_operator(interior_nodes)
+    kernel, graph, stiffness, spacing = poisson_operator(interior_nodes)
     load = gf.tensor(
         [spacing] * interior_nodes,
         dtype=gf.float32,
@@ -74,7 +59,14 @@ def run(interior_nodes: int = 8, iterations: int | None = None):
     # there: fixed-count CG has no residual guard and intentionally exposes
     # exact-convergence breakdown instead of hiding a host-side tolerance test.
     steps = (interior_nodes + 1) // 2 if iterations is None else iterations
-    solution = gf.linalg.cg(operator, load, iterations=steps)
+    solution = cg(
+        kernel,
+        load,
+        graph=graph,
+        field="u",
+        edge={"value": stiffness},
+        iterations=steps,
+    )
     coordinates = [(index + 1) * spacing for index in range(interior_nodes)]
     exact = [0.5 * x * (1.0 - x) for x in coordinates]
     error = max(abs(actual - expected) for actual, expected in zip(
@@ -89,11 +81,14 @@ def run_until_converged(
     max_iterations: int = 100,
 ):
     """Solve with a residual condition captured as bounded device control."""
-    operator, spacing = poisson_operator(interior_nodes)
+    kernel, graph, stiffness, spacing = poisson_operator(interior_nodes)
     load = gf.tensor([spacing] * interior_nodes, dtype=gf.float32)
-    solution = gf.linalg.cg(
-        operator,
+    solution = cg(
+        kernel,
         load,
+        graph=graph,
+        field="u",
+        edge={"value": stiffness},
         tolerance=tolerance,
         max_iterations=max_iterations,
     )
@@ -106,11 +101,17 @@ def run_until_converged(
 
 def load_gradient(interior_nodes: int = 4):
     """Differentiate through the captured iterations (algorithmic VJP)."""
-    operator, spacing = poisson_operator(interior_nodes)
+    kernel, graph, stiffness, spacing = poisson_operator(interior_nodes)
     load = gf.tensor(
         [spacing] * interior_nodes, dtype=gf.float32, requires_grad=True)
-    solution = gf.linalg.cg(
-        operator, load, iterations=(interior_nodes + 1) // 2)
+    solution = cg(
+        kernel,
+        load,
+        graph=graph,
+        field="u",
+        edge={"value": stiffness},
+        iterations=(interior_nodes + 1) // 2,
+    )
     return gf.autograd.grad(solution.sum(), load)
 
 

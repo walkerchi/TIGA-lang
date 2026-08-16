@@ -9,6 +9,7 @@ written by the user.
 from __future__ import annotations
 
 import graphforge as gf
+from solvers import cg, vector_norm
 
 
 class ShiftedRadiusLaplacian(gf.MessagePassing):
@@ -41,33 +42,31 @@ def solve(
     # The logical relation remains procedural. Its current physical snapshot
     # may be built, streamed, cached, or rebuilt by the selected provider.
     graph = gf.Graph.radius(positions, cutoff=1.01 * spacing)
+    # A MessagePassing kernel bound to a Graph is the linear operator; the
+    # solver binds the iterated vector to the "u" field each iteration.
     apply_laplacian = ShiftedRadiusLaplacian()
-
-    def matvec(value: gf.Tensor) -> gf.Tensor:
-        return apply_laplacian(
-            graph=graph,
-            src={"u": value},
-            dst={"u": value},
-            mass=1.0,
-        )
-
-    operator = gf.linalg.LinearOperator(
-        (points, points),
-        matvec=matvec,
-        symmetric=True,
-        name="ShiftedRadiusLaplacian",
-    )
     rhs = gf.tensor(
         [1.0 + float(index % 3) for index in range(points)],
         dtype=gf.float32,
     )
-    solution = gf.linalg.cg(
-        operator,
+    solution = cg(
+        apply_laplacian,
         rhs,
+        graph=graph,
+        field="u",
+        params={"mass": 1.0},
         tolerance=tolerance,
         max_iterations=max_iterations,
     )
-    residual_norm = gf.linalg.vector_norm(operator(solution) - rhs)
+    residual_norm = vector_norm(
+        apply_laplacian(
+            graph=graph,
+            src={"u": solution},
+            dst={"u": solution},
+            mass=1.0,
+        )
+        - rhs
+    )
     return solution, residual_norm, graph, apply_laplacian
 
 
