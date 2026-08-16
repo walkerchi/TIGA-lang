@@ -85,7 +85,7 @@ kernel。
 - 本地 wheel 已捆绑 `gf-opt`、`gf-translate` 和 runtime，并在两个全新、无 Torch 的 venv
   验证相对 RPATH、native Tensor IR 和工具启动；manylinux_2_38 修复产物及从 sdist 独立重建
   也已通过。正式 PyPI wheel 仍须由 hosted trusted-publishing workflow 发布。当前本机 Python
-  suite 为 233 passed、0 skip、10 subtests，LLVM/MLIR 22.1.8 lit 为 66/66；这不是
+  suite 为 244 passed、0 skip、10 subtests，LLVM/MLIR 22.1.8 lit 为 66/66；这不是
   ROCm/DCU/Metal/PPU 支持声明。
 
 ### 文档权属
@@ -126,6 +126,14 @@ type 等**语言语义**，也可以在 pass 中识别其代数结构，但不�
 
 1. user program → GraphForge IR → generic pass → provider IR 的生成；或
 2. compiler 证明语义等价后 dispatch 外部库。
+
+Solver 等算法层以 **grammar sugar** 形式放在 `examples/`（如
+`examples/solvers.py` 的 matrix-free CG/Richardson）：它们只用公开 primitive
+surface（Tensor 代数、`gf_control`、Graph/MessagePassing/Reducer）组合算法，不引入新
+IR 语义、不被 core import、不进 core wheel，也不占用 core 的 correctness/performance
+gate；性能声明挂在算法自身与注册 case 上。这些 sugar 同时充当 primitive surface 的
+dogfooding：如果一个算法层必须绕过公开 surface 才能实现，说明 primitive 有缺口，
+应回过来补 primitive，而不是让算法层依赖内部 API。
 
 `kernel.reference()` 是 frontend 的语义解释器，只用于 correctness/differential test，不是
 performance backend。手写 SOTA/oracle 放在 `benchmarks/kernels/`，GraphForge runtime 不得导入。
@@ -197,7 +205,8 @@ HBM cache 或 NVMe spill。
 
 - public fine-grained node/edge/neighbor loop language；
 - public schedule/layout/pipeline DSL；
-- 任意 Python control flow 和副作用；
+- 任意 Python control flow 和副作用（编排层 bounded `for`/`while` 的 `@gf.jit` AST
+  子集除外，见 §2.8）；
 - optimizer、NN Module、dataset/data loader 和完整训练框架；
 - 完整 eager Tensor operator surface、高阶梯度与任意 mutation autograd；
 - 任意动态图 edge insertion/deletion；
@@ -945,6 +954,26 @@ compile/cache/launch/build/consume timings
 fallback and unsupported capability
 ```
 
+### 2.9 两层捕获边界与 `@gf.jit`
+
+GraphForge 有两层用户代码捕获，边界必须清晰：
+
+- **UDF region（`edge()`/`node()`/reducer regions）**：proxy tracing。staged 值重载
+  运算符录成 IR；静态 `for range` 在 trace 期展开；data-dependent Python `if` 经
+  `Tensor.__bool__` fail-closed。这层永远不做 AST 解析。
+- **编排层（调用 kernel/Tensor 代数的外层函数）**：可选 `@gf.jit` AST 子集。它把
+  `for i in range(k)` 重写为 `gf_control.repeat`、把裸 `while cond:` 重写为
+  `gf_control.while`（上界来自 `@gf.jit(max_iterations=k)`），`for` body 首句的
+  `if cond: break` 是提前退出。loop-carried 变量由静态规则推导（body 内赋值 ∩
+  循环前已定义，且必须是 Tensor）；`continue`、body 中部 `break`、`while True`、
+  非 `range` 迭代器、loop `else` 全部 fail-closed。
+
+`@gf.jit` 只是拼写层：两种写法 lower 到完全相同的 `gf_control` primitive，
+`gf.control.Repeat/While`（class 主拼写）与 `repeat/while_loop`（functional shorthand）
+继续作为不使用 AST 时的等价入口。闭包变量在装饰时按值快照进 staged globals；
+取不到源码（lambda/REPL/exec）时报错。AST 路线不得进入 UDF region，也不得把
+任意 Python 控制流偷偷变成合法——子集之外的构造必须在 transform 期报错。
+
 ---
 
 ## 3. 语义模型
@@ -1073,7 +1102,7 @@ Effect 是并行正确性契约，而不只是优化 hint：
 | 联合读取固定小邻域 | NeighborhoodKernel → PortGather | WENO、limiter、mixed derivative |
 | 一个 element/face 连接多个 entity | HyperRelation + multi-output assembly | FEM local matrix、finite-volume face flux |
 | 多个 leaf ops 的 SSA DAG | GraphProgram | reconstruction → Riemann flux → divergence → source |
-| 迭代/全局算法 | LinearOperator/solver/task ops | CG、multigrid、FFT、time loop、collective |
+| 迭代/全局算法 | `gf_control.repeat/while` + solver sugar | CG、multigrid、FFT、time loop、collective |
 
 Message region 可包含 fixed-shape vector/matrix/tensor arithmetic、纯 staged helper function，
 并返回 tuple/struct；但不能通过隐藏 global mutation 在多个 relation item 间通信。
@@ -1135,18 +1164,25 @@ register/shared memory、occupancy、重复计算和 distributed communication �
 `explain()` 应显示 fusion group、未融合边及原因。
 
 Implicit solve 不应展开成“很多轮 MessagePassing”后丢失算法结构。Stencil/graph kernel
-只实现 matrix-free apply，solver 保留为高层 op：
+只实现 matrix-free apply；bound 到 Graph 的 MessagePassing kernel 本身就是 linear
+operator，solver 是普通 Python 组合的 grammar sugar（`examples/solvers.py`），不是 core
+接口：
 
 ```python
-A = gf.linalg.LinearOperator(
-    (n, n), matvec=lambda x: Diffusion()(graph=graph, src={"u": x}),
-    symmetric=True,
+x = cg(
+    Diffusion(), b,
+    graph=graph, field="u",
+    tolerance=1e-6, max_iterations=1000,
 )
-x = gf.linalg.cg(A, b, tolerance=1e-6, max_iterations=1000)
 ```
 
-这样 compiler/runtime 看得见 SpMV/stencil apply、dot、norm、preconditioner、收敛条件和
-distributed all-reduce，才能做 pipelined CG、通信 overlap 或调用 PETSc/vendor library。
+Solver sugar 把 matvec、dot、norm、preconditioner 和收敛条件组织进一个有界
+`gf_control.repeat/while` region，因此 compiler/runtime 看得见 SpMV/stencil apply、
+reduction 和 stopping contract。primitive/sugar 边界必须保持清晰：core 只提供
+`gf_control` 控制原语、relation apply 和 Tensor 代数；solver 算法不属于 core（见
+§1.1）。只有当 distributed collective、pipelined CG 或 implicit VJP 需要算法结构作为
+调度/微分证据时，才引入 retained solver op（如 `gf_linalg.solve`）作为 primitive，且
+Python 表面仍是该 op 的 thin staging；不能为了易用性把 solver 实现堆进 core。
 FFT、multigrid 和 sparse direct solve 同理：它们可以消费 Graph/Field view，但保留自己的
 structured op，不能被强制降成无结构 edge traversal。
 
@@ -3048,7 +3084,7 @@ dependency 与 version mismatch 保留 unfused program。
 Tensor、scalar CSR/dense/generated-radius 以及 structured dense online reducer frontend 已由
 C++ OpBuilder 原生构造；Torch compatibility bridge 只保留 typed capture 和显式 tool/provider
 进程边界。native Domain→Iter→Kernel→Task 已改为同一 MLIRContext 内的 pass pipeline；
-serialized TTIR 只保留在 vendor provider ABI 边界。当前 Python suite 为 233 passed、
+serialized TTIR 只保留在 vendor provider ABI 边界。当前 Python suite 为 244 passed、
 0 skip、10 个参数化子测通过；LLVM/MLIR 22.1.8 lit 66/66。以下编号是实现审计，不是第二份
 TODO 台账；所有未完成项只在 §15.3 登记：
 
@@ -3136,7 +3172,9 @@ TODO 台账；所有未完成项只在 §15.3 登记：
     lowering 分别生成 `scf.for/scf.while`，为每个 carried value 复用两个 typed ping-pong
     MemRef，rank-0 reduction/scalar algebra 每迭代 hoist 一次，不在 vector element loop 内重复。
     单状态 CUDA repeat runtime 复用两个 device buffer；多状态 CUDA repeat/while command
-    graph/persistent plan 仍待实现且当前 fail closed，不做 host polling。
+    graph/persistent plan 仍待实现且当前 fail closed，不做 host polling。前端有三种等价
+    拼写：`gf.control.Repeat/While` class（主入口）、`repeat/while_loop` functional
+    shorthand、以及编排层 `@gf.jit` AST 子集（见 §2.9）；三者 lower 到同一 op。
     CSR sum IR 保留真实 `degree_min/max` proof；fixed-degree weighted gather、sum 和任意由
     add/mul/div 组成的 node epilogue 结构融合为 row×neighbor TTIR tile，每次迭代一次 launch，
     未知或长尾 relation 进入任意长度 tiled-loop fallback。fixed repeat 的自动 VJP correctness
@@ -3189,7 +3227,7 @@ benchmark artifact 的能力，`PARTIAL` 不得用于发布声明。每关闭一
 | A0 | DONE | optional Torch adapter productization | zero-copy/current-stream；CSR topology 与 UDF fields 均为显式 functional `torch.library` operands，FakeTensor/meta、registered autograd、四项 `opcheck` 与 Inductor fullgraph forward+backward test/example |
 | V0 | DONE | GPU-native visualization parallel track | 独立 `gf.visualize.heatmap` 只组合通用 Tensor IR，返回可查看 MLIR/TTIR 的 lazy `Raster`；`Tensor.prepare()` 绑定稳定动画 buffer，`to_numpy/save/show` 位于可选 interop/encoding 边界。2048² FP32 scalar→RGB 对 matched torch.compile/Inductor 为 1.153x（CI low 1.140），cold JIT 与 PNG encoding 分开报告；core 无 heatmap/render op |
 | G0 | PARTIAL | representative graph-algorithm compiler probes | fixed-iteration PageRank 已有 `gf_control.repeat`、CPU/CUDA correctness、bounded canonical IR、2-buffer/1-launch-per-iteration artifact，以及 degree 4/16/32 × N65536/262144 的 matched `torch.sparse.mm` roofline/latency benchmark；RTX 5070 Ti 完整 artifact 为 1.049–2.337x（CI low 1.043–2.312），首个 cold provider compile 后其余 shape 的 capture+compile+prepare wall 为 13.70–17.01 ms。fixed repeat 的 pointwise/CSR MessagePassing 自动 VJP correctness fallback 已通过，但反向结构化 loop/tape/performance、设备侧 convergence、BFS frontier/worklist、triangle sorted-intersection 仍待完成；没有用 NetworkX 作性能分母 |
-| L0 | PARTIAL | matrix-free solver compiler probe | `gf.linalg.LinearOperator` 保留 Tensor/MessagePassing `matvec`、adjoint callback 与参数元数据；`gf_control.repeat/while` 已支持多 shape/type carried SSA、variadic yield 和 native verifier，while condition 是 rank-0 `gf_tensor.compare` 且强制 `max_iterations`。CPU lowering 为每个 state 复用 typed double buffer，fixed 路径降到 `scf.for`、residual-driven 路径降到 `scf.while`，rank-0 reduction/scalar algebra 与 multi-use vector SSA（`A(p)`/next residual）每迭代只物化一次，单 use vector 仍融合。`gf.linalg.cg` 同时支持 fixed-count 和 `tolerance + max_iterations`，并接受 callable/LinearOperator preconditioner；一维 P1 FEM 不组装 sparse matrix，generated-radius shifted Laplacian 复用同一 solver API，native radius debug realization 走 uniform cell list。CPU LLVM fixed/residual-driven forward 与 fixed-loop algorithmic VJP 通过。关闭范围仍需 retained `gf_linalg.solve` + `(solution, converged, iterations, residual)` status ABI、multi-state CUDA loop plan、distributed collective semantics、structured reverse loop/tape、residual-guarded implicit adjoint VJP，以及 matched forward/backward performance artifact |
+| L0 | PARTIAL | matrix-free solver compiler probe | solver 是 examples/solvers.py 中的 grammar sugar，不是 core 接口：bound 到 Graph 的 MessagePassing kernel 直接作为 operator（`field=` 命名未知量，常量 edge fields/params 一次绑定），纯 Tensor 代数可用 plain callable，无 `LinearOperator` 包装、无 shape/对称性元数据；`gf_control.repeat/while` 已支持多 shape/type carried SSA、variadic yield 和 native verifier，while condition 是 rank-0 `gf_tensor.compare` 且强制 `max_iterations`。CPU lowering 为每个 state 复用 typed double buffer，fixed 路径降到 `scf.for`、residual-driven 路径降到 `scf.while`，rank-0 reduction/scalar algebra 与 multi-use vector SSA（`A(p)`/next residual）每迭代只物化一次，单 use vector 仍融合。`cg` 同时支持 fixed-count 和 `tolerance + max_iterations`，并接受 callable preconditioner；一维 P1 FEM 不组装 sparse matrix，generated-radius shifted Laplacian 复用同一 solver sugar，native radius debug realization 走 uniform cell list。CPU LLVM fixed/residual-driven forward 与 fixed-loop algorithmic VJP 通过。关闭范围仍需 retained `gf_linalg.solve` + `(solution, converged, iterations, residual)` status ABI、multi-state CUDA loop plan、distributed collective semantics、structured reverse loop/tape、residual-guarded implicit adjoint VJP，以及 matched forward/backward performance artifact |
 
 执行顺序固定为 `C0/C1/C2/C3/C4/C6 → S0/D0/D1/K0 → R0/M0/X0 → B*/J0/P0/A0`；V0 是独立
 track；G0/L0 是以算法驱动 compiler 修改的独立 diagnostic track。外部硬件或发布凭据缺失不会把对应项伪标为 DONE，而应保留 PENDING 并记录可复现的

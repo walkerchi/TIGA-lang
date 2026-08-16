@@ -1158,3 +1158,117 @@ Orthogonal planning:
 
 这份时间线保留“为什么变成现在这样”；任何新决策应先更新 `PROJECT.md` 的现行规范，再在本文
 末尾追加带验证证据的新时间节点。
+
+---
+
+## T35：2026-08-15——删除 LinearOperator：solver 是 sugar，不是 core 接口
+
+**动机**
+
+`gf.linalg.LinearOperator` 把 MessagePassing 包一层 `(shape, matvec=lambda ...)` 才能交给
+solver。但 bound 到 Graph 的 MessagePassing kernel 本身就是 matrix-free linear operator：
+shape 可从 graph schema/rhs 推导，`symmetric` 只是自我声明而非验证，`parameters` 元数据
+与 capture 已有的 Tensor 依赖重复。包装类既不给 compiler 新信息，又强迫用户多写一层
+lambda。同时 `PROJECT.md` §1.1 早已把 “solver 等算法类” 划在 core 之外，`gf.linalg`
+住在 core 里与此矛盾。
+
+**决策**
+
+明确 primitive / grammar-sugar 分层：
+
+- primitive（有 IR 语义）：`gf_tensor`、`gf_control.repeat/while`、relation apply、reducer
+  regions、VJP transform；
+- sugar（纯 Python 组合 primitive，放 `examples/`）：solver。`gf.linalg` 整个从
+  core 删除，`dot/vector_norm/richardson/cg` 移入 `examples/solvers.py`。
+  `PROJECT.md` §1.1 明确 sugar 层规则：不引入新 IR 语义、不被 core import、不进
+  core wheel、不占 core gate，性能声明挂在算法自身；sugar 同时是 primitive
+  surface 的 dogfooding——算法层若必须绕过公开 surface，说明 primitive 有缺口，应补
+  primitive 而不是让 sugar 依赖内部 API。（曾短暂落在 `extensions/gfext/`，评估后
+  认为单独一层不必要，`examples/` 即正确位置。）
+
+Solver 直接消费 MessagePassing 实例：`cg(kernel, rhs, graph=..., field="u", edge=...,
+params=...)`，`field` 命名未知量字段，每次迭代绑定 `src/dst`；常量 edge fields 与 UDF
+params 一次绑定；纯 Tensor 代数（对角 scaling、Jacobi）用 plain `Tensor -> Tensor`
+callable。`LinearOperator`、`rmatvec/adjoint_apply`、`parameters`、`symmetric` 标志全部
+删除，不留 deprecated alias。未来若 distributed collective、pipelined CG 或 implicit VJP
+需要算法结构作为调度/微分证据，才引入 retained `gf_linalg.solve` op 作为 primitive，
+Python 表面仍是 thin staging。
+
+**验证**
+
+- `tests/python/test_solvers.py`（原 test_linalg.py）11 项通过：MessagePassing 直接作
+  operator 的正/负绑定测试、callable 形式、fixed/tolerance CG 的 IR 断言不变；
+- 全量 Python suite：235 passed、0 failed、10 subtests；
+- `examples/fem_poisson.py` 与 `examples/meshfree_linear_solve.py` 直接运行数值正确
+  （max error 9.2e-10 / residual norm 3.2e-7），`gf_control.repeat/while` capture 不变；
+- `mkdocs build --strict` 通过；
+- 全仓 `LinearOperator`/`gf.linalg` 引用清零（仅 L0 ledger 中以“无包装”措辞提及）。
+
+**结论：已落地**
+
+---
+
+## T36：2026-08-15——class 形式的 bounded control
+
+**动机**
+
+`gf.repeat/gf.while_loop` 的 lambda 形式与项目自身惯例不一致：§2.3 早已规定“class 便于
+命名、复用、检查 IR 和持有 specialization，lambda 只是匿名 shorthand”。讨论中否定了
+Taichi/AutoGraph 式 AST 捕获路线——它需要一个 Python 子集前端子系统（源码可得性、
+闭包规则、诊断质量），却只换拼写；现有 proxy tracing 已足够表达循环契约，且 loop-carried
+state 与 `max_iterations` 本来就是必须显式的资源/调度契约，不应由前端猜测。
+
+**决策**
+
+新增 `gf.control.Repeat` / `gf.control.While`：subclass override `body`（While 另有
+`condition`），captured constants 是普通实例属性。class 是主拼写，functional
+`repeat/while_loop` 保留为匿名 shorthand；两者经同一条 tracing 路径 lower 到同一个
+`gf_control.repeat/while` op，零 IR 改动。`@gf.program` 边界的 AST 捕获仍保留为未来可选
+语法糖，不是当前工作项。
+
+**验证**
+
+- `tests/python/test_solvers.py` 新增 class 形式测试：实例属性作为 region capture、
+  与 functional 形式相同的 `gf_control.repeat/while` IR、CPU `scf.while` lowering 与
+  `max_iterations` artifact 断言，未 override 时 fail-closed；12 项全部通过。
+
+**结论：已落地**
+
+---
+
+## T37：2026-08-15——编排层 `@gf.jit` AST 子集
+
+**动机**
+
+`gf.repeat/gf.while_loop` 的三元组写法不够 Pythonic。讨论确认 AST 路线可以做，但边界
+必须划清：AST 只作用于编排层（调用 MessagePassing/Tensor 代数的外层函数），永不进入
+`edge()`/`node()` UDF region（那里维持 proxy tracing）。关键约束是 `max_iterations`
+资源契约不能丢——Python 循环语法本身没有承载它的位置。
+
+**决策**
+
+- 新增 `@gf.jit` / `@gf.jit(max_iterations=k)`（`python/graphforge/jit.py`）：capture 期
+  AST 重写，`for i in range(k)` → `gf_control.repeat`，裸 `while cond:` →
+  `gf_control.while`（上界取装饰器参数），`for` body 首句 `if cond: break` → 提前退出
+  的 bounded while（上界取 range 长度）。循环变量 `i` 被读取时 desugar 为额外 carried
+  rank-0 i64 state。
+- loop-carried 变量由静态规则推导：body 内赋值 ∩ 循环前已定义，且必须是 Tensor；
+  循环内新建变量是 body 局部值。`continue`、body 中部 `break`、`while True`、非 range
+  迭代器、loop `else`、data-dependent `if` 全部 fail-closed，诊断带源码行号。
+- 简单比较条件的 break-if 做结构取反（`<=` → `>`），保持 lowered IR 与手写 functional
+  形式逐字一致；复杂条件回退 `!= True`。
+- 闭包变量在装饰时按值快照进 staged globals；lambda/REPL/exec 无源码时报错。
+- 顺带修复独立安全问题：`Tensor.__bool__` 现在 raise TypeError——此前
+  `if tensor_scalar:` 会静默走真分支。
+
+**验证**
+
+- `tests/python/test_jit.py` 8 项：for/while/for+break 与 functional 形式 IR 等价
+  （`num_carried`、op 计数）、carried 自动推导、循环变量 desugar、MessagePassing 在
+  循环体内、8 类 fail-closed；
+- `examples/solvers.py` 的 `cg`/`richardson` 改用 `@gf.jit` 自然循环写法后，
+  `test_solvers.py` 12 项断言（含 `num_carried=4`、`scf.while`、`arith.cmpf ogt`、
+  VJP 数值）一字未改全部通过——transform 不改变 IR；
+- 全量 Python suite 通过；ruff 与 mkdocs strict 通过。
+
+**结论：已落地**

@@ -216,7 +216,7 @@ multi-GPU NCCL/RCCL measurements, and non-NVIDIA hardware remain open gates.
 | Generated sparse relations | Radius and exact kNN build/consume boundaries | Executable; registered coverage is narrow |
 | Dense implicit relations | Cartesian and triangular traversal without stored edges | Executable and benchmarked |
 | User kernels | Captured edge/node UDF plus built-in or user reducer algebra | Implemented |
-| Structured control | `gf_control.repeat`, bounded IR and two-buffer CPU/CUDA execution | Fixed iteration implemented; device-side convergence pending |
+| Structured control | `gf_control.repeat/while`, bounded IR and two-buffer CPU execution; class (`gf.control.Repeat/While`), functional and `@gf.jit` AST spellings | Fixed iteration and device-side convergence implemented; multi-state CUDA loop plan pending |
 | Autograd | Compiler-derived Tensor and relation VJP; fixed repeat reuses them automatically | Registered UDF/reducer families implemented; reverse control-loop optimization pending |
 | NVIDIA GPU | `gf.domain → gf.iter → gf.kernel → TTIR → vendor Triton → PTX/cubin` | Executable and benchmarked |
 | CPU | `gf_tensor → Vector/SCF/MemRef → LLVM → ExecutionEngine` | Executable and benchmarked |

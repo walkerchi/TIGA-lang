@@ -7,9 +7,12 @@ structure that the compiler can use.
 
 ## The first executable slice
 
-`gf.linalg.LinearOperator` wraps a compiler-visible `matvec`; it does not own a
-dense or sparse matrix. The callback may invoke Tensor code or MessagePassing
-over any `Graph` realization.
+Solvers are grammar sugar, not core API: `examples/solvers.py` composes
+Tensor algebra, relation application and `gf_control` control in
+ordinary Python. The solver loops themselves are written as natural Python
+`for`/`while` under `@gf.jit` and staged into the same control ops. A
+MessagePassing kernel bound to a `Graph` already is the matrix-free operator,
+so it is passed to the solver directly—there is no wrapper object to construct:
 
 ```python
 class StiffnessApply(gf.MessagePassing):
@@ -18,23 +21,32 @@ class StiffnessApply(gf.MessagePassing):
     def edge(self, src, dst, edge):
         return edge.value * src.u
 
-A = gf.linalg.LinearOperator(
-    (n, n),
-    matvec=lambda u: StiffnessApply()(
-        graph=mesh_relation,
-        src={"u": u},
-        dst={},
-        edge={"value": element_coefficients},
-    ),
-    parameters=(element_coefficients,),
-    symmetric=True,
+x = cg(
+    StiffnessApply(),
+    b,
+    graph=mesh_relation,
+    field="u",                       # iterated unknown bound to src/dst
+    edge={"value": element_coefficients},
+    iterations=k,
 )
 
-x = gf.linalg.cg(A, b, iterations=k)
-
 # Or stop from a scalar residual predicate inside bounded device control.
-x = gf.linalg.cg(A, b, tolerance=1e-6, max_iterations=1000)
+x = cg(
+    StiffnessApply(),
+    b,
+    graph=mesh_relation,
+    field="u",
+    edge={"value": element_coefficients},
+    tolerance=1e-6,
+    max_iterations=1000,
+)
 ```
+
+Pure Tensor algebra (diagonal scaling, Jacobi sweeps) can be passed as a plain
+`Tensor -> Tensor` callable instead. The solver validates that each
+application is shape/dtype/device-preserving; it never materializes a matrix.
+The CG contract is symmetric positive-definite, exactly as in scipy—the sugar
+layer does not attempt a symmetry proof.
 
 Fixed Richardson/CG use `gf_control.repeat`; tolerance-driven CG uses a
 mandatory-bounded `gf_control.while`. Both carry `(x, r, p, rᴴz)` as four
@@ -68,14 +80,14 @@ closed-form solution.
 uses exactly the same solver interface with a procedural `Graph.radius`
 relation and a MessagePassing shifted graph Laplacian. The current position
 snapshot determines topology; a changed snapshot invalidates/rebuilds the
-physical relation without changing `LinearOperator` or CG source code.
+physical relation without changing the operator kernel or solver call.
 
 ### FEM topology is not always a radius graph
 
 The example's mesh connectivity is frozen while its stiffness coefficients may
 change. That is the common moving-mesh case: geometry is dynamic, but element
 incidence is not. Remeshing, fracture, contact, or adaptive refinement can
-replace the logical relation snapshot; the `LinearOperator` call remains the
+replace the logical relation snapshot; the solver call remains the
 same. A `Graph.radius` operator is more natural for meshfree/particle methods
 than for ordinary conforming FEM.
 
@@ -94,8 +106,8 @@ faked as pairwise edges when doing so loses the element tensor structure.
 
 ## Fixed and convergence-driven CG
 
-`gf.linalg.cg(..., iterations=k)` emits fixed `repeat` control, while
-`gf.linalg.cg(..., tolerance=eps, max_iterations=k)` emits bounded `while`
+`cg(..., iterations=k)` emits fixed `repeat` control, while
+`cg(..., tolerance=eps, max_iterations=k)` emits bounded `while`
 control with an absolute Euclidean residual contract. Both accept an optional
 compiler-visible preconditioner. Early convergence prevents the next CG
 division from executing; `max_iterations` still provides a finite resource and
@@ -103,13 +115,13 @@ failure bound.
 
 | Primitive | Why the compiler must see it | Status |
 |---|---|---|
-| `LinearOperator.apply` / `adjoint_apply` | preserve matrix-free graph/stencil application and differentiable parameters | executable frontend |
+| MessagePassing apply as operator | preserve matrix-free graph/stencil application and differentiable field/parameter dependencies | executable frontend |
 | element gather/local tensor/scatter | retain higher-order and mixed FEM structure beyond pairwise P1 edges | design exists as hyperrelation; executable solver slice pending |
 | boundary/constraint projection | enforce essential constraints consistently in primal, adjoint, and distributed ownership | pending |
 | dot, norm, scalar comparison | expose reductions and their distributed collective boundary | native Tensor/MLIR/CPU LLVM execution; solver-level distributed collective semantics pending |
 | multi-value loop-carried SSA | keep CG vectors/scalars in one bounded region with reusable buffers | executable frontend + CPU LLVM lowering |
 | bounded `gf_control.while` | device-side convergence with `max_iterations` as a mandatory safety/resource bound | executable frontend/verifier + CPU `scf.while`; GPU provider plans pending |
-| preconditioner operator | permit Jacobi/block/multigrid or provider-library choice without changing CG semantics | callable/`LinearOperator` frontend; schedule/performance gates pending |
+| preconditioner operator | permit Jacobi/block/multigrid or provider-library choice without changing CG semantics | callable frontend; schedule/performance gates pending |
 | multi-state CUDA loop plan | reuse all carried buffers and choose host command graph vs persistent/cooperative execution | pending |
 | loop memory/checkpoint plan | choose saved states, recomputation, or hierarchy spill for reverse mode | fixed-repeat correctness fallback exists; structured reverse loop pending |
 
@@ -160,8 +172,9 @@ rhs VJP:      b_bar = lambda
 parameter VJP: theta_bar = -lambda^T (dA(theta)/dtheta) x
 ```
 
-The user should not write this backward. `LinearOperator.parameters` declares
-which captured fields belong to the operator; GraphForge can apply normal
+The user should not write this backward. The operator's differentiable data is
+already visible: edge/field bindings and UDF parameters are captured Tensor
+dependencies of the MessagePassing apply, so GraphForge can apply normal
 MessagePassing VJP to the scalar contraction `λᵀ A(θ)x`. The forward solution
 and adjoint may use different tolerances or preconditioners, but the API and IR
 must record those choices. Implicit VJP is valid only under a declared
@@ -180,8 +193,9 @@ of `gf_control.repeat/while` remains algorithmic differentiation.
 
 This determines the remaining primitive boundary:
 
-- `gf_linalg.linear_operator`/apply and adjoint regions, including parameter
-  operands rather than opaque Python closures;
+- retained `gf_linalg.solve` operator/adjoint regions, taking the captured
+  MessagePassing apply and its Tensor dependencies directly rather than opaque
+  Python closures;
 - bounded multi-state control, dot/norm/compare, and first-class distributed
   all-reduce dependencies;
 - solver status values and residual policy (`absolute`, `relative`, norm and
@@ -193,9 +207,10 @@ This determines the remaining primitive boundary:
 - element gather/local quadrature/scatter for general FEM, because pairwise
   MessagePassing alone does not retain every element tensor contraction.
 
-`gf.linalg` is the appropriate Python namespace for these semantics. It should
-remain a thin staged frontend to retained IR, not grow into a SciPy-style
-collection of Python solver implementations.
+If that retained op lands, the Python surface stays a thin staging of it. Until
+then, solver code is deliberate grammar sugar in `examples/solvers.py`; the
+core package must not grow a SciPy-style collection of Python solver
+implementations.
 
 ## JIT, fusion, and variants
 

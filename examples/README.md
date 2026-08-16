@@ -55,15 +55,21 @@ python3 examples/compiler_probes/pagerank.py
   adapter for CUDA storage in this first executable provider example;
 - `diffusion.py`: native directional neighbor difference with both source and
   destination fields, node update and automatic field/edge gradients;
-- `fem_poisson.py`: matrix-free one-dimensional P1 stiffness application as a
-  MessagePassing `LinearOperator`; four-state fixed CG is captured inside one
-  multi-result `gf_control.repeat`, and an algorithmic load VJP is generated
-  without a user backward. The same example runs residual-driven CG as one
-  `gf_control.while` with mandatory `max_iterations`; it is a compiler probe,
-  not a CG performance claim;
+- `fem_poisson.py`: matrix-free one-dimensional P1 stiffness application; the
+  MessagePassing kernel itself is the linear operator passed to `solvers.cg`.
+  Four-state fixed CG is captured inside one multi-result `gf_control.repeat`,
+  and an algorithmic load VJP is generated without a user backward. The same
+  example runs residual-driven CG as one `gf_control.while` with mandatory
+  `max_iterations`; it is a compiler probe, not a CG performance claim;
 - `meshfree_linear_solve.py`: a generated radius relation feeds an ordinary
-  shifted-Laplacian MessagePassing `LinearOperator`; tolerance CG keeps its
-  four states and residual predicate inside one bounded device control region;
+  shifted-Laplacian MessagePassing kernel used directly as the operator;
+  tolerance CG keeps its four states and residual predicate inside one bounded
+  device control region;
+- `solvers.py`: grammar-sugar stationary solvers (`dot`, `vector_norm`,
+  `richardson`, `cg`) composed from `gf_control` primitives, with the loops
+  written as natural Python `for`/`while` under `@gf.jit`; a MessagePassing
+  kernel bound to a Graph is the operator, no wrapper object. Shared by the
+  solver examples; deliberately not part of the core package;
 - `gcn.py`: native multi-feature aggregation with edge broadcasting and
   automatic gradients, matching the SpMM/GCN tensor shape;
 - `custom_reducer.py`: Torch-free execution of a user-defined tuple-state mean

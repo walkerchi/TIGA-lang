@@ -10,8 +10,9 @@ algorithm operator.
 | `message_passing_autograd.py` | static CSR UDF + sum VJP + checkpoint policy | native `gf_tensor` → LLVM CPU JIT / CUDA TTIR |
 | `gcn.py` | static CSR, vector sum and broadcast VJP | native relation Tensor IR |
 | `diffusion.py` | source/destination message + node update VJP | native relation Tensor IR |
-| `fem_poisson.py` | matrix-free P1 stiffness MessagePassing inside fixed or residual-driven CG | `LinearOperator` + multi-result `gf_control.repeat/while`; fixed-loop algorithmic VJP exists, implicit VJP not yet claimed |
-| `meshfree_linear_solve.py` | generated radius graph + MessagePassing shifted Laplacian + residual-driven CG | dynamic relation snapshot + `LinearOperator` + bounded `gf_control.while` |
+| `fem_poisson.py` | matrix-free P1 stiffness MessagePassing inside fixed or residual-driven CG | kernel-as-operator + multi-result `gf_control.repeat/while`; fixed-loop algorithmic VJP exists, implicit VJP not yet claimed |
+| `meshfree_linear_solve.py` | generated radius graph + MessagePassing shifted Laplacian + residual-driven CG | dynamic relation snapshot + kernel-as-operator + bounded `gf_control.while` |
+| `solvers.py` | shared solver sugar (`dot`, `vector_norm`, `richardson`, `cg`) used by the solver examples | natural `for`/`while` under `@gf.jit`; not part of the core package |
 | `custom_reducer.py` | user tuple-state mean algebra | structural additive lowering + native automatic VJP |
 | `tensor_matmul.py` | rank-2 contraction and both operand gradients | CPU LLVM / FP16 GPU `tt.dot` |
 | `distributed_halo.py` | paged `.gfg`, two-process rank-local forward and VJP | bounded shard read + automatic owner→ghost/reverse exchange |

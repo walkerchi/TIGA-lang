@@ -89,29 +89,34 @@ loops and launch bounds static while avoiding one user kernel per input size.
 initializing a process group. Deployment binds it to Torch `DeviceMesh`, MPI,
 NCCL/RCCL or a vendor communicator.
 
-## `linalg`
+## `control`
 
-- `gf.linalg.LinearOperator((rows, cols), matvec=..., rmatvec=None,
-  parameters=(), symmetric=False)` preserves a matrix-free Tensor or
-  MessagePassing application. It validates vector shape, dtype, and device but
-  never materializes coefficients as a matrix.
-- `operator.adjoint_apply(v)` uses `rmatvec`, or `matvec` when the operator was
-  declared symmetric.
-- `gf.linalg.dot(x, y)` and `gf.linalg.vector_norm(x)` remain ordinary Tensor
-  algebra today; a distributed plan may later promote their reductions to
-  explicit collective tasks.
-- `gf.linalg.richardson(operator, rhs, iterations=..., relaxation=...,
-  initial=None)` captures one fixed-count `gf_control.repeat` region.
-- `gf.linalg.cg(operator, rhs, iterations=..., initial=None,
-  preconditioner=None)` carries solution/residual/direction/scalar state in one
-  multi-result `gf_control.repeat`. The preconditioner may be a
-  `LinearOperator` or Tensor callable.
-- `gf.linalg.cg(operator, rhs, tolerance=..., max_iterations=...,
-  preconditioner=None)` emits a rank-zero residual comparison and a bounded
-  multi-result `gf_control.while`; CPU lowers it to `scf.while` without host
-  polling. CUDA currently fails closed until a provider loop plan exists.
-- `gf.while_loop(initial, condition, body, max_iterations=...)` is the generic
-  bounded control primitive. Condition must return a scalar boolean Tensor.
+- `gf.control.Repeat` / `gf.control.While` are the primary, class-based
+  spelling of bounded control: subclass and override `body` (and `condition`
+  for `While`); captured constants are ordinary instance attributes. This
+  matches the MessagePassing builder convention—named, reusable, inspectable.
+- `gf.repeat(initial, body, iterations=...)` / `gf.while_loop(initial,
+  condition, body, max_iterations=...)` are the anonymous shorthand for the
+  same `gf_control.repeat` / `gf_control.while` ops. `initial` may be a
+  Tensor tuple; CPU lowering allocates two reusable buffers per carried
+  value. A `while` condition must return a rank-zero boolean Tensor; CPU
+  lowers it to `scf.while` without host polling. CUDA currently fails closed
+  until a provider loop plan exists.
+- `@gf.jit` is the optional AST spelling for orchestration-level functions:
+  `for i in range(k)` becomes `gf_control.repeat` and a bare `while cond:`
+  becomes `gf_control.while` bounded by `@gf.jit(max_iterations=k)`. A
+  leading `if cond: break` in a `for` body is an early exit. Loop-carried
+  variables are Tensors assigned before the loop; `continue`, mid-body
+  `break`, `while True`, non-range iteration and loop `else` fail closed.
+  MessagePassing UDF regions are never AST-transformed. A `Tensor` used as a
+  Python boolean (`if tensor:`) raises `TypeError`.
+
+Stationary solvers are grammar sugar over these primitives, not core API:
+[examples/solvers.py](https://github.com/walkerchi/graphforge/blob/main/examples/solvers.py)
+provides `dot`, `vector_norm`, `richardson` and `cg`. A `MessagePassing`
+kernel bound to a `Graph` is passed as the operator directly, with `field=`
+naming the iterated unknown; plain `Tensor -> Tensor` callables work for pure
+Tensor algebra. No matrix is materialized.
 
 Structured reverse loops and implicit solve VJP are not yet public APIs. The
 [solver design page](linear-solvers.md) defines their required compiler

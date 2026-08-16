@@ -140,7 +140,7 @@ and retains collective dependencies in `gf.task`.
 Linear solves add a second differentiation contract. Finite fixed iterations
 currently use the ordinary algorithmic VJP; the reverse correctness path grows
 with iteration count. A converged implicit solve instead requires an adjoint
-`LinearOperator` solve and a compiler-generated parameter contraction. See
+operator solve and a compiler-generated parameter contraction. See
 [matrix-free solvers and implicit differentiation](linear-solvers.md); no
 implicit-solve performance claim is made yet.
 
