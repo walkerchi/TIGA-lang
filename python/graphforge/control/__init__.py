@@ -202,4 +202,63 @@ def while_loop(
     return results[0] if single else results
 
 
-__all__ = ["repeat", "while_loop"]
+class Repeat:
+    """Class-based fixed-count control: subclass and override ``body``.
+
+    The class form is the primary spelling, matching the MessagePassing
+    builder convention: instances carry their captured constants as ordinary
+    attributes, can be named, reused and inspected, while the functional
+    ``repeat`` remains the anonymous shorthand. Both lower to the same
+    ``gf_control.repeat`` op; ``body`` is traced exactly once either way.
+
+    ```python
+    class Integrate(gf.control.Repeat):
+        def __init__(self, rate):
+            self.rate = rate
+
+        def body(self, value):
+            return value + self.rate * value
+
+    result = Integrate(0.1)(initial, iterations=100)
+    ```
+    """
+
+    def body(self, *states: Tensor) -> Tensor | Sequence[Tensor]:
+        raise NotImplementedError
+
+    def __call__(
+        self,
+        initial: Tensor | Sequence[Tensor],
+        *,
+        iterations: int,
+    ) -> Tensor | tuple[Tensor, ...]:
+        return repeat(initial, self.body, iterations=iterations)
+
+
+class While:
+    """Class-based bounded data-dependent control.
+
+    ``condition`` and ``body`` are each traced once over the same carried
+    Tensor placeholders; the condition must return a rank-zero boolean
+    Tensor. ``max_iterations`` is mandatory and remains in semantic IR as a
+    finite resource/specialization guard even when the loop converges
+    earlier. Lowers to the same ``gf_control.while`` op as ``while_loop``.
+    """
+
+    def condition(self, *states: Tensor) -> Tensor:
+        raise NotImplementedError
+
+    def body(self, *states: Tensor) -> Tensor | Sequence[Tensor]:
+        raise NotImplementedError
+
+    def __call__(
+        self,
+        initial: Tensor | Sequence[Tensor],
+        *,
+        max_iterations: int,
+    ) -> Tensor | tuple[Tensor, ...]:
+        return while_loop(
+            initial, self.condition, self.body, max_iterations=max_iterations)
+
+
+__all__ = ["Repeat", "While", "repeat", "while_loop"]
