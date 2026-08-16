@@ -538,6 +538,12 @@ class Tensor:
     def __ge__(self, other: Tensor | int | float) -> Tensor:
         return self._compare("ge", other)
 
+    def __bool__(self) -> bool:
+        raise TypeError(
+            "a graphforge.Tensor cannot be used as a Python boolean: its "
+            "value lives behind lazy/device execution. Use an @gf.jit loop, "
+            "gf.control.while_loop, or an explicit observation like tolist()")
+
     def __mul__(self, other: Tensor | int | float | complex) -> Tensor:
         return self._binary("mul", other)
 
