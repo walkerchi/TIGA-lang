@@ -1,4 +1,4 @@
-# RFC 0001: GraphForge architecture
+# RFC 0001: Tiga architecture
 
 Status: discussion draft
 
@@ -7,7 +7,7 @@ Status: discussion draft
 Broad message passing can be a unifying semantic interface when its relations
 retain affine, butterfly, hypergraph, hierarchical and dynamic structure.  A
 flat sparse `src/dst` message-passing IR must not be the universal compiler IR.
-GraphForge should expose relations and reductions at the user level while
+Tiga should expose relations and reductions at the user level while
 preserving structured stencils, tensor contractions, collectives, scans/sorts,
 external solvers and task dependencies until a profitable lowering is known.
 
@@ -173,8 +173,8 @@ events.  “Native distributed” therefore lives above a single device kernel.
 ## Repository shape
 
 ```text
-python/graphforge/       Python API, capture and framework adapters
-include/graphforge/      public C++ runtime/compiler API
+python/tiga/       Python API, capture and framework adapters
+include/tiga/      public C++ runtime/compiler API
 lib/Dialect/             domain, iter, task and kernel MLIR dialects
 lib/Transforms/          domain/sparse/distributed/schedule passes
 lib/Target/              cpu, cuda, hip, ppu and plugin targets

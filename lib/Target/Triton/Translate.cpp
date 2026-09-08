@@ -465,7 +465,7 @@ static void emitGeneratedRadiusDistanceTTIR(llvm::raw_ostream &output,
                                             double cutoff, bool periodic) {
   (void)numRows;
   constexpr int64_t blockD = 32;
-  output << "// graphforge.launch entry=gf_generated_radius_distance_sum "
+  output << "// tiga.launch entry=gf_generated_radius_distance_sum "
             "block_rows=1 num_warps=1 "
             "abi=cell_ptr,particle_order,cell_coordinates,extents,strides,"
             "neighbor_offsets,lattice,inverse_lattice,positions,x,out\n"
@@ -762,7 +762,7 @@ static int64_t nextPowerOfTwo(int64_t value) {
 static void emitBoundedRaggedTTIR(llvm::raw_ostream &output, StringRef index,
                                   int64_t numRows, int64_t blockM,
                                   int64_t blockD, int64_t numWarps) {
-  output << "// graphforge.launch entry=gf_csr_weighted_sum block_rows="
+  output << "// tiga.launch entry=gf_csr_weighted_sum block_rows="
          << blockM << " num_warps=" << numWarps
          << " abi=row_ptr,col_idx,x,weight,out\n"
          << "module {\n"
@@ -995,7 +995,7 @@ static void emitFixedDegreeTTIR(llvm::raw_ostream &output, StringRef index,
                                 int64_t numRows, int64_t degree,
                                 int64_t blockM, int64_t blockD,
                                 int64_t numWarps) {
-  output << "// graphforge.launch entry=gf_csr_weighted_sum block_rows="
+  output << "// tiga.launch entry=gf_csr_weighted_sum block_rows="
          << blockM << " num_warps=" << numWarps
          << " abi=row_ptr,col_idx,x,weight,out\n"
          << "module {\n"
@@ -1149,7 +1149,7 @@ static LogicalResult emitFixedDegreeProductMultiplyTTIR(
   std::string rowsI1 = "tensor<" + std::to_string(blockM) + "xi1>";
   std::string rowsF32 = "tensor<" + std::to_string(blockM) + "xf32>";
 
-  o << "// graphforge.launch entry=gf_csr_product_additive_tile block_rows="
+  o << "// tiga.launch entry=gf_csr_product_additive_tile block_rows="
     << blockM << " num_warps=" << numWarps
     << " abi=row_ptr,col_idx,";
   for (StringRef name : arguments) o << name << ",";
@@ -1279,7 +1279,7 @@ static void emitFixedDegreeVectorTTIR(
     int64_t features, int64_t blockM, int64_t blockD, int64_t numWarps,
     bool ragged = false) {
   StringRef edgeOffsetType = ragged ? index : "i32";
-  o << "// graphforge.launch entry=gf_csr_weighted_sum block_rows="
+  o << "// tiga.launch entry=gf_csr_weighted_sum block_rows="
     << blockM << " num_warps=" << numWarps
     << " abi=row_ptr,col_idx,x,weight,out\n"
     << "module {\n"
@@ -1475,10 +1475,10 @@ static void emitDenseStreamingTTIR(llvm::raw_ostream &o, int64_t rows,
   bool lowerInclusive = boundary == "lower_inclusive";
   int64_t laneStride = rows * width;
   int64_t laneGroup = lanes / sourceLanes;
-  o << "// graphforge.launch entry=gf_dense_streaming_reduce block_rows="
+  o << "// tiga.launch entry=gf_dense_streaming_reduce block_rows="
     << blockM << " num_warps=" << numWarps
     << " abi=lhs,rhs,payload,scale,out\n"
-    << "// graphforge.reducer block_prune=";
+    << "// tiga.reducer block_prune=";
   if (approximate)
     o << llvm::formatv("{0:F8}", blockPruneThreshold);
   else
@@ -1850,7 +1850,7 @@ static LogicalResult translateDenseScalarAlgebra(
       reducer.getMessageTypes().size())
     return reject(launch, "edge message arity does not match reducer ABI");
 
-  output << "// graphforge.launch entry=gf_dense_scalar_reduce block_rows=1 "
+  output << "// tiga.launch entry=gf_dense_scalar_reduce block_rows=1 "
             "num_warps=1 abi=";
   for (StringRef name : argumentNames) output << name << ",";
   output << "out\nmodule {\n"
@@ -2227,10 +2227,10 @@ static LogicalResult translateRankedRelation(
     arguments.push_back(occurrence ? base + std::to_string(occurrence) : base);
   }
   arguments.push_back("out");
-  output << "// graphforge.launch entry=gf_ranked_select_consume block_rows=1 "
+  output << "// tiga.launch entry=gf_ranked_select_consume block_rows=1 "
             "num_warps=" << warpsAttr.getInt()
          << " abi=query_positions,candidate_positions,inputs,out\n"
-         << "// graphforge.ranked candidate_tile=" << tile << " k=" << k
+         << "// tiga.ranked candidate_tile=" << tile << " k=" << k
          << " selection_width=" << selectionWidth
          << " merge_fan_in=" << launch.getMergeFanInAttr().getInt()
          << "\nmodule {\n"
@@ -2491,7 +2491,7 @@ static LogicalResult translateCSRAdditiveTile(
   std::string tileF32 = "tensor<" + std::to_string(blockD) + "xf32>";
   std::string tileIndex =
       "tensor<" + std::to_string(blockD) + "x" + indexType.str() + ">";
-  output << "// graphforge.launch entry=gf_csr_additive_tile block_rows=1 "
+  output << "// tiga.launch entry=gf_csr_additive_tile block_rows=1 "
             "num_warps=1 abi=row_ptr,col_idx,";
   for (StringRef name : argumentNames) output << name << ",";
   output << "out\nmodule {\n  tt.func public @gf_csr_additive_tile("
@@ -2695,7 +2695,7 @@ static LogicalResult translateCSRProductAdditiveTile(
   std::string tileI1 = "tensor<" + std::to_string(blockD) + "xi1>";
   std::string tileIndex = "tensor<" + std::to_string(blockD) + "x" +
                           indexType.str() + ">";
-  output << "// graphforge.launch entry=gf_csr_product_additive_tile "
+  output << "// tiga.launch entry=gf_csr_product_additive_tile "
             "block_rows=1 num_warps=1 abi=row_ptr,col_idx,";
   for (StringRef name : argumentNames) output << name << ",";
   for (unsigned result = 0; result < launch.getNumResults(); ++result)
@@ -2934,7 +2934,7 @@ static LogicalResult translateCSRRowsTile(
       : additive ? "gf_csr_additive_tile"
       : stableWeighted ? "gf_csr_stable_weighted_tile"
                        : "gf_csr_algebra_tile";
-  output << "// graphforge.launch entry=" << entry << " block_rows="
+  output << "// tiga.launch entry=" << entry << " block_rows="
          << blockM << " num_warps=" << numWarps
          << " abi=row_ptr,col_idx,";
   for (StringRef name : argumentNames) output << name << ",";
@@ -3357,7 +3357,7 @@ static LogicalResult translateCSRScalarAlgebra(
                       static_cast<int64_t>(nodeIndices.size())))
     return reject(launch, "generic CSR node requires its explicit indexed ABI");
 
-  output << "// graphforge.launch entry=gf_csr_scalar_reduce block_rows=1 "
+  output << "// tiga.launch entry=gf_csr_scalar_reduce block_rows=1 "
             "num_warps=1 abi=row_ptr,col_idx,";
   for (StringRef name : argumentNames) output << name << ",";
   output << "out\nmodule {\n"
@@ -3724,7 +3724,7 @@ static LogicalResult translateKernelToTriton(Operation *root,
                           blockRows, blockNeighbors, numWarps);
     return success();
   }
-  output << "// graphforge.launch entry=gf_csr_weighted_sum block_rows=1 "
+  output << "// tiga.launch entry=gf_csr_weighted_sum block_rows=1 "
             "num_warps=4 abi=row_ptr,col_idx,x,weight,out\n"
          << "module {\n"
          << "  tt.func public @gf_csr_weighted_sum("
@@ -3889,7 +3889,7 @@ static LogicalResult translateTaskToBundle(Operation *root,
     llvm::raw_string_ostream o(text);
     int64_t elements = 2 * buckets + 1;
     int64_t block = nextPowerOfTwo(elements);
-    o << "// graphforge.launch entry=gf_degree_reset block_rows=" << block
+    o << "// tiga.launch entry=gf_degree_reset block_rows=" << block
       << " num_warps=1 abi=row_worklist\nmodule {\n"
       << "  tt.func public @gf_degree_reset(%row_worklist: !tt.ptr<i64>) "
          "attributes {noinline = false} {\n"
@@ -3933,7 +3933,7 @@ static LogicalResult translateTaskToBundle(Operation *root,
                            ArrayRef<int64_t> bounds) {
     std::string text;
     llvm::raw_string_ostream o(text);
-    o << "// graphforge.launch entry=gf_degree_histogram block_rows=1 "
+    o << "// tiga.launch entry=gf_degree_histogram block_rows=1 "
          "num_warps=1 abi=row_ptr,row_worklist\nmodule {\n"
       << "  tt.func public @gf_degree_histogram(%row_ptr: !tt.ptr<" << index
       << ">, %row_worklist: !tt.ptr<i64>) attributes {noinline = false} {\n"
@@ -3961,7 +3961,7 @@ static LogicalResult translateTaskToBundle(Operation *root,
   auto prefixTTIR = [](int64_t buckets) {
     std::string text;
     llvm::raw_string_ostream o(text);
-    o << "// graphforge.launch entry=gf_degree_prefix block_rows=1 num_warps=1 "
+    o << "// tiga.launch entry=gf_degree_prefix block_rows=1 num_warps=1 "
          "abi=row_worklist\nmodule {\n"
       << "  tt.func public @gf_degree_prefix(%row_worklist: !tt.ptr<i64>) "
          "attributes {noinline = false} {\n"
@@ -3996,7 +3996,7 @@ static LogicalResult translateTaskToBundle(Operation *root,
     std::string text;
     llvm::raw_string_ostream o(text);
     int64_t buckets = bounds.size();
-    o << "// graphforge.launch entry=gf_degree_scatter block_rows=1 num_warps=1 "
+    o << "// tiga.launch entry=gf_degree_scatter block_rows=1 num_warps=1 "
          "abi=row_ptr,row_worklist\nmodule {\n"
       << "  tt.func public @gf_degree_scatter(%row_ptr: !tt.ptr<" << index
       << ">, %row_worklist: !tt.ptr<i64>) attributes {noinline = false} {\n"
@@ -4053,7 +4053,7 @@ static LogicalResult translateTaskToBundle(Operation *root,
     std::string tileIndex = "tensor<64x" + index.str() + ">";
     std::string text;
     llvm::raw_string_ostream o(text);
-    o << "// graphforge.launch entry=gf_row_split_partial block_rows=1 "
+    o << "// tiga.launch entry=gf_row_split_partial block_rows=1 "
          "num_warps=1 abi=row_ptr,col_idx,";
     for (StringRef name : argumentNames) o << name << ",";
     o << "partials,row_worklist\nmodule {\n  tt.func public @gf_row_split_partial("
@@ -4178,7 +4178,7 @@ static LogicalResult translateTaskToBundle(Operation *root,
       return failure();
     std::string text;
     llvm::raw_string_ostream o(text);
-    o << "// graphforge.launch entry=gf_row_split_finalize block_rows=1 "
+    o << "// tiga.launch entry=gf_row_split_finalize block_rows=1 "
          "num_warps=1 abi=partials,row_worklist,out\nmodule {\n"
       << "  tt.func public @gf_row_split_finalize(%partials: !tt.ptr<f32>, "
          "%row_worklist: !tt.ptr<i64>, %out: !tt.ptr<f32>) attributes {noinline = false} {\n"
@@ -4260,7 +4260,7 @@ static LogicalResult translateTaskToBundle(Operation *root,
     llvm::raw_string_ostream o(text);
     std::string entry = "gf_csr_additive_bucket_chunked_" +
                         std::to_string(op.getBucketOrdinalAttr().getInt());
-    o << "// graphforge.launch entry=" << entry
+    o << "// tiga.launch entry=" << entry
       << " block_rows=1 num_warps=1 abi=row_ptr,col_idx,";
     for (StringRef name : argumentNames) o << name << ",";
     o << "row_worklist,out\nmodule {\n  tt.func public @" << entry << "("
@@ -4962,7 +4962,7 @@ static LogicalResult translateTaskToBundle(Operation *root,
     appendTerminal(op.getOperation(), op.getJoined());
 
   llvm::json::Object document{
-      {"schema", "graphforge.executable-bundle-plan.v1"},
+      {"schema", "tiga.executable-bundle-plan.v1"},
       {"resources", std::move(resources)},
       {"invocations", std::move(invocations)},
       {"terminals", std::move(terminals)}};
@@ -5032,7 +5032,7 @@ public:
     if (inputs.empty())
       return reduction.emitError("requires at least one gf_tensor.input");
 
-    output << "// graphforge.tensor entry=gf_tensor_fused_reduce "
+    output << "// tiga.tensor entry=gf_tensor_fused_reduce "
               "block_rows=1 block_elements="
            << blockSize << " num_warps=4 abi=";
     for (auto [index, input] : llvm::enumerate(inputs)) {
@@ -5385,7 +5385,7 @@ public:
     SmallVector<tensor::InputOp> inputs;
     function.walk([&](tensor::InputOp value) { inputs.push_back(value); });
     DenseMap<Value, unsigned> arguments;
-    output << "// graphforge.tensor entry=gf_tensor_segment_sum block_rows=1 "
+    output << "// tiga.tensor entry=gf_tensor_segment_sum block_rows=1 "
               "block_elements="
            << blockSize << " num_warps=4 abi=";
     for (auto [ordinal, value] : llvm::enumerate(inputs)) {
@@ -5573,7 +5573,7 @@ public:
     SmallVector<tensor::InputOp> inputs;
     function.walk([&](tensor::InputOp value) { inputs.push_back(value); });
     DenseMap<Value, unsigned> arguments;
-    output << "// graphforge.tensor entry=gf_tensor_csr_product block_rows=1 "
+    output << "// tiga.tensor entry=gf_tensor_csr_product block_rows=1 "
               "block_elements=" << blockSize << " num_warps=4 abi=";
     for (auto [ordinal, value] : llvm::enumerate(inputs)) {
       if (ordinal) output << ",";
@@ -5758,7 +5758,7 @@ public:
     SmallVector<tensor::InputOp> inputs;
     function.walk([&](tensor::InputOp value) { inputs.push_back(value); });
     DenseMap<Value, unsigned> arguments;
-    output << "// graphforge.tensor entry=gf_tensor_csr_product_vjp block_rows=1 "
+    output << "// tiga.tensor entry=gf_tensor_csr_product_vjp block_rows=1 "
               "block_elements=" << blockSize << " num_warps=4 abi=";
     for (auto [ordinal, value] : llvm::enumerate(inputs)) {
       if (ordinal) output << ",";
@@ -5956,7 +5956,7 @@ private:
     SmallVector<tensor::InputOp> inputs;
     function.walk([&](tensor::InputOp value) { inputs.push_back(value); });
     DenseMap<Value, unsigned> arguments;
-    output << "// graphforge.tensor entry=gf_tensor_csr_product_vjp block_rows=1 "
+    output << "// tiga.tensor entry=gf_tensor_csr_product_vjp block_rows=1 "
               "block_elements=" << blockSize << " num_warps="
            << (blockSize <= 16 ? 1 : 4) << " abi=";
     for (auto [ordinal, value] : llvm::enumerate(inputs)) {
@@ -6188,7 +6188,7 @@ public:
     int64_t k = lhsType.getDimSize(1);
     int64_t n = rhsType.getDimSize(1);
     int64_t gridN = (n + BN - 1) / BN;
-    output << "// graphforge.tensor entry=gf_tensor_matmul block_rows=" << BM
+    output << "// tiga.tensor entry=gf_tensor_matmul block_rows=" << BM
            << " block_elements=" << BN
            << " num_warps=4 abi=arg0,arg1,out\nmodule {\n"
            << "  tt.func public @gf_tensor_matmul(%arg0: !tt.ptr<f16>, "
@@ -6420,7 +6420,7 @@ public:
               "complex CUDA pointwise currently requires contiguous inputs");
       }
     }
-    output << "// graphforge.tensor entry=gf_tensor_pointwise "
+    output << "// tiga.tensor entry=gf_tensor_pointwise "
               "block_rows=" << blockSize << " block_elements=" << blockSize
            << " num_warps=8 abi=";
     for (auto [index, input] : llvm::enumerate(inputs)) {
@@ -6689,7 +6689,7 @@ public:
 
     StringRef indexName = rowType.getElementType().isInteger(32) ? "i32" : "i64";
     int64_t numWarps = std::max<int64_t>(1, blockSize / 32);
-    output << "// graphforge.tensor entry=gf_tensor_csr_sum_epilogue "
+    output << "// tiga.tensor entry=gf_tensor_csr_sum_epilogue "
               "block_rows=1 block_elements="
            << blockSize << " num_warps=" << numWarps << " abi=";
     for (auto [ordinal, input] : llvm::enumerate(inputs)) {
@@ -6953,7 +6953,7 @@ private:
     std::string rowsI1 = "tensor<" + std::to_string(blockM) + "xi1>";
     std::string rowsF32 = "tensor<" + std::to_string(blockM) + "xf32>";
 
-    output << "// graphforge.tensor entry=gf_tensor_csr_sum_epilogue "
+    output << "// tiga.tensor entry=gf_tensor_csr_sum_epilogue "
               "block_rows=" << blockM << " block_elements=" << blockD
            << " num_warps=" << numWarps << " abi=";
     for (auto [ordinal, input] : llvm::enumerate(inputs)) {
@@ -7314,7 +7314,7 @@ public:
             "i32/i64 indices");
     }
 
-    output << "// graphforge.tensor entry=gf_tensor_pointwise "
+    output << "// tiga.tensor entry=gf_tensor_pointwise "
               "block_rows=" << blockSize << " block_elements=" << blockSize
            << " num_warps=8 abi=";
     for (auto [index, input] : llvm::enumerate(inputs)) {
@@ -7852,7 +7852,7 @@ public:
     StringRef element = type.getElementType().isF16()
                             ? "f16"
                             : type.getElementType().isF32() ? "f32" : "f64";
-    output << "// graphforge.tensor entry=gf_tensor_cumsum block_rows=1 "
+    output << "// tiga.tensor entry=gf_tensor_cumsum block_rows=1 "
               "block_elements=1 num_warps=1 abi=arg0,out\n"
            << "module {\n  tt.func public @gf_tensor_cumsum(%arg0: !tt.ptr<"
            << element << ">, %out: !tt.ptr<" << element
@@ -8003,7 +8003,7 @@ static LogicalResult translateTensorScanContract(
     return reduction.emitError("scan-contract requires three function ABI inputs");
   constexpr int64_t BV = 16;
   int64_t valueTiles = (valueWidth + BV - 1) / BV;
-  output << "// graphforge.tensor entry=gf_tensor_scan_contract block_rows=1 "
+  output << "// tiga.tensor entry=gf_tensor_scan_contract block_rows=1 "
             "block_elements=16 num_warps=1 abi=arg0,arg1,arg2,out\n"
          << "module {\n  tt.func public @gf_tensor_scan_contract("
          << "%arg0: !tt.ptr<f32>, %arg1: !tt.ptr<f32>, "
@@ -8110,7 +8110,7 @@ public:
         return vjp.emitError("GPU Euclidean CSR VJP requires direct ABI inputs");
       arguments.push_back(argument.getArgNumber());
     }
-    output << "// graphforge.tensor "
+    output << "// tiga.tensor "
               "entry=gf_tensor_csr_euclidean_distance_sum_vjp "
               "block_rows=" << block << " block_elements=" << block
            << " num_warps=8 abi=";

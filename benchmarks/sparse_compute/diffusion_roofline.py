@@ -9,7 +9,7 @@ import warnings
 from dataclasses import asdict
 from pathlib import Path
 
-import graphforge as gf
+import tiga as gf
 import torch
 
 from benchmarks.common.hardware_roofline import (
@@ -129,13 +129,13 @@ def main():
         return output
 
     providers["torch.index_add"] = torch_scatter
-    providers["graphforge.auto"] = lambda: gf_kernel(
+    providers["tiga.auto"] = lambda: gf_kernel(
         graph=graph,
         src={"u": x},
         dst={"u": x},
         edge={"weight": weight},
     )
-    providers["graphforge.reference"] = lambda: gf_kernel.reference(
+    providers["tiga.reference"] = lambda: gf_kernel.reference(
         graph=graph,
         src={"u": x},
         dst={"u": x},
@@ -235,10 +235,10 @@ def main():
                 f"{item['gedges_per_second']:9.2f} {achieved:8.1f} "
                 f"{item['algorithmic_gbs_no_reuse']:9.1f} "
                 f"{item['percent_of_optimistic_roof']:6.1f}")
-    gates = evaluate_sota_gates(all_results, ["graphforge.auto"])
+    gates = evaluate_sota_gates(all_results, ["tiga.auto"])
     for gate in gates:
         print(
-            f"SOTA {'PASS' if gate.passed else 'FAIL'} graphforge.auto "
+            f"SOTA {'PASS' if gate.passed else 'FAIL'} tiga.auto "
             f"cache={gate.cache}: {gate.speedup_vs_sota:.3f}x vs "
             f"{gate.baseline}, 95%CI=[{gate.speedup_ci_low:.3f},"
             f"{gate.speedup_ci_high:.3f}]")

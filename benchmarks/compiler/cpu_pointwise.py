@@ -1,4 +1,4 @@
-"""CPU vector/parallel GraphForge lowering against Torch/Inductor."""
+"""CPU vector/parallel Tiga lowering against Torch/Inductor."""
 
 from __future__ import annotations
 
@@ -13,8 +13,8 @@ import time
 
 import torch
 
-import graphforge as gf
-from graphforge.compiler.cpu_tensor import compile_tensor
+import tiga as gf
+from tiga.compiler.cpu_tensor import compile_tensor
 from benchmarks.common.output_layout import operation_dir
 from benchmarks.common.perf_protocol import evaluate_sota_gates
 from benchmarks.common.plotting import plot_latency, plot_roofline
@@ -73,8 +73,8 @@ def main():
     if args.elements <= 0 or args.threads <= 0 or args.repeat <= 0:
         parser.error("elements, threads and repeat must be positive")
     torch.set_num_threads(args.threads)
-    os.environ["GRAPHFORGE_CPU_THREADS"] = str(args.threads)
-    os.environ["GRAPHFORGE_TENSOR_BACKEND"] = "native"
+    os.environ["TIGA_CPU_THREADS"] = str(args.threads)
+    os.environ["TIGA_TENSOR_BACKEND"] = "native"
 
     # Setup/conversion is outside warm timing for both providers.
     left_values = [1.5] * args.elements
@@ -102,18 +102,18 @@ def main():
             "=f", output._buffer.read(offset=index * 4, bytes=4)
         )[0]
         if abs(found - expected_value) > 1e-6:
-            raise RuntimeError("GraphForge pointwise result is incorrect")
+            raise RuntimeError("Tiga pointwise result is incorrect")
         if abs(compiled_actual[index].item() - expected_value) > 1e-6:
             raise RuntimeError("Inductor pointwise result is incorrect")
     loops = output.generated_code("cpu_loop")
     llvm = output.generated_code("llvm")
-    if "vector.load" not in loops or "graphforge.cpu.vector_width" not in loops:
-        raise RuntimeError("GraphForge did not select vector CPU lowering")
+    if "vector.load" not in loops or "tiga.cpu.vector_width" not in loops:
+        raise RuntimeError("Tiga did not select vector CPU lowering")
     if "vector<16xf32>" not in llvm:
         raise RuntimeError("LLVM stage did not retain the 512-bit vector type")
 
     providers = (
-        ("graphforge.llvm.vector_parallel", lambda: executable.launch(output)),
+        ("tiga.llvm.vector_parallel", lambda: executable.launch(output)),
         ("torch.compile.inductor", lambda: compiled_function(torch_left, torch_right)),
         ("torch.eager", eager_run),
     )
@@ -138,7 +138,7 @@ def main():
             "memory_roof": "DRAM", "samples_ms": raw,
         })
     gate = evaluate_sota_gates(
-        results, {"graphforge.llvm.vector_parallel"},
+        results, {"tiga.llvm.vector_parallel"},
         baselines={"torch.compile.inductor", "torch.eager"}, threshold=1.0,
     )[0]
     roof = measure_roof(args.repeat, args.quick)
@@ -148,7 +148,7 @@ def main():
     payload = {
         "operation": "cpu_pointwise_fusion",
         "workload": "sqrt(lhs*rhs+lhs)",
-        "case": case, "title_prefix": "GraphForge CPU",
+        "case": case, "title_prefix": "Tiga CPU",
         "roof": asdict(roof), "results": results,
         "sota_gates": [gate.to_dict()],
         "config": {
@@ -170,10 +170,10 @@ def main():
     peer = min(results[1:], key=lambda item: item["milliseconds"])
     (output_dir / "REPORT.md").write_text(
         "# CPU contiguous pointwise fusion\n\n"
-        "GraphForge lowers the ordinary Tensor DAG to Vector IR, LLVM vectors "
+        "Tiga lowers the ordinary Tensor DAG to Vector IR, LLVM vectors "
         "and a persistent range-partition worker pool. The scalar tail is "
         "retained for arbitrary extents.\n\n"
-        f"GraphForge: {candidate['milliseconds']:.4f} ms; fastest peer "
+        f"Tiga: {candidate['milliseconds']:.4f} ms; fastest peer "
         f"({peer['provider']}): {peer['milliseconds']:.4f} ms. Gate: "
         f"{'PASS' if gate.passed else 'FAIL'}, speedup "
         f"{gate.speedup_vs_sota:.3f}x, 95% CI "

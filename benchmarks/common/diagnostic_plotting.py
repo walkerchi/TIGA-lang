@@ -46,10 +46,10 @@ def _persistent_worker(payload: dict, output: Path) -> None:
 
 def _tensor_fusion(payload: dict, output: Path) -> None:
     methods = [
-        ("graphforge.kernel", payload["graphforge"].get("kernel_median_ms")
-         or payload["graphforge"].get("kernel", {}).get("median_ms")),
-        ("graphforge.end_to_end", payload["graphforge"].get("warm_median_ms")
-         or payload["graphforge"].get("python_e2e", {}).get("median_ms")),
+        ("tiga.kernel", payload["tiga"].get("kernel_median_ms")
+         or payload["tiga"].get("kernel", {}).get("median_ms")),
+        ("tiga.end_to_end", payload["tiga"].get("warm_median_ms")
+         or payload["tiga"].get("python_e2e", {}).get("median_ms")),
         ("torch.eager", payload.get("torch_eager", {}).get("warm_median_ms")
          or payload.get("torch_eager", {}).get("median_ms")),
         ("torch.compile", payload.get("torch_compile", {}).get("warm_median_ms")
@@ -89,8 +89,8 @@ def _nccl_loopback(payload: dict, output: Path) -> None:
     latencies = [float(case["median_ms"]) for case in cases]
     bandwidth = [float(case["diagnostic_payload_GBps"]) for case in cases]
     fig, axes = plt.subplots(1, 2, figsize=(12, 4.8), constrained_layout=True)
-    axes[0].plot(sizes, latencies, marker="o", color=provider_color("graphforge.nccl"))
-    axes[1].plot(sizes, bandwidth, marker="o", color=provider_color("graphforge.nccl"))
+    axes[0].plot(sizes, latencies, marker="o", color=provider_color("tiga.nccl"))
+    axes[1].plot(sizes, bandwidth, marker="o", color=provider_color("tiga.nccl"))
     for ax in axes:
         ax.set_xscale("symlog", linthresh=0.01)
         ax.grid(True, which="both")
@@ -234,13 +234,13 @@ def plot_json(path: Path) -> Path | None:
         _persistent_worker(payload, output)
     elif operation == "broadcast_mul_add_axis_sum":
         _tensor_fusion(payload, output)
-    elif schema == "graphforge.distributed-halo.v1":
+    elif schema == "tiga.distributed-halo.v1":
         _halo(payload, output)
-    elif schema == "graphforge.nccl-device-conformance.v1":
+    elif schema == "tiga.nccl-device-conformance.v1":
         _nccl_loopback(payload, output)
-    elif schema == "graphforge.memory-hierarchy.v1":
+    elif schema == "tiga.memory-hierarchy.v1":
         _memory_hierarchy(payload, output)
-    elif schema == "graphforge.provider-conformance.v1":
+    elif schema == "tiga.provider-conformance.v1":
         _provider_conformance(payload, output)
     elif payload.get("schema_version") == 1 and "profiles" in payload:
         _capacity(payload, output)

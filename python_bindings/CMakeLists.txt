@@ -37,9 +37,9 @@ target_link_libraries(_graphforge_compiler PRIVATE
 target_compile_definitions(_graphforge_compiler PRIVATE PY_SSIZE_T_CLEAN)
 set_target_properties(_graphforge_compiler PROPERTIES
   PREFIX ""
-  INSTALL_RPATH "${GRAPHFORGE_EXTENSION_RPATH}")
+  INSTALL_RPATH "${TIGA_EXTENSION_RPATH}")
 
 install(
   TARGETS _graphforge_compiler
-  LIBRARY DESTINATION graphforge
-  COMPONENT GraphForgeWheel)
+  LIBRARY DESTINATION tiga
+  COMPONENT TigaWheel)

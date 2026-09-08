@@ -1,8 +1,8 @@
 <div align="center">
-  <img src="docs/assets/graphforge-logo.svg" alt="GraphForge" width="560">
+  <img src="docs/assets/tiga-logo.svg" alt="Tiga" width="560">
   <p><strong>An MLIR-based compiler for sparse relations, dynamic graphs, reducers, autograd, and heterogeneous execution.</strong></p>
   <p>
-    <a href="https://github.com/walkerchi/graphforge/actions/workflows/compiler-ci.yml"><img alt="compiler CI" src="https://github.com/walkerchi/graphforge/actions/workflows/compiler-ci.yml/badge.svg?branch=main"></a>
+    <a href="https://github.com/walkerchi/TIGA-lang/actions/workflows/compiler-ci.yml"><img alt="compiler CI" src="https://github.com/walkerchi/TIGA-lang/actions/workflows/compiler-ci.yml/badge.svg?branch=main"></a>
     <img alt="Python 3.10–3.12" src="https://img.shields.io/badge/Python-3.10–3.12-3776AB?logo=python&logoColor=white">
     <img alt="LLVM/MLIR 22.1.8" src="https://img.shields.io/badge/LLVM%2FMLIR-22.1.8-262D3A?logo=llvm">
     <a href="LICENSE"><img alt="Apache-2.0 license" src="https://img.shields.io/badge/License-Apache--2.0-blue.svg"></a>
@@ -16,7 +16,7 @@
   </p>
 </div>
 
-GraphForge captures **relation + message UDF + reducer** as compiler IR, then
+Tiga captures **relation + message UDF + reducer** as compiler IR, then
 chooses the traversal, load-balancing strategy, fusion boundary, memory plan,
 and target lowering. Static CSR, ragged social graphs, runtime radius/kNN
 relations, and dense implicit relations use the same call surface. The first
@@ -26,14 +26,15 @@ call JIT-compiles a guarded variant; later calls reuse it.
 |---|---|---|
 | graph/relation semantics, edge and node UDFs, reducer algebra | row vs edge tiles, degree buckets, hub splitting, build-consume fusion, VJP and halo tasks | LLVM CPU JIT; TTIR → vendor Triton → NVIDIA PTX; versioned provider ABI for additional targets |
 
-GraphForge is deliberately a compiler rather than a catalog of attention,
+Tiga is deliberately a compiler rather than a catalog of attention,
 kNN, or GNN kernels. Workload definitions live in `examples/` and performance
 peers live in `benchmarks/`; the core package contains reusable IR, passes,
 providers, and a Torch-free tensor runtime.
 
-> **Alpha software.** The measured paths below are real, but coverage is still
-> deliberately narrow. Unsupported target/shape combinations fail closed or
-> use an explicit correctness evaluator; they are never presented as optimized.
+> **Beta software (0.1.x).** The measured paths below are real, but coverage is
+> still deliberately narrow. Unsupported target/shape combinations fail closed
+> or use an explicit correctness evaluator; they are never presented as
+> optimized.
 
 ## Performance report
 
@@ -43,14 +44,14 @@ The release overview follows a consistent relative-throughput grammar, but it
 does not average unrelated workloads into a synthetic score.
 
 <div align="center">
-  <img src="docs/assets/compiler-performance-overview.svg" alt="GraphForge compiler performance evaluation across six matched workloads" width="1100">
+  <img src="docs/assets/compiler-performance-overview.svg" alt="Tiga compiler performance evaluation across six matched workloads" width="1100">
 </div>
 
 <details>
 <summary><strong>Open the complete 13-workload compiler report</strong></summary>
 <br>
 <div align="center">
-  <img src="docs/assets/compiler-performance-report.svg" alt="Complete GraphForge compiler performance report across sparse, graph, attention, autograd, CPU, and tensor workloads" width="900">
+  <img src="docs/assets/compiler-performance-report.svg" alt="Complete Tiga compiler performance report across sparse, graph, attention, autograd, CPU, and tensor workloads" width="900">
 </div>
 </details>
 
@@ -71,7 +72,7 @@ are not claimed as SOTA.
 ## One programming model
 
 ```python
-import graphforge as gf
+import tiga as gf
 
 
 class WeightedNeighbors(gf.MessagePassing):
@@ -170,9 +171,9 @@ remain compiler IR, so a sparse UDF does not require a user-written backward.
 ### Registered sparse evidence
 
 These RTX 5070 Ti results use matched sparse semantics and timing boundaries.
-`>1.00×` means GraphForge is faster than the named peer.
+`>1.00×` means Tiga is faster than the named peer.
 
-| Sparse workload | Registered case | GraphForge | Matched peer | Result |
+| Sparse workload | Registered case | Tiga | Matched peer | Result |
 |---|---|---:|---:|---:|
 | Scalar CSR weighted sum, random gather | 131,072 rows, degree 4, FP32 | 0.0183 ms | Triton CSR 0.0222 ms | **1.21×** |
 | Scalar CSR weighted sum, local/hot | 131,072 rows, degree 16, FP32 | 0.0186 ms | `torch.sparse.mm` 0.0310 ms | **1.67×** |
@@ -225,7 +226,7 @@ multi-GPU NCCL/RCCL measurements, and non-NVIDIA hardware remain open gates.
 | ROCm / Hygon / Metal / PPU | Versioned provider ABI and conformance contract | Plugin and real-hardware validation required |
 | Torch | Optional zero-copy/framework adapter | Compatible, never a core dependency |
 
-GraphForge is a compiler, not an attention, kNN, or visualization operator
+Tiga is a compiler, not an attention, kNN, or visualization operator
 library. Workload programs and hand-written comparison kernels live in
 `examples/` and `benchmarks/`; no `@triton.jit` workload kernel is imported by
 the core package.
@@ -234,10 +235,10 @@ the core package.
 
 Registered results below were measured on the repository's RTX 5070 Ti host.
 Each row compares matched semantics, dtype, shape, and timing boundary. A value
-above `1.00×` means GraphForge was faster; the full page records confidence
+above `1.00×` means Tiga was faster; the full page records confidence
 gates and limitations.
 
-| Workload | Registered case | GraphForge | Matched peer | Speedup |
+| Workload | Registered case | Tiga | Matched peer | Speedup |
 |---|---|---:|---:|---:|
 | Dense exact attention | B1/H16/N4096/D64 FP16 | 0.7720 ms | PyTorch Flash SDPA 0.8288 ms | **1.074×** |
 | Dense grouped-query attention | Hq16/Hkv4/N4096/D64 FP16 | 0.7769 ms | PyTorch Flash SDPA 0.8424 ms | **1.084×** |
@@ -286,13 +287,10 @@ splitting before committing to a vendor layout.
 
 ## Run it
 
-The PyPI distribution name is `graphforge-compiler`; the first public release
-is not published yet. Run the source tree today:
+The PyPI distribution name is `tiga-lang`:
 
 ```bash
-git clone https://github.com/walkerchi/graphforge.git
-cd graphforge
-export PYTHONPATH="$PWD/python"
+pip install tiga-lang   # PyPI's bare "tiga" is unrelated
 
 python examples/message_passing_autograd.py
 python examples/custom_reducer.py
@@ -300,12 +298,13 @@ python examples/radius_autograd.py
 python examples/torch_interop.py  # optional adapter
 ```
 
-Building the native compiler requires the pinned LLVM/MLIR 22.1.8 SDK:
+Building the native compiler from source requires the pinned LLVM/MLIR 22.1.8
+SDK:
 
 ```bash
 cmake -S . -B build -G Ninja \
   -DMLIR_DIR=/path/to/llvm-22.1.8/lib/cmake/mlir
-cmake --build build --target check-graphforge
+cmake --build build --target check-tiga
 ```
 
 ## Documentation
@@ -321,4 +320,4 @@ cmake --build build --target check-graphforge
 | [Benchmark results](docs/benchmark-results.md) | Human-readable comparisons and current limits |
 | [Project specification](PROJECT.md) | Design contract, milestones, and remaining gates |
 
-GraphForge is licensed under Apache-2.0.
+Tiga is licensed under Apache-2.0.

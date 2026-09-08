@@ -10,8 +10,8 @@ import statistics
 import struct
 import time
 
-import graphforge as gf
-from graphforge.distributed import (
+import tiga as gf
+from tiga.distributed import (
     PipeTransport, exchange_packed, pack_halo, unpack_halo,
 )
 
@@ -51,10 +51,15 @@ def main() -> None:
     parser.add_argument("--features", type=int, default=64)
     parser.add_argument("--repeats", type=int, default=50)
     parser.add_argument(
+        "--quick", action="store_true",
+        help="reduced size/repeats for smoke runs")
+    parser.add_argument(
         "--output", type=Path,
         default=Path("output/distributed/two_process_halo/results.json"),
     )
     args = parser.parse_args()
+    if args.quick:
+        args.entities, args.features, args.repeats = 8192, 16, 10
     if args.entities < 4 or args.features <= 0 or args.repeats <= 0:
         raise ValueError("entities/features/repeats are outside benchmark domain")
     # A half-ring permutation makes every source remote while keeping CSR
@@ -109,7 +114,7 @@ def main() -> None:
         for phase, samples in all_samples.items()
     }
     result = {
-        "schema": "graphforge.distributed-halo.v1",
+        "schema": "tiga.distributed-halo.v1",
         "world_size": 2,
         "entities": args.entities,
         "features": args.features,

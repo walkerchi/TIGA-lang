@@ -6,20 +6,22 @@ hide:
 
 <section class="gf-hero">
   <div class="gf-hero__copy">
-    <div class="gf-eyebrow"><span></span> Relation-oriented compiler · alpha</div>
-    <h1>One program.<br><em>Structure-aware</em> kernels.</h1>
+    <div class="gf-eyebrow"><span></span> A compiler for the message-passing programming model</div>
+    <h1>Write message passing.<br><em>Run it fast on any hardware.</em></h1>
     <p class="gf-hero__lead">
-      GraphForge compiles sparse, dense, generated, paged, and distributed
-      relations from Python UDFs—while retaining enough structure to choose
-      traversal, fusion, memory placement, and provider lowering.
+      Declare who talks to whom (a <code>Graph</code>) and what each edge
+      sends (a <code>MessagePassing</code> UDF); one ordinary call lowers the
+      same code into fused CPU/GPU executables with compiler-generated
+      gradients. Sparse, dense, generated, paged, and distributed relations
+      share one programming model.
     </p>
     <div class="gf-actions">
       <a class="gf-button gf-button--primary" href="getting-started/">Build the first kernel <span>→</span></a>
       <a class="gf-button" href="compiler-pipeline/">Explore the compiler</a>
     </div>
-    <div class="gf-install"><code>pip install graphforge-compiler</code><span>first public release pending</span></div>
+    <div class="gf-install"><code>pip install tiga-lang</code><span><strong>T</strong>arget-<strong>I</strong>ndependent <strong>G</strong>raph <strong>A</strong>cceleration — or, recursively, Tiga Is a Graph Accelerator</span></div>
   </div>
-  <div class="gf-hero__trace" aria-label="GraphForge lowering stages">
+  <div class="gf-hero__trace" aria-label="Tiga lowering stages">
     <div class="gf-trace__top"><span>captured program</span><code>Diffusion()(graph, u)</code></div>
     <div class="gf-trace__rail" aria-hidden="true"></div>
     <div class="gf-trace__stage"><span>01</span><div><strong>Domain IR</strong><small>relation · UDF · reducer</small></div><code>gf.apply</code></div>
@@ -31,27 +33,9 @@ hide:
 
 <div class="gf-proof-strip">
   <div><strong>Domain → Iter → Kernel</strong><span>Inspectable progressive lowering</span></div>
-  <div><strong>Torch optional</strong><span>Native Tensor, autograd, and runtime</span></div>
+  <div><strong>Torch compatible</strong><span>Zero-copy adapter; native runtime needs no PyTorch</span></div>
   <div><strong>Storage-aware</strong><span>HBM, RAM, NVMe, and halo Task IR</span></div>
   <div><strong>Measured, not projected</strong><span>Registered cases and confidence gates</span></div>
-</div>
-
-!!! warning "Release status"
-
-    GraphForge is alpha software and is not published to PyPI yet. Install from
-    source today. CUDA and CPU are executable locally; ROCm/DCU, Metal, and PPU
-    remain provider contracts until their plugins pass real-hardware conformance.
-
-## Program the relation, not its storage format
-
-GraphForge exposes one `Graph` interface while preserving how a relation was
-created and when it changes. The compiler—not a workload name—chooses the
-physical realization.
-
-<div class="gf-concept-grid">
-  <div class="gf-concept-card"><div class="gf-concept-card__icon">CSR</div><span>Materialized</span><h3>Static and irregular</h3><p>Fixed, bounded-ragged, power-law, paged, or partitioned adjacency with degree-aware scheduling.</p></div>
-  <div class="gf-concept-card"><div class="gf-concept-card__icon">R(t)</div><span>Generated</span><h3>Radius and ranked</h3><p>Build and consume neighbors in one kernel when exactness and resource bounds permit it.</p></div>
-  <div class="gf-concept-card"><div class="gf-concept-card__icon">Q×K</div><span>Implicit</span><h3>Dense and triangular</h3><p>Stream relation tiles through online reducers without allocating an edge matrix.</p></div>
 </div>
 
 ## A small semantic surface
@@ -59,7 +43,7 @@ physical realization.
 <div class="gf-code-story" markdown>
 
 ```python
-import graphforge as gf
+import tiga as gf
 
 class WeightedAggregation(gf.MessagePassing):
     reducer = gf.sum()
@@ -85,30 +69,27 @@ out = WeightedAggregation()(
 
 ## Retained structure changes the algorithm
 
-The overview below reports matched, registered workloads. Each panel keeps its
-own declared baseline; unlike operations are not averaged into a synthetic
-score. Open the [interactive performance report](benchmark-results.md) for
-hover details, all cases, confidence bounds, and exclusions.
+The overview reports matched, registered workloads. Open the
+[benchmark results](benchmark-results.md) for all cases, confidence bounds,
+and exclusions.
 
 <figure class="gf-figure gf-figure--showcase">
-  <object type="image/svg+xml" data="assets/compiler-performance-overview.svg" aria-label="GraphForge compiler performance across six matched workloads">
-    <img src="assets/compiler-performance-overview.png" alt="GraphForge compiler performance across six matched workloads">
+  <object type="image/svg+xml" data="/assets/compiler-performance-overview.svg" aria-label="Tiga compiler performance across six matched workloads">
+    <img src="/assets/compiler-performance-overview.png" alt="Tiga compiler performance across six matched workloads">
   </object>
   <figcaption>Compiler-emitted paths range from mature-primitive parity to structural wins that eliminate materialization or change scheduling. <a href="benchmark-results/">Inspect the evidence →</a></figcaption>
 </figure>
 
 ## From semantics to provider code
 
-The GPU handoff is serialized TTIR so each vendor can own its downstream
-Triton toolchain. CPU lowering is a sibling MLIR-to-LLVM path. Storage and
-distributed tasks remain explicit around local kernels instead of leaking
-communication calls into user UDFs.
+The GPU handoff is serialized TTIR; CPU lowering is a sibling MLIR-to-LLVM
+path.
 
 <figure class="gf-figure gf-figure--architecture">
-  <object type="image/svg+xml" data="assets/compiler-pipeline-overview.svg" aria-label="GraphForge compiler pipeline from Python capture to TTIR or LLVM">
-    <img src="assets/compiler-pipeline-overview.svg" alt="GraphForge compiler pipeline from Python capture to TTIR or LLVM">
+  <object type="image/svg+xml" data="/assets/compiler-pipeline-overview.svg" aria-label="Tiga compiler pipeline from Python capture to TTIR or LLVM">
+    <img src="/assets/compiler-pipeline-overview.svg" alt="Tiga compiler pipeline from Python capture to TTIR or LLVM">
   </object>
-  <figcaption><a href="compiler-pipeline/">Follow every IR level and pass boundary</a> · <a href="assets/compiler-pipeline-overview.svg">Open the full-size SVG</a></figcaption>
+  <figcaption><a href="compiler-pipeline/">Follow every IR level and pass boundary</a> · <a href="/assets/compiler-pipeline-overview.svg">Open the full-size SVG</a></figcaption>
 </figure>
 
 ## What is executable today?
@@ -120,11 +101,6 @@ communication calls into user UDFs.
 | Dense relations | Cartesian/triangular traversal, grouped lanes, online reducers, tensor-core TTIR | registered attention and matmul shapes are not universal performance claims |
 | Tensor + VJP | views, broadcast, reduce, scan, matmul, complex values, and relation-aware automatic VJP | unsupported combinations fail or use a clearly labeled correctness oracle |
 | Memory + distribution | single-node HBM/RAM/NVMe planning; MPI halo execution; CUDA task ordering | real 2+ GPU NCCL/RCCL performance is not yet claimed |
-
-<div class="gf-status-note">
-  <span>Source of truth</span>
-  <p>The <a href="roadmap/">status and roadmap</a> summarizes the authoritative <code>PROJECT.md §15.3</code> ledger. Design notes never promote partial work to supported functionality.</p>
-</div>
 
 ## Choose a path
 

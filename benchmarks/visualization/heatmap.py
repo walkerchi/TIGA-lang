@@ -1,4 +1,4 @@
-"""Matched GPU benchmark for GraphForge Tensor-to-RGB raster preparation."""
+"""Matched GPU benchmark for Tiga Tensor-to-RGB raster preparation."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ import time
 
 import torch
 
-import graphforge as gf
+import tiga as gf
 from benchmarks.common.hardware_roofline import measure_roofs, samples_ms
 from benchmarks.common.output_layout import operation_dir
 from benchmarks.common.perf_protocol import evaluate_sota_gates
@@ -67,7 +67,7 @@ def main() -> None:
     semantic_bytes = float((pixels + pixels * 3) * 4)
     intensity = useful_flops / semantic_bytes
     providers = (
-        ("graphforge.tensor_ttir", graphforge_render),
+        ("tiga.tensor_ttir", graphforge_render),
         ("torch.inductor.fused", lambda: inductor_render(source)),
         ("torch.eager", lambda: low + source.reshape(-1, 1) * (high - low)),
     )
@@ -92,7 +92,7 @@ def main() -> None:
     output.mkdir(parents=True, exist_ok=True)
     payload = {
         "operation": "visualization_heatmap", "case": case,
-        "workload": "linear_scalar_to_rgb", "title_prefix": "GraphForge visualization",
+        "workload": "linear_scalar_to_rgb", "title_prefix": "Tiga visualization",
         "roof": asdict(roof), "results": results,
         "config": {**vars(args), "dtype": "float32", "output_dir": str(output),
                    "graphforge_cold_jit_ms": cold_ms,
@@ -101,7 +101,7 @@ def main() -> None:
                    "useful_flop_convention": "normalize(2) + RGB FMA(6)"},
     }
     gates = evaluate_sota_gates(
-        results, {"graphforge.tensor_ttir"},
+        results, {"tiga.tensor_ttir"},
         baselines={"torch.inductor.fused"}, threshold=1.0)
     payload["sota_gates"] = [gate.to_dict() for gate in gates]
     (output / "roofline.json").write_text(json.dumps(payload, indent=2) + "\n")
@@ -113,11 +113,11 @@ def main() -> None:
     gate_status = "PASS" if gate.passed else "FAIL"
     (output / "REPORT.md").write_text(
         "# GPU-native heatmap raster preparation\n\n"
-        f"GraphForge: {results[0]['milliseconds']:.4f} ms; Torch Inductor: "
+        f"Tiga: {results[0]['milliseconds']:.4f} ms; Torch Inductor: "
         f"{results[1]['milliseconds']:.4f} ms; speedup {speedup:.3f}x. "
         f"Strict gate: {gate_status}, 95% CI "
         f"[{gate.speedup_ci_low:.3f}, {gate.speedup_ci_high:.3f}]. "
-        "Both points execute the same scalar-to-RGB expression. GraphForge uses "
+        "Both points execute the same scalar-to-RGB expression. Tiga uses "
         "its public prepared executable for stable animation buffers; cold JIT is "
         "reported separately and PNG encoding is outside the timed region.\n\n"
         "![Roofline](roofline.svg)\n\n![Latency](provider_latency.svg)\n"

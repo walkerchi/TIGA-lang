@@ -1,0 +1,291 @@
+<?xml version="1.0" encoding="utf-8" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN"
+  "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<svg xmlns:xlink="http://www.w3.org/1999/xlink" width="529.89875pt" height="231.603023pt" viewBox="0 0 529.89875 231.603023" xmlns="http://www.w3.org/2000/svg" version="1.1">
+ <metadata>
+  <rdf:RDF xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:cc="http://creativecommons.org/ns#" xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+   <cc:Work>
+    <dc:type rdf:resource="http://purl.org/dc/dcmitype/StillImage"/>
+    <dc:date>2026-09-07T07:46:56.175803</dc:date>
+    <dc:format>image/svg+xml</dc:format>
+    <dc:creator>
+     <cc:Agent>
+      <dc:title>Matplotlib v3.11.1, https://matplotlib.org/</dc:title>
+     </cc:Agent>
+    </dc:creator>
+   </cc:Work>
+  </rdf:RDF>
+ </metadata>
+ <defs>
+  <style type="text/css">*{stroke-linejoin: round; stroke-linecap: butt}</style>
+ </defs>
+ <g id="figure_1">
+  <g id="patch_1">
+   <path d="M 0 231.603023 
+L 529.89875 231.603023 
+L 529.89875 -0 
+L 0 -0 
+L 0 231.603023 
+z
+" style="fill: none"/>
+  </g>
+  <g id="axes_1">
+   <g id="patch_2">
+    <path d="M 132.115625 201.282281 
+L 522.715625 201.282281 
+L 522.715625 51.738281 
+L 132.115625 51.738281 
+L 132.115625 201.282281 
+z
+" style="fill: none"/>
+   </g>
+   <g id="matplotlib.axis_1">
+    <g id="xtick_1">
+     <g id="line2d_1">
+      <path d="M 132.115625 201.282281 
+L 132.115625 51.738281 
+" clip-path="url(#pd9f00345eb)" style="fill: none; stroke: #94a3b8; stroke-opacity: 0.3; stroke-width: 0.8; stroke-linecap: square"/>
+     </g>
+     <g id="line2d_2"/>
+     <g id="text_1">
+      <text style="font-size: 9px; font-family: 'Arial', 'Helvetica Neue', 'Helvetica', 'Liberation Sans', 'DejaVu Sans', sans-serif; text-anchor: middle; fill: #64748b" x="132.115625" y="211.620172" transform="rotate(-0 132.115625 211.620172)">0</text>
+     </g>
+    </g>
+    <g id="xtick_2">
+     <g id="line2d_3">
+      <path d="M 210.235625 201.282281 
+L 210.235625 51.738281 
+" clip-path="url(#pd9f00345eb)" style="fill: none; stroke: #94a3b8; stroke-opacity: 0.3; stroke-width: 0.8; stroke-linecap: square"/>
+     </g>
+     <g id="line2d_4"/>
+     <g id="text_2">
+      <text style="font-size: 9px; font-family: 'Arial', 'Helvetica Neue', 'Helvetica', 'Liberation Sans', 'DejaVu Sans', sans-serif; text-anchor: middle; fill: #64748b" x="210.235625" y="211.620172" transform="rotate(-0 210.235625 211.620172)">1</text>
+     </g>
+    </g>
+    <g id="xtick_3">
+     <g id="line2d_5">
+      <path d="M 288.355625 201.282281 
+L 288.355625 51.738281 
+" clip-path="url(#pd9f00345eb)" style="fill: none; stroke: #94a3b8; stroke-opacity: 0.3; stroke-width: 0.8; stroke-linecap: square"/>
+     </g>
+     <g id="line2d_6"/>
+     <g id="text_3">
+      <text style="font-size: 9px; font-family: 'Arial', 'Helvetica Neue', 'Helvetica', 'Liberation Sans', 'DejaVu Sans', sans-serif; text-anchor: middle; fill: #64748b" x="288.355625" y="211.620172" transform="rotate(-0 288.355625 211.620172)">2</text>
+     </g>
+    </g>
+    <g id="xtick_4">
+     <g id="line2d_7">
+      <path d="M 366.475625 201.282281 
+L 366.475625 51.738281 
+" clip-path="url(#pd9f00345eb)" style="fill: none; stroke: #94a3b8; stroke-opacity: 0.3; stroke-width: 0.8; stroke-linecap: square"/>
+     </g>
+     <g id="line2d_8"/>
+     <g id="text_4">
+      <text style="font-size: 9px; font-family: 'Arial', 'Helvetica Neue', 'Helvetica', 'Liberation Sans', 'DejaVu Sans', sans-serif; text-anchor: middle; fill: #64748b" x="366.475625" y="211.620172" transform="rotate(-0 366.475625 211.620172)">3</text>
+     </g>
+    </g>
+    <g id="xtick_5">
+     <g id="line2d_9">
+      <path d="M 444.595625 201.282281 
+L 444.595625 51.738281 
+" clip-path="url(#pd9f00345eb)" style="fill: none; stroke: #94a3b8; stroke-opacity: 0.3; stroke-width: 0.8; stroke-linecap: square"/>
+     </g>
+     <g id="line2d_10"/>
+     <g id="text_5">
+      <text style="font-size: 9px; font-family: 'Arial', 'Helvetica Neue', 'Helvetica', 'Liberation Sans', 'DejaVu Sans', sans-serif; text-anchor: middle; fill: #64748b" x="444.595625" y="211.620172" transform="rotate(-0 444.595625 211.620172)">4</text>
+     </g>
+    </g>
+    <g id="xtick_6">
+     <g id="line2d_11">
+      <path d="M 522.715625 201.282281 
+L 522.715625 51.738281 
+" clip-path="url(#pd9f00345eb)" style="fill: none; stroke: #94a3b8; stroke-opacity: 0.3; stroke-width: 0.8; stroke-linecap: square"/>
+     </g>
+     <g id="line2d_12"/>
+     <g id="text_6">
+      <text style="font-size: 9px; font-family: 'Arial', 'Helvetica Neue', 'Helvetica', 'Liberation Sans', 'DejaVu Sans', sans-serif; text-anchor: middle; fill: #64748b" x="522.715625" y="211.620172" transform="rotate(-0 522.715625 211.620172)">5</text>
+     </g>
+    </g>
+    <g id="text_7">
+     <text style="font-size: 9.5px; font-family: 'Arial', 'Helvetica Neue', 'Helvetica', 'Liberation Sans', 'DejaVu Sans', sans-serif; text-anchor: middle; fill: #64748b" x="327.415625" y="225.000797" transform="rotate(-0 327.415625 225.000797)">speedup over matched peer (×)</text>
+    </g>
+   </g>
+   <g id="matplotlib.axis_2">
+    <g id="ytick_1">
+     <g id="line2d_13"/>
+     <g id="slice-0-label"><title>Every row computes the same weighted in-edge sum printed above the chart; only the graph slice, feature width and cache state change — fixed degree 16, neighbors uniform at random, 16 feature channels — no degree skew; the tiling-friendly slice.</title>
+      <text style="font-size: 9px; font-family: 'Arial', 'Helvetica Neue', 'Helvetica', 'Liberation Sans', 'DejaVu Sans', sans-serif; text-anchor: end; fill: #64748b" x="128.615625" y="66.844153" transform="rotate(-0 128.615625 66.844153)">Regular random · F16</text>
+     </g>
+    </g>
+    <g id="ytick_2">
+     <g id="line2d_14"/>
+     <g id="slice-1-label"><title>Every row computes the same weighted in-edge sum printed above the chart; only the graph slice, feature width and cache state change — degrees uniform in 0–32 (mean 16), random neighbors, 16 feature channels — bounded skew stresses row-length variance.</title>
+      <text style="font-size: 9px; font-family: 'Arial', 'Helvetica Neue', 'Helvetica', 'Liberation Sans', 'DejaVu Sans', sans-serif; text-anchor: end; fill: #64748b" x="128.615625" y="82.615509" transform="rotate(-0 128.615625 82.615509)">Irregular 0–32 · F16</text>
+     </g>
+    </g>
+    <g id="ytick_3">
+     <g id="line2d_15"/>
+     <g id="slice-2-label"><title>Every row computes the same weighted in-edge sum printed above the chart; only the graph slice, feature width and cache state change — fixed degree 16, random neighbors, 64 feature channels — wider rows, more compute per byte.</title>
+      <text style="font-size: 9px; font-family: 'Arial', 'Helvetica Neue', 'Helvetica', 'Liberation Sans', 'DejaVu Sans', sans-serif; text-anchor: end; fill: #64748b" x="128.615625" y="98.386866" transform="rotate(-0 128.615625 98.386866)">Regular random · F64</text>
+     </g>
+    </g>
+    <g id="ytick_4">
+     <g id="line2d_16"/>
+     <g id="slice-3-label"><title>Every row computes the same weighted in-edge sum printed above the chart; only the graph slice, feature width and cache state change — fixed degree 16, neighbors are the next 16 consecutive nodes (perfect locality), scalar features — the cache-friendliest slice.</title>
+      <text style="font-size: 9px; font-family: 'Arial', 'Helvetica Neue', 'Helvetica', 'Liberation Sans', 'DejaVu Sans', sans-serif; text-anchor: end; fill: #64748b" x="128.615625" y="114.158222" transform="rotate(-0 128.615625 114.158222)">Regular local · F1</text>
+     </g>
+    </g>
+    <g id="ytick_5">
+     <g id="line2d_17"/>
+     <g id="slice-4-label"><title>Every row computes the same weighted in-edge sum printed above the chart; only the graph slice, feature width and cache state change — degrees uniform in 0–32, random neighbors, 64 feature channels — skewed row lengths with wide features.</title>
+      <text style="font-size: 9px; font-family: 'Arial', 'Helvetica Neue', 'Helvetica', 'Liberation Sans', 'DejaVu Sans', sans-serif; text-anchor: end; fill: #64748b" x="128.615625" y="129.929578" transform="rotate(-0 128.615625 129.929578)">Irregular 0–32 · F64</text>
+     </g>
+    </g>
+    <g id="ytick_6">
+     <g id="line2d_18"/>
+     <g id="slice-5-label"><title>Every row computes the same weighted in-edge sum printed above the chart; only the graph slice, feature width and cache state change — social-network tail: 90% of rows degree 8, 9% degree 64, 1% degree 256, scalar features — hub rows force chunked scheduling; the label spans the 95% CI.</title>
+      <text style="font-size: 9px; font-family: 'Arial', 'Helvetica Neue', 'Helvetica', 'Liberation Sans', 'DejaVu Sans', sans-serif; text-anchor: end; fill: #64748b" x="128.615625" y="145.700934" transform="rotate(-0 128.615625 145.700934)">Power-law slice · F1</text>
+     </g>
+    </g>
+    <g id="ytick_7">
+     <g id="line2d_19"/>
+     <g id="slice-6-label"><title>Every row computes the same weighted in-edge sum printed above the chart; only the graph slice, feature width and cache state change — degrees drawn from an exponential law rescaled to mean 16 (cap 256), scalar features, cold cache — the DRAM-bandwidth-bound slice.</title>
+      <text style="font-size: 9px; font-family: 'Arial', 'Helvetica Neue', 'Helvetica', 'Liberation Sans', 'DejaVu Sans', sans-serif; text-anchor: end; fill: #64748b" x="128.615625" y="161.472291" transform="rotate(-0 128.615625 161.472291)">Exponential slice · F1 (cold)</text>
+     </g>
+    </g>
+    <g id="ytick_8">
+     <g id="line2d_20"/>
+     <g id="slice-7-label"><title>Every row computes the same weighted in-edge sum printed above the chart; only the graph slice, feature width and cache state change — degrees log-normal (sigma 1.25) rescaled to mean 16 (cap 256), scalar features — a continuous heavy tail.</title>
+      <text style="font-size: 9px; font-family: 'Arial', 'Helvetica Neue', 'Helvetica', 'Liberation Sans', 'DejaVu Sans', sans-serif; text-anchor: end; fill: #64748b" x="128.615625" y="177.243647" transform="rotate(-0 128.615625 177.243647)">Log-normal slice · F1</text>
+     </g>
+    </g>
+    <g id="ytick_9">
+     <g id="line2d_21"/>
+     <g id="slice-8-label"><title>Every row computes the same weighted in-edge sum printed above the chart; only the graph slice, feature width and cache state change — fixed degree 4, scalar features — tiny rows where launch and scheduling overhead dominates.</title>
+      <text style="font-size: 9px; font-family: 'Arial', 'Helvetica Neue', 'Helvetica', 'Liberation Sans', 'DejaVu Sans', sans-serif; text-anchor: end; fill: #64748b" x="128.615625" y="193.015003" transform="rotate(-0 128.615625 193.015003)">Scalar degree 4 · F1</text>
+     </g>
+    </g>
+   </g>
+   <g id="line2d_22">
+    <path d="M 210.235625 201.282281 
+L 210.235625 51.738281 
+" clip-path="url(#pd9f00345eb)" style="fill: none; stroke-dasharray: 3.7,1.6; stroke-dashoffset: 0; stroke: #94a3b8"/>
+   </g>
+   <g id="patch_3">
+    <path d="M 132.115625 201.282281 
+L 522.715625 201.282281 
+" style="fill: none; opacity: 0.6; stroke: #94a3b8; stroke-width: 0.8; stroke-linejoin: miter; stroke-linecap: square"/>
+   </g>
+   <g id="slice-0-bar"><title>Every row computes the same weighted in-edge sum printed above the chart; only the graph slice, feature width and cache state change — fixed degree 16, neighbors uniform at random, 16 feature channels — no degree skew; the tiling-friendly slice.</title>
+    <path d="M 132.115625 58.535736 
+L 469.750265 58.535736 
+L 469.750265 68.313977 
+L 132.115625 68.313977 
+z
+" clip-path="url(#pd9f00345eb)" style="fill: #4f46e5"/>
+   </g>
+   <g id="slice-1-bar"><title>Every row computes the same weighted in-edge sum printed above the chart; only the graph slice, feature width and cache state change — degrees uniform in 0–32 (mean 16), random neighbors, 16 feature channels — bounded skew stresses row-length variance.</title>
+    <path d="M 132.115625 74.307092 
+L 461.235185 74.307092 
+L 461.235185 84.085333 
+L 132.115625 84.085333 
+z
+" clip-path="url(#pd9f00345eb)" style="fill: #4f46e5"/>
+   </g>
+   <g id="slice-2-bar"><title>Every row computes the same weighted in-edge sum printed above the chart; only the graph slice, feature width and cache state change — fixed degree 16, random neighbors, 64 feature channels — wider rows, more compute per byte.</title>
+    <path d="M 132.115625 90.078448 
+L 285.699545 90.078448 
+L 285.699545 99.856689 
+L 132.115625 99.856689 
+z
+" clip-path="url(#pd9f00345eb)" style="fill: #4f46e5"/>
+   </g>
+   <g id="slice-3-bar"><title>Every row computes the same weighted in-edge sum printed above the chart; only the graph slice, feature width and cache state change — fixed degree 16, neighbors are the next 16 consecutive nodes (perfect locality), scalar features — the cache-friendliest slice.</title>
+    <path d="M 132.115625 105.849805 
+L 262.576025 105.849805 
+L 262.576025 115.628045 
+L 132.115625 115.628045 
+z
+" clip-path="url(#pd9f00345eb)" style="fill: #4f46e5"/>
+   </g>
+   <g id="slice-4-bar"><title>Every row computes the same weighted in-edge sum printed above the chart; only the graph slice, feature width and cache state change — degrees uniform in 0–32, random neighbors, 64 feature channels — skewed row lengths with wide features.</title>
+    <path d="M 132.115625 121.621161 
+L 256.717025 121.621161 
+L 256.717025 131.399402 
+L 132.115625 131.399402 
+z
+" clip-path="url(#pd9f00345eb)" style="fill: #4f46e5"/>
+   </g>
+   <g id="slice-5-bar"><title>Every row computes the same weighted in-edge sum printed above the chart; only the graph slice, feature width and cache state change — social-network tail: 90% of rows degree 8, 9% degree 64, 1% degree 256, scalar features — hub rows force chunked scheduling; the label spans the 95% CI.</title>
+    <path d="M 132.115625 137.392517 
+L 251.248625 137.392517 
+L 251.248625 147.170758 
+L 132.115625 147.170758 
+z
+" clip-path="url(#pd9f00345eb)" style="fill: #4f46e5"/>
+   </g>
+   <g id="slice-6-bar"><title>Every row computes the same weighted in-edge sum printed above the chart; only the graph slice, feature width and cache state change — degrees drawn from an exponential law rescaled to mean 16 (cap 256), scalar features, cold cache — the DRAM-bandwidth-bound slice.</title>
+    <path d="M 132.115625 153.163873 
+L 244.530305 153.163873 
+L 244.530305 162.942114 
+L 132.115625 162.942114 
+z
+" clip-path="url(#pd9f00345eb)" style="fill: #4f46e5"/>
+   </g>
+   <g id="slice-7-bar"><title>Every row computes the same weighted in-edge sum printed above the chart; only the graph slice, feature width and cache state change — degrees log-normal (sigma 1.25) rescaled to mean 16 (cap 256), scalar features — a continuous heavy tail.</title>
+    <path d="M 132.115625 168.93523 
+L 225.547145 168.93523 
+L 225.547145 178.71347 
+L 132.115625 178.71347 
+z
+" clip-path="url(#pd9f00345eb)" style="fill: #4f46e5"/>
+   </g>
+   <g id="slice-8-bar"><title>Every row computes the same weighted in-edge sum printed above the chart; only the graph slice, feature width and cache state change — fixed degree 4, scalar features — tiny rows where launch and scheduling overhead dominates.</title>
+    <path d="M 132.115625 184.706586 
+L 226.92145 184.706586 
+L 226.92145 194.484827 
+L 132.115625 194.484827 
+z
+" clip-path="url(#pd9f00345eb)" style="fill: #4f46e5"/>
+   </g>
+   <g id="text_8">
+    <text style="font-size: 8.5px; font-family: 'Arial', 'Helvetica Neue', 'Helvetica', 'Liberation Sans', 'DejaVu Sans', sans-serif; text-anchor: start; fill: #64748b" x="472.875065" y="65.632864" transform="rotate(-0 472.875065 65.632864)">4.32×</text>
+   </g>
+   <g id="text_9">
+    <text style="font-size: 8.5px; font-family: 'Arial', 'Helvetica Neue', 'Helvetica', 'Liberation Sans', 'DejaVu Sans', sans-serif; text-anchor: start; fill: #64748b" x="464.359985" y="81.40422" transform="rotate(-0 464.359985 81.40422)">4.21×</text>
+   </g>
+   <g id="text_10">
+    <text style="font-size: 8.5px; font-family: 'Arial', 'Helvetica Neue', 'Helvetica', 'Liberation Sans', 'DejaVu Sans', sans-serif; text-anchor: start; fill: #64748b" x="288.824345" y="97.175577" transform="rotate(-0 288.824345 97.175577)">1.97×</text>
+   </g>
+   <g id="text_11">
+    <text style="font-size: 8.5px; font-family: 'Arial', 'Helvetica Neue', 'Helvetica', 'Liberation Sans', 'DejaVu Sans', sans-serif; text-anchor: start; fill: #64748b" x="265.700825" y="112.946933" transform="rotate(-0 265.700825 112.946933)">1.67×</text>
+   </g>
+   <g id="text_12">
+    <text style="font-size: 8.5px; font-family: 'Arial', 'Helvetica Neue', 'Helvetica', 'Liberation Sans', 'DejaVu Sans', sans-serif; text-anchor: start; fill: #64748b" x="259.841825" y="128.718289" transform="rotate(-0 259.841825 128.718289)">1.59×</text>
+   </g>
+   <g id="text_13">
+    <text style="font-size: 8.5px; font-family: 'Arial', 'Helvetica Neue', 'Helvetica', 'Liberation Sans', 'DejaVu Sans', sans-serif; text-anchor: start; fill: #64748b" x="254.373425" y="144.489645" transform="rotate(-0 254.373425 144.489645)">1.35–1.52×</text>
+   </g>
+   <g id="text_14">
+    <text style="font-size: 8.5px; font-family: 'Arial', 'Helvetica Neue', 'Helvetica', 'Liberation Sans', 'DejaVu Sans', sans-serif; text-anchor: start; fill: #64748b" x="247.655105" y="160.261002" transform="rotate(-0 247.655105 160.261002)">1.44×</text>
+   </g>
+   <g id="text_15">
+    <text style="font-size: 8.5px; font-family: 'Arial', 'Helvetica Neue', 'Helvetica', 'Liberation Sans', 'DejaVu Sans', sans-serif; text-anchor: start; fill: #64748b" x="228.671945" y="176.032358" transform="rotate(-0 228.671945 176.032358)">1.20×</text>
+   </g>
+   <g id="text_16">
+    <text style="font-size: 8.5px; font-family: 'Arial', 'Helvetica Neue', 'Helvetica', 'Liberation Sans', 'DejaVu Sans', sans-serif; text-anchor: start; fill: #64748b" x="230.04625" y="191.803714" transform="rotate(-0 230.04625 191.803714)">1.21×</text>
+   </g>
+  </g>
+  <g id="text_17">
+   <text style="font-weight: 600; font-size: 11px; font-family: 'Arial', 'Helvetica Neue', 'Helvetica', 'Liberation Sans', 'DejaVu Sans', sans-serif; text-anchor: start; fill: #64748b" x="101.875625" y="12.678281" transform="rotate(-0 101.875625 12.678281)">Sparse relations: compiler tiles beat the sparse library</text>
+  </g>
+  <g id="text_18">
+   <text style="font-size: 8.5px; font-family: 'Arial', 'Helvetica Neue', 'Helvetica', 'Liberation Sans', 'DejaVu Sans', sans-serif; text-anchor: start; fill: #64748b" x="101.875625" y="28.302281" transform="rotate(-0 101.875625 28.302281)">131,072 rows · degree 16 unless noted · vs torch.sparse.mm, hot cache unless noted</text>
+  </g>
+ </g>
+ <defs>
+  <clipPath id="pd9f00345eb">
+   <rect x="132.115625" y="51.738281" width="390.6" height="149.544"/>
+  </clipPath>
+ </defs>
+</svg>

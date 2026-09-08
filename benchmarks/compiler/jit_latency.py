@@ -6,7 +6,7 @@ before timing.  The first worker sees an empty provider cache; the second sees
 the artifact written by the first worker.  No user cache is read or deleted.
 
 This kernel remains a handwritten lowering oracle.  The measurements establish
-the protocol that a future GraphForge-generated provider must implement.
+the protocol that a future Tiga-generated provider must implement.
 """
 
 from __future__ import annotations
@@ -202,7 +202,7 @@ def main():
     if triton is None or not torch.cuda.is_available():
         parser.error("CUDA and Triton are required")
 
-    with tempfile.TemporaryDirectory(prefix="graphforge-triton-cache-") as path:
+    with tempfile.TemporaryDirectory(prefix="tiga-triton-cache-") as path:
         cache_dir = Path(path)
         cold = _run_worker(args, cache_dir, "cold")
         disk = _run_worker(args, cache_dir, "disk")

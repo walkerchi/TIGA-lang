@@ -26,10 +26,10 @@ class PerfProtocolTest(unittest.TestCase):
             [
                 result("torch.sparse.mm", 1.0),
                 result("pyg", 2.0),
-                result("graphforge.triton", 0.9),
-                result("graphforge.reference", 0.1),
+                result("tiga.triton", 0.9),
+                result("tiga.reference", 0.1),
             ],
-            ["graphforge.triton"],
+            ["tiga.triton"],
         )
         self.assertEqual(gates[0].baseline, "torch.sparse.mm")
         self.assertTrue(gates[0].passed)
@@ -39,24 +39,24 @@ class PerfProtocolTest(unittest.TestCase):
     def test_every_bucket_is_gated_independently(self):
         results = [
             result("torch.sparse.mm", 1.0, features=16),
-            result("graphforge.triton", 0.9, features=16),
+            result("tiga.triton", 0.9, features=16),
             result("torch.sparse.mm", 2.0, features=64),
-            result("graphforge.triton", 2.1, features=64),
+            result("tiga.triton", 2.1, features=64),
         ]
-        gates = evaluate_sota_gates(results, ["graphforge.triton"])
+        gates = evaluate_sota_gates(results, ["tiga.triton"])
         self.assertEqual([gate.passed for gate in gates], [True, False])
 
     def test_missing_candidate_is_an_error(self):
         with self.assertRaisesRegex(ValueError, "was not measured"):
             evaluate_sota_gates(
-                [result("torch.sparse.mm", 1.0)], ["graphforge.triton"])
+                [result("torch.sparse.mm", 1.0)], ["tiga.triton"])
 
     def test_missing_raw_samples_fails_conservatively(self):
-        candidate = result("graphforge.triton", 0.9)
+        candidate = result("tiga.triton", 0.9)
         del candidate["samples_ms"]
         gates = evaluate_sota_gates(
             [result("torch.sparse.mm", 1.0), candidate],
-            ["graphforge.triton"],
+            ["tiga.triton"],
         )
         self.assertFalse(gates[0].passed)
         self.assertIn("raw samples", gates[0].reason)

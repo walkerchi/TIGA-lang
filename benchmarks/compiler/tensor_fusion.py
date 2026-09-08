@@ -16,8 +16,8 @@ import statistics
 import tempfile
 import time
 
-import graphforge as gf
-from graphforge.compiler.cpu_tensor import compile_tensor
+import tiga as gf
+from tiga.compiler.cpu_tensor import compile_tensor
 
 try:
     import torch
@@ -58,7 +58,7 @@ def main() -> None:
     parser.add_argument("--torch-compile", action="store_true")
     parser.add_argument(
         "--strict", action="store_true",
-        help="disable relaxed reassociation in GraphForge CPU codegen",
+        help="disable relaxed reassociation in Tiga CPU codegen",
     )
     parser.add_argument("--json", type=Path)
     args = parser.parse_args()
@@ -87,13 +87,13 @@ def main() -> None:
     x = gf.tensor(values, dtype=gf_dtype).reshape(args.rows, args.cols)
     scale = gf.tensor(scales, dtype=gf_dtype).reshape(1, args.cols)
 
-    old_backend = os.environ.get("GRAPHFORGE_TENSOR_BACKEND")
-    old_cache = os.environ.get("GRAPHFORGE_CACHE_DIR")
-    old_fast_math = os.environ.get("GRAPHFORGE_FAST_MATH")
-    with tempfile.TemporaryDirectory(prefix="graphforge-tensor-benchmark-") as cache:
-        os.environ["GRAPHFORGE_TENSOR_BACKEND"] = "native"
-        os.environ["GRAPHFORGE_CACHE_DIR"] = cache
-        os.environ["GRAPHFORGE_FAST_MATH"] = "0" if args.strict else "1"
+    old_backend = os.environ.get("TIGA_TENSOR_BACKEND")
+    old_cache = os.environ.get("TIGA_CACHE_DIR")
+    old_fast_math = os.environ.get("TIGA_FAST_MATH")
+    with tempfile.TemporaryDirectory(prefix="tiga-tensor-benchmark-") as cache:
+        os.environ["TIGA_TENSOR_BACKEND"] = "native"
+        os.environ["TIGA_CACHE_DIR"] = cache
+        os.environ["TIGA_FAST_MATH"] = "0" if args.strict else "1"
         start = time.perf_counter_ns()
         first = _graphforge_run(x, scale)
         cold_ms = (time.perf_counter_ns() - start) / 1e6
@@ -101,17 +101,17 @@ def main() -> None:
         executable = compile_tensor(first)
         kernel = _measure(lambda: executable.launch(first), args.repeat)
     if old_backend is None:
-        os.environ.pop("GRAPHFORGE_TENSOR_BACKEND", None)
+        os.environ.pop("TIGA_TENSOR_BACKEND", None)
     else:
-        os.environ["GRAPHFORGE_TENSOR_BACKEND"] = old_backend
+        os.environ["TIGA_TENSOR_BACKEND"] = old_backend
     if old_cache is None:
-        os.environ.pop("GRAPHFORGE_CACHE_DIR", None)
+        os.environ.pop("TIGA_CACHE_DIR", None)
     else:
-        os.environ["GRAPHFORGE_CACHE_DIR"] = old_cache
+        os.environ["TIGA_CACHE_DIR"] = old_cache
     if old_fast_math is None:
-        os.environ.pop("GRAPHFORGE_FAST_MATH", None)
+        os.environ.pop("TIGA_FAST_MATH", None)
     else:
-        os.environ["GRAPHFORGE_FAST_MATH"] = old_fast_math
+        os.environ["TIGA_FAST_MATH"] = old_fast_math
 
     result = {
         "operation": "broadcast_mul_add_axis_sum",
@@ -123,7 +123,7 @@ def main() -> None:
             "machine": platform.machine(),
             "logical_cpus": os.cpu_count(),
         },
-        "graphforge": {
+        "tiga": {
             "cold_ms": cold_ms,
             "version": gf.__version__,
             "warm_median_ms": warm["median_ms"],
@@ -151,7 +151,7 @@ def main() -> None:
             result_value = torch_function(torch_x, torch_scale)
             # Force the public result-ready boundary.  Returning a Tensor from
             # a compiled CPU wrapper can otherwise time only submission while
-            # GraphForge's current CPU launch is synchronous.
+            # Tiga's current CPU launch is synchronous.
             result_value[0].item()
             return result_value
 

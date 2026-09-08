@@ -1,7 +1,7 @@
 # Compiler probes
 
-These are deliberately a small set of algorithms, not a GraphForge algorithm
-library. Each program is first expressed with general GraphForge semantics and
+These are deliberately a small set of algorithms, not a Tiga algorithm
+library. Each program is first expressed with general Tiga semantics and
 kept outside compiler core. Its job is to reveal a missing reusable IR or
 schedule primitive before that primitive is designed.
 

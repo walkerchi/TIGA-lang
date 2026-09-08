@@ -21,6 +21,7 @@ import numpy as np
 from matplotlib.lines import Line2D
 from matplotlib.patches import Patch
 
+from benchmarks.common import docs_style
 from benchmarks.common.plotting import (
     _number_marker,
     _save,
@@ -193,7 +194,7 @@ def plot_operation_summary(payloads: list[dict], output: Path) -> Path:
             title="stable provider marker/color; lines vary input size")
 
     fig.suptitle(
-        f"GraphForge {operation.replace('_', ' ')} · registered-case summary",
+        f"Tiga {operation.replace('_', ' ')} · registered-case summary",
         fontsize=15, fontweight="bold")
     output.mkdir(parents=True, exist_ok=True)
     path = output / "summary.png"
@@ -231,7 +232,7 @@ def plot_manifest_dashboard(manifest: dict, output: Path) -> Path:
     ax.set_yticks(positions, [name.replace("_", " ") for name in names])
     ax.invert_yaxis()
     ax.set_xlabel("Registered reproducible cases")
-    ax.set_title("GraphForge benchmark evidence coverage")
+    ax.set_title("Tiga benchmark evidence coverage")
     ax.grid(True, axis="x")
     for bar, name, count in zip(bars, names, counts):
         ax.text(
@@ -242,7 +243,7 @@ def plot_manifest_dashboard(manifest: dict, output: Path) -> Path:
     path = output / "dashboard.png"
     _save(fig, path.with_suffix(""))
     lines = [
-        "# GraphForge benchmark dashboard", "",
+        "# Tiga benchmark dashboard", "",
         "![Registered evidence coverage](dashboard.svg)", "",
         ("Operation summaries connect only cases with matching semantics; each "
          "case directory remains the source-of-truth evidence boundary."), "",
@@ -260,8 +261,9 @@ def _matches_filters(item: dict, filters: dict) -> bool:
 
 def _short_provider(provider: str) -> str:
     replacements = (
-        ("graphforge.", "GraphForge · "),
+        ("tiga.", "Tiga · "),
         ("torch.", "PyTorch · "),
+        ("pyg.", "PyG · "),
         ("triton.", "Triton · "),
         ("handwritten.", "Handwritten · "),
         ("flash_sparse_attn.", "FSA · "),
@@ -275,9 +277,16 @@ def _short_provider(provider: str) -> str:
     return provider.replace("_", " ")
 
 
-def _report_method_color(provider: str) -> str:
-    """Use the corpus-wide exact-method color throughout the report."""
-    return provider_color(provider)
+def _report_method_color(provider: str, *, primary: bool = False) -> str:
+    """House-palette series color for the docs-facing report charts.
+
+    The Tiga primary path is the indigo hero series, further
+    Tiga alternatives are soft indigo, and every matched peer is
+    muted slate; provider identity is carried by the y-tick labels.
+    """
+    if not provider.startswith("tiga."):
+        return docs_style.SLATE
+    return docs_style.GF if primary else docs_style.GF_SOFT
 
 
 def _matched_panel_records(
@@ -288,7 +297,8 @@ def _matched_panel_records(
         raise ValueError(f"manifest has no {key}")
     records = []
     for panel in panels:
-        path = root / panel["operation"] / panel["case"] / "roofline.json"
+        path = (root / panel["operation"] / panel["case"]
+                / panel.get("artifact", "roofline.json"))
         if not path.is_file():
             raise FileNotFoundError(path)
         payload = json.loads(path.read_text(encoding="utf-8"))
@@ -312,12 +322,18 @@ def _matched_panel_records(
 def _showcase_badge(provider: str, primary: bool) -> str:
     if primary:
         return "GF"
-    if provider.startswith("graphforge."):
+    if provider.startswith("tiga."):
         return "AUTO"
-    if provider.startswith("torch."):
+    if provider.startswith("torch.compile"):
+        return "TC"
+    if provider.startswith("torch"):
         return "PT"
-    if provider.startswith(("triton.", "handwritten.")):
+    if provider.startswith("pyg"):
+        return "PyG"
+    if provider.startswith(("triton", "handwritten")):
         return "TR"
+    if provider.startswith("warp"):
+        return "WP"
     if provider.startswith("flash_sparse_attn."):
         return "FSA"
     return "PEER"
@@ -334,30 +350,32 @@ def plot_release_showcase(manifest: dict, root: Path, output: Path) -> Path:
     if len(records) != 6:
         raise ValueError("the README showcase requires exactly six panels")
 
-    _style()
-    fig = plt.figure(figsize=(18.0, 10.6), facecolor="white")
+    docs_style.apply()
+    fig = plt.figure(figsize=(18.0, 10.6))
     grid = fig.add_gridspec(
         2, 3, left=0.055, right=0.965, bottom=0.12, top=0.705,
         wspace=0.34, hspace=0.56,
     )
     fig.text(
         0.045, 0.94, "Compiler Performance Evaluation",
-        ha="left", va="top", fontsize=31, fontweight="normal", color="#101216",
+        ha="left", va="top", fontsize=31, fontweight="normal",
+        color=docs_style.TEXT,
     )
     fig.text(
         0.045, 0.875,
         "6 matched workloads · fixed semantics and baselines · median latency · higher is better",
-        ha="left", va="top", fontsize=15.5, color="#8a9098",
+        ha="left", va="top", fontsize=15.5, color=docs_style.TEXT,
     )
     fig.add_artist(Line2D(
         [0.045, 0.955], [0.825, 0.825], transform=fig.transFigure,
-        color="#aeb6c1", linewidth=2.4,
+        color=docs_style.SLATE, alpha=0.55, linewidth=2.0,
     ))
     fig.legend(
         handles=(
-            Patch(facecolor="#168bff", label="GraphForge compiled path"),
-            Patch(facecolor="#34bd8a", label="GraphForge auto alternative"),
-            Patch(facecolor="#c8ced8", label="Matched peer"),
+            Patch(facecolor=docs_style.GF, label="Tiga compiled path"),
+            Patch(facecolor=docs_style.GF_SOFT,
+                  label="Tiga auto alternative"),
+            Patch(facecolor="#c3ccd9", label="Matched peer"),
         ),
         loc="upper left", bbox_to_anchor=(0.043, 0.808), ncol=3,
         frameon=False, fontsize=13.5, handlelength=0.8, handleheight=0.8,
@@ -370,7 +388,7 @@ def plot_release_showcase(manifest: dict, root: Path, output: Path) -> Path:
               "facecolor": "#0b0d10", "edgecolor": "none"},
     )
 
-    peer_colors = ("#c4cad4", "#e1e4e9", "#eef0f3")
+    peer_colors = ("#c3ccd9", "#d9dfe8", "#e9edf2")
     for index, (panel, selected, baseline_ms) in enumerate(records):
         ax = fig.add_subplot(grid[index // 3, index % 3])
         providers = panel["providers"]
@@ -378,8 +396,8 @@ def plot_release_showcase(manifest: dict, root: Path, output: Path) -> Path:
             baseline_ms / float(selected[name]["milliseconds"])
             for name in providers
         ])
-        colors = ["#168bff"] + [
-            "#34bd8a" if name.startswith("graphforge.")
+        colors = [docs_style.GF] + [
+            docs_style.GF_SOFT if name.startswith("tiga.")
             else peer_colors[min(peer_index, len(peer_colors) - 1)]
             for peer_index, name in enumerate(providers[1:])
         ]
@@ -391,7 +409,7 @@ def plot_release_showcase(manifest: dict, root: Path, output: Path) -> Path:
         ceiling = max(1.18, float(relative.max()) * 1.22)
         ax.set_ylim(0, ceiling)
         ax.set_xlim(-0.55, len(providers) - 0.45)
-        ax.axhline(0, color="#89919b", linewidth=1.2)
+        ax.axhline(0, color=docs_style.SLATE, linewidth=1.2)
         ax.set_xticks([])
         ax.set_yticks([])
         ax.grid(False)
@@ -406,39 +424,40 @@ def plot_release_showcase(manifest: dict, root: Path, output: Path) -> Path:
                 f"{ratio:.2f}×", ha="center", va="bottom",
                 fontsize=15.5,
                 fontweight="bold" if item_index == 0 else "normal",
-                color="#151719",
+                color=docs_style.TEXT,
             )
             ax.text(
                 bar.get_x() + bar.get_width() / 2,
                 min(bar.get_height() * 0.72, ceiling * 0.34),
                 _showcase_badge(provider, item_index == 0),
                 ha="center", va="center", fontsize=9.5, fontweight="bold",
-                color="white" if item_index < 2 else "#34383d",
+                color="white" if item_index < 2 else docs_style.TEXT,
                 bbox={
                     "boxstyle": "round,pad=0.34,rounding_size=0.18",
-                    "facecolor": "#0b0d10" if item_index < 2 else "white",
-                    "edgecolor": "#d0d5dc", "linewidth": 0.8,
+                    "facecolor": "#0b0d10" if item_index < 2 else "none",
+                    "edgecolor": "none" if item_index < 2 else docs_style.SLATE,
+                    "linewidth": 0.8,
                 },
             )
         ax.text(
             0.5, -0.13, panel["title"], transform=ax.transAxes,
             ha="center", va="center", fontsize=12.5, fontweight="bold",
-            color="#555a61",
+            color=docs_style.TEXT,
             bbox={"boxstyle": "round,pad=0.38,rounding_size=0.9",
-                  "facecolor": "white", "edgecolor": "#6f747a",
+                  "facecolor": "none", "edgecolor": docs_style.SLATE,
                   "linewidth": 1.1},
         )
         detail = panel.get("detail")
         if detail:
             ax.text(
                 0.5, -0.25, detail, transform=ax.transAxes,
-                ha="center", va="top", fontsize=8.2, color="#969ba2",
+                ha="center", va="top", fontsize=8.2, color=docs_style.TEXT,
             )
 
     fig.text(
         0.955, 0.025,
         "No aggregate score · each group uses its own declared 1.00× baseline",
-        ha="right", va="bottom", fontsize=9.5, color="#9aa0a7",
+        ha="right", va="bottom", fontsize=9.5, color=docs_style.SLATE,
     )
     output.parent.mkdir(parents=True, exist_ok=True)
     _save(fig, output.with_suffix(""))
@@ -455,7 +474,7 @@ def plot_compiler_report(manifest: dict, root: Path, output: Path) -> Path:
     """
     records = _matched_panel_records(manifest, root, "report_panels")
 
-    _style()
+    docs_style.apply()
     fig, axes = plt.subplots(
         len(records) + 1, 1, squeeze=False,
         figsize=(10.8, 2.45 * len(records) + 2.2),
@@ -466,14 +485,15 @@ def plot_compiler_report(manifest: dict, root: Path, output: Path) -> Path:
     header.axis("off")
     device = manifest.get("report_device", "registered hardware")
     header.text(
-        0.5, 0.74, "GraphForge compiler performance report",
+        0.5, 0.74, "Tiga compiler performance report",
         ha="center", va="center", fontsize=18, fontweight="bold",
+        color=docs_style.CARD_INK,
         transform=header.transAxes,
     )
     header.text(
         0.5, 0.22,
         f"{device} · matched semantics · median hot latency · higher is better",
-        ha="center", va="center", fontsize=9.2, color="#475569",
+        ha="center", va="center", fontsize=9.2, color=docs_style.TEXT,
         transform=header.transAxes,
     )
     for index, (panel, selected, baseline_ms) in enumerate(records):
@@ -486,16 +506,13 @@ def plot_compiler_report(manifest: dict, root: Path, output: Path) -> Path:
         positions = np.arange(len(providers))
         bars = ax.barh(
             positions, relative,
-            color=[_report_method_color(name) for name in providers],
-            edgecolor=["#0f172a" if name.startswith("graphforge.") else "white"
-                       for name in providers],
-            linewidth=[1.25 if name.startswith("graphforge.") else 0.8
-                       for name in providers],
+            color=[_report_method_color(name, primary=position == 0)
+                   for position, name in enumerate(providers)],
             height=0.62,
         )
         ax.set_yticks(positions, [_short_provider(name) for name in providers])
         ax.invert_yaxis()
-        ax.axvline(1.0, color="#475569", linestyle="--", linewidth=1.15)
+        ax.axvline(1.0, color=docs_style.SLATE, linestyle="--", linewidth=1.15)
         ax.set_xlim(0, max(1.18, max(relative) * 1.23))
         ax.set_xlabel(f"Relative throughput · {_short_provider(panel['baseline'])} = 1.00×")
         ax.set_title(panel["title"], loc="left", fontsize=11.2, pad=7)
@@ -507,13 +524,13 @@ def plot_compiler_report(manifest: dict, root: Path, output: Path) -> Path:
                 bar.get_width() + max(relative) * 0.018,
                 bar.get_y() + bar.get_height() / 2,
                 f"{ratio:.2f}×  ·  {latency:.4g} ms",
-                va="center", fontsize=8.1, color="#334155",
+                va="center", fontsize=8.1, color=docs_style.TEXT,
             )
         detail = panel.get("detail")
         if detail:
             ax.text(
                 1.0, 1.03, detail, transform=ax.transAxes,
-                ha="right", va="bottom", fontsize=7.5, color="#64748b",
+                ha="right", va="bottom", fontsize=7.5, color=docs_style.TEXT,
             )
 
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -550,13 +567,14 @@ def write_interactive_compiler_report(
             "milliseconds": [
                 float(selected[name]["milliseconds"]) for name in providers
             ],
-            "colors": [_report_method_color(name) for name in providers],
+            "colors": [_report_method_color(name, primary=position == 0)
+                       for position, name in enumerate(providers)],
         })
     payload = json.dumps(panels, ensure_ascii=True).replace("<", "\\u003c")
     document = f"""<!doctype html>
 <html lang=\"en\"><head><meta charset=\"utf-8\">
 <meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">
-<title>GraphForge interactive compiler performance report</title>
+<title>Tiga interactive compiler performance report</title>
 <style>
 :root{{--paper:#f8fafc;--plot:#f8fafc;--ink:#172033;--muted:#64748b;--grid:#dbe3ef;--menu:#fff;--line:#cbd5e1}}
 :root[data-theme=dark]{{--paper:#101a2b;--plot:#101a2b;--ink:#edf3fc;--muted:#9cabc0;--grid:#26354b;--menu:#17243a;--line:#3a4b64}}
@@ -566,12 +584,12 @@ html,body{{height:100%;margin:0;background:var(--paper);font-family:Inter,ui-san
 #fallback img{{display:block;width:100%;height:auto}}
 @media(max-width:640px){{#chart{{min-height:700px}}}}
 </style></head><body>
-<div id=\"chart\" role=\"img\" aria-label=\"Interactive GraphForge compiler performance report\"></div>
-<div id=\"fallback\"><img src=\"{fallback}\" alt=\"Static GraphForge compiler performance report\"></div>
+<div id=\"chart\" role=\"img\" aria-label=\"Interactive Tiga compiler performance report\"></div>
+<div id=\"fallback\"><img src=\"{fallback}\" alt=\"Static Tiga compiler performance report\"></div>
 <noscript><style>#chart{{display:none}}#fallback{{display:flex}}</style></noscript>
 <script id=\"gf-report-data\" type=\"application/json\">{payload}</script>
 <script>
-function notify(type,value){{if(window.parent!==window)window.parent.postMessage({{source:'graphforge-report',type:type,value:value}},window.location.origin)}}
+function notify(type,value){{if(window.parent!==window)window.parent.postMessage({{source:'tiga-report',type:type,value:value}},window.location.origin)}}
 function notifyHeight(){{notify('height',Math.max(document.documentElement.scrollHeight,window.innerHeight))}}
 function showFallback(){{document.getElementById('chart').style.display='none';document.getElementById('fallback').style.display='flex';notify('fallback',true);notifyHeight()}}
 </script>
@@ -600,7 +618,7 @@ function renderLayout(){{const c=colors();const layout=Object.assign({{}},base,l
 Plotly.newPlot('chart',traces,renderLayout(),{{responsive:true,displaylogo:false,modeBarButtonsToRemove:['lasso2d','select2d']}}).then(()=>{{
  const chart=document.getElementById('chart');chart.on('plotly_buttonclicked',event=>{{activePanel=panels.findIndex(panel=>panel.title===event.button.label);Plotly.relayout(chart,renderLayout());setTimeout(notifyHeight,0)}});notifyHeight();
 }}).catch(showFallback);
-window.addEventListener('message',event=>{{if(event.origin!==window.location.origin||event.data?.source!=='graphforge-docs'||event.data.type!=='theme')return;dark=event.data.value==='dark';document.documentElement.dataset.theme=dark?'dark':'light';Plotly.relayout('chart',renderLayout()).then(notifyHeight)}});
+window.addEventListener('message',event=>{{if(event.origin!==window.location.origin||event.data?.source!=='tiga-docs'||event.data.type!=='theme')return;dark=event.data.value==='dark';document.documentElement.dataset.theme=dark?'dark':'light';Plotly.relayout('chart',renderLayout()).then(notifyHeight)}});
 window.addEventListener('resize',()=>{{Plotly.relayout('chart',renderLayout()).then(notifyHeight)}});
 }}
 </script></body></html>"""

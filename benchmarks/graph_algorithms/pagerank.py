@@ -1,6 +1,6 @@
 """Matched fixed-iteration PageRank benchmark and roofline artifact.
 
-GraphForge captures the repeated MessagePassing body once and lowers each
+Tiga captures the repeated MessagePassing body once and lowers each
 iteration to one fused CSR-message/reduction/node-epilogue kernel.  The peer is
 Torch's sparse CSR matvec followed by its ordinary damping/base operations;
 both execute the same number of iterations from the same initial rank.
@@ -22,7 +22,7 @@ import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
 import torch  # noqa: E402
 
-import graphforge as gf  # noqa: E402
+import tiga as gf  # noqa: E402
 from benchmarks.common.hardware_roofline import (  # noqa: E402
     interleaved_samples_ms,
     measure_roofs,
@@ -97,7 +97,7 @@ def _case(nodes: int, degree: int, iterations: int, samples: int, roof):
 
     timings = interleaved_samples_ms(
         {
-            "graphforge.control": graphforge_submit,
+            "tiga.control": graphforge_submit,
             "torch.sparse.mm": torch_sparse,
         },
         torch.device("cuda"),
@@ -147,7 +147,7 @@ def _case(nodes: int, degree: int, iterations: int, samples: int, roof):
         "block_manifest": next(
             (line for line in str(
                 output.generated_code("provider_ttir") or "").splitlines()
-             if "graphforge.tensor entry=" in line),
+             if "tiga.tensor entry=" in line),
             "compiled TTIR artifact carries the launch manifest",
         ),
     }
@@ -225,7 +225,7 @@ def _roofline_plot(payload: dict, output: Path) -> None:
                 label=(item["provider"]
                        if panel == 0 and item["nodes"] == minimum_node
                        else None))
-            horizontal = 7 if item["provider"].startswith("graphforge") else -7
+            horizontal = 7 if item["provider"].startswith("tiga") else -7
             alignment = "left" if horizontal > 0 else "right"
             vertical = 5 if item["nodes"] == minimum_node else -11
             axis.annotate(
@@ -255,7 +255,7 @@ def _report(payload: dict, output: Path) -> None:
     lines = [
         "# Fixed-iteration PageRank compiler probe",
         "",
-        "The GraphForge candidate is one captured `gf_control.repeat` whose "
+        "The Tiga candidate is one captured `gf_control.repeat` whose "
         "MessagePassing body lowers to one compiler-generated TTIR kernel per "
         "iteration. The peer executes the same recurrence and iteration count "
         "with `torch.sparse.mm`; this is not a convergence benchmark.",
@@ -264,7 +264,7 @@ def _report(payload: dict, output: Path) -> None:
         "",
         "![Hierarchical roofline](roofline.svg)",
         "",
-        "| N | Degree | GraphForge (ms) | Peer (ms) | Speedup | 95% CI | Gate |",
+        "| N | Degree | Tiga (ms) | Peer (ms) | Speedup | 95% CI | Gate |",
         "|---:|---:|---:|---:|---:|---:|---|",
     ]
     for gate in payload["sota_gates"]:
@@ -322,7 +322,7 @@ def main() -> None:
     payload["sota_gates"] = [
         gate.to_dict() for gate in evaluate_sota_gates(
             results,
-            ["graphforge.control"],
+            ["tiga.control"],
             baselines={"torch.sparse.mm"},
         )
     ]
@@ -337,7 +337,7 @@ def main() -> None:
             case = [item for item in results
                     if item["nodes"] == node_count and item["degree"] == degree]
             gf_ms = next(item["milliseconds"] for item in case
-                         if item["provider"] == "graphforge.control")
+                         if item["provider"] == "tiga.control")
             peer_ms = next(item["milliseconds"] for item in case
                            if item["provider"] == "torch.sparse.mm")
             print(f"N={node_count} d={degree}: {peer_ms / gf_ms:.3f}x")

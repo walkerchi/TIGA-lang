@@ -1,0 +1,91 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="560" viewBox="0 0 1000 560" role="img" aria-labelledby="title desc">
+  <title id="title">Memory hierarchy ladder</title>
+  <desc id="desc">Seven memory tiers from registers to remote shards. Register and shared are kernel-managed, device, pinned, RAM and NVMe are allocatable through the hierarchy runtime, and remote is transport-managed. Each tier is annotated with its typical role and the mechanism that moves data into it.</desc>
+  <defs>
+    <style>
+      text{font-family:Arial,sans-serif}
+      .title{font-size:21px;font-weight:700;fill:#0f172a}
+      .head{font-size:11px;font-weight:700;fill:#64748b;letter-spacing:1.2px}
+      .tier{font-size:14px;font-weight:700;fill:#312e81}
+      .tierGray{font-size:14px;font-weight:700;fill:#475569}
+      .mono{font-family:Consolas,monospace;font-size:12.5px;fill:#312e81}
+      .body{font-size:12.5px;fill:#334155}
+      .small{font-size:11.5px;fill:#64748b}
+      .noteT{font-size:12.5px;font-weight:700;fill:#312e81}
+      .kernel{fill:#f1f5f9;stroke:#cbd5e1;stroke-width:1.4}
+      .alloc{fill:#eef2ff;stroke:#4f46e5;stroke-width:1.8}
+      .remote{fill:#f5f3ff;stroke:#7c3aed;stroke-width:1.8}
+      .noteCard{fill:#ffffff;stroke:#e2e8f0;stroke-width:1.4}
+    </style>
+  </defs>
+
+  <rect width="1000" height="560" rx="18" fill="#f8fafc" />
+  <text x="36" y="42" class="title">The tier ladder — one logical value, many physical instances</text>
+
+  <text x="52" y="74" class="head">TIER</text>
+  <text x="222" y="74" class="head">MANAGED BY</text>
+  <text x="452" y="74" class="head">TYPICAL ROLE</text>
+  <text x="742" y="74" class="head">DATA ARRIVES VIA</text>
+
+  
+  <g>
+    <rect x="40" y="86" width="160" height="44" rx="10" class="kernel" />
+    <text x="58" y="113" class="tierGray">register</text>
+    <text x="222" y="113" class="small">kernel codegen · not allocatable</text>
+    <text x="452" y="113" class="body">per-thread scalars and accumulators</text>
+    <text x="742" y="113" class="small">—</text>
+  </g>
+  <g>
+    <rect x="40" y="140" width="160" height="44" rx="10" class="kernel" />
+    <text x="58" y="167" class="tierGray">shared</text>
+    <text x="222" y="167" class="small">kernel codegen · not allocatable</text>
+    <text x="452" y="167" class="body">workgroup tile (LDS / UB)</text>
+    <text x="742" y="167" class="small">tile load/store in generated code</text>
+  </g>
+  <g>
+    <rect x="40" y="194" width="160" height="44" rx="10" class="alloc" />
+    <text x="58" y="221" class="tier">device · HBM</text>
+    <text x="222" y="221" class="mono">allocate(tier="device")</text>
+    <text x="452" y="221" class="body">device buffers on streams</text>
+    <text x="742" y="221" class="small">async DMA / device-to-device copy</text>
+  </g>
+  <g>
+    <rect x="40" y="248" width="160" height="44" rx="10" class="alloc" />
+    <text x="58" y="275" class="tier">host-pinned</text>
+    <text x="222" y="275" class="mono">allocate(tier="host-pinned")</text>
+    <text x="452" y="275" class="body">DMA staging buffer</text>
+    <text x="742" y="275" class="small">async DMA on a Stream + Event</text>
+  </g>
+  <g>
+    <rect x="40" y="302" width="160" height="44" rx="10" class="alloc" />
+    <text x="58" y="329" class="tier">ram</text>
+    <text x="222" y="329" class="mono">allocate(tier="ram")</text>
+    <text x="452" y="329" class="body">host working set</text>
+    <text x="742" y="329" class="small">memcpy</text>
+  </g>
+  <g>
+    <rect x="40" y="356" width="160" height="44" rx="10" class="alloc" />
+    <text x="58" y="383" class="tier">nvme</text>
+    <text x="222" y="383" class="mono">allocate(tier="nvme")</text>
+    <text x="452" y="383" class="body">spill pages</text>
+    <text x="742" y="383" class="small">file I/O on the runtime thread pool</text>
+  </g>
+  <g>
+    <rect x="40" y="410" width="160" height="44" rx="10" class="remote" />
+    <text x="58" y="437" class="tier">remote</text>
+    <text x="222" y="437" class="small">transport · not allocatable</text>
+    <text x="452" y="437" class="body">another rank's shard</text>
+    <text x="742" y="437" class="small">halo exchange (MPI / NCCL / pipes)</text>
+  </g>
+
+  <text x="40" y="482" class="small">capacity grows downward · bandwidth and compiler control grow upward</text>
+
+  <g>
+    <rect x="40" y="498" width="452" height="46" rx="10" class="noteCard" />
+    <text x="56" y="518" class="noteT">capacity rule</text>
+    <text x="56" y="535" class="small">live(tier) ≤ budget(tier) — overflow raises MemoryError, never silent spill</text>
+    <rect x="508" y="498" width="452" height="46" rx="10" class="noteCard" />
+    <text x="524" y="518" class="noteT">version rule</text>
+    <text x="524" y="535" class="small">a transfer preserves identity: same logical name, version and byte size</text>
+  </g>
+</svg>

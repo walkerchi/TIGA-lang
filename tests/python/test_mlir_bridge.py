@@ -6,9 +6,9 @@ from unittest import mock
 
 import torch
 
-import graphforge as gf
-from graphforge.compiler.toolchain import find_gf_opt, find_gf_translate
-from graphforge.interop.torch.compiler_bridge import (
+import tiga as gf
+from tiga.compiler.toolchain import find_gf_opt, find_gf_translate
+from tiga.interop.torch.compiler_bridge import (
     lower_kernel_to_ttir,
     lower_mlir_stages,
     message_passing_domain_mlir,
@@ -153,7 +153,7 @@ class MLIRBridgeTest(unittest.TestCase):
             kernel_name="NoSubprocessDenseSum",
         )
         with mock.patch(
-            "graphforge.interop.torch.compiler_bridge.subprocess.run"
+            "tiga.interop.torch.compiler_bridge.subprocess.run"
         ) as run:
             stages = lower_mlir_stages(module, gf_opt="/does/not/exist")
         run.assert_not_called()
@@ -688,7 +688,7 @@ class MLIRBridgeTest(unittest.TestCase):
         weight = torch.randn(nodes * degree)
         kernel = WeightedAggregation()
         with mock.patch.dict(
-            os.environ, {"GRAPHFORGE_OPT": str(_gf_opt())}, clear=False):
+            os.environ, {"TIGA_OPT": str(_gf_opt())}, clear=False):
             kernel(
                 graph=graph,
                 src={"x": x},

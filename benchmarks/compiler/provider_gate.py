@@ -18,7 +18,7 @@ import warnings
 
 import torch
 
-import graphforge as gf
+import tiga as gf
 from benchmarks.kernels.sparse_triton_oracles import prepare_fixed_weighted_sum
 
 
@@ -53,7 +53,7 @@ def median_ms(fn, repeat: int) -> tuple[float, list[float]]:
 def plot(results: list[dict[str, object]], path: Path) -> None:
     import matplotlib.pyplot as plt
 
-    providers = ("graphforge.kernel_ttir", "triton.template", "torch.sparse.mm")
+    providers = ("tiga.kernel_ttir", "triton.template", "torch.sparse.mm")
     colors = ("#7c3aed", "#059669", "#dc2626")
     figure, axis = plt.subplots(figsize=(8.0, 5.0))
     for provider, color in zip(providers, colors):
@@ -69,13 +69,23 @@ def plot(results: list[dict[str, object]], path: Path) -> None:
     axis.set_yscale("log")
     axis.set_xlabel("Fixed CSR degree")
     axis.set_ylabel("Median runtime (ms; lower is better)")
-    axis.set_title("GraphForge direct Kernel IR → TTIR performance gate")
+    axis.set_title("Tiga direct Kernel IR → TTIR performance gate")
     axis.grid(True, which="both", alpha=0.25)
     axis.legend()
     figure.tight_layout()
     path.parent.mkdir(parents=True, exist_ok=True)
     figure.savefig(path, dpi=180)
     plt.close(figure)
+
+
+def _default_tool(name: str) -> str | None:
+    """Discover a built tool from the source tree's build directories."""
+    bin_dirs = sorted(Path(__file__).resolve().parents[2].glob("build/*/bin"))
+    for bin_dir in bin_dirs:
+        candidate = bin_dir / name
+        if candidate.is_file():
+            return str(candidate)
+    return None
 
 
 def main() -> None:
@@ -98,10 +108,18 @@ def main() -> None:
         args.nodes, args.repeat = 1 << 14, 20
     if not torch.cuda.is_available():
         raise SystemExit("CUDA is required")
-    if not os.environ.get("GRAPHFORGE_OPT"):
-        raise SystemExit("set GRAPHFORGE_OPT to the built gf-opt")
-    if not os.environ.get("GRAPHFORGE_TRANSLATE"):
-        raise SystemExit("set GRAPHFORGE_TRANSLATE to the built gf-translate")
+    for tool, variable in (
+        ("gf-opt", "TIGA_OPT"),
+        ("gf-translate", "TIGA_TRANSLATE"),
+    ):
+        if not os.environ.get(variable):
+            discovered = _default_tool(tool)
+            if discovered:
+                os.environ[variable] = discovered
+    if not os.environ.get("TIGA_OPT"):
+        raise SystemExit("set TIGA_OPT to the built gf-opt")
+    if not os.environ.get("TIGA_TRANSLATE"):
+        raise SystemExit("set TIGA_TRANSLATE to the built gf-translate")
 
     results = []
     all_passed = True
@@ -145,7 +163,7 @@ def main() -> None:
         torch.testing.assert_close(template_output, torch_output)
 
         calls = {
-            "graphforge.kernel_ttir": lambda: kernel(
+            "tiga.kernel_ttir": lambda: kernel(
                 graph=graph, src={"x": x}, dst={"x": x},
                 edge={"weight": weight}),
             "triton.template": lambda: template.run(x, weight),
@@ -156,7 +174,7 @@ def main() -> None:
         for name, call in calls.items():
             runtime[name], raw_samples[name] = median_ms(call, args.repeat)
         fastest_peer = min(runtime["triton.template"], runtime["torch.sparse.mm"])
-        ratio = runtime["graphforge.kernel_ttir"] / fastest_peer
+        ratio = runtime["tiga.kernel_ttir"] / fastest_peer
         passed = ratio <= 1.05
         all_passed &= passed
         results.append({
@@ -173,7 +191,7 @@ def main() -> None:
             "provider": kernel.last_variant.provider,
         })
         print(
-            f"degree={degree:>2} direct={runtime['graphforge.kernel_ttir']:.6f} "
+            f"degree={degree:>2} direct={runtime['tiga.kernel_ttir']:.6f} "
             f"template={runtime['triton.template']:.6f} "
             f"torch={runtime['torch.sparse.mm']:.6f} ms "
             f"ratio={ratio:.3f} {'PASS' if passed else 'FAIL'}")

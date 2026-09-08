@@ -18,7 +18,7 @@ def _load_pagerank_probe():
 
 def test_pagerank_probe_is_correct_and_uses_bounded_control_ir(monkeypatch):
     probe = _load_pagerank_probe()
-    monkeypatch.setenv("GRAPHFORGE_TENSOR_BACKEND", "native")
+    monkeypatch.setenv("TIGA_TENSOR_BACKEND", "native")
     values, expression_nodes, canonical_ir = probe.run(iterations=5)
 
     assert abs(sum(values) - 1.0) < 2.0e-6
@@ -33,9 +33,9 @@ def test_pagerank_probe_is_correct_and_uses_bounded_control_ir(monkeypatch):
 
 
 def test_fixed_repeat_uses_automatic_existing_tensor_vjps(monkeypatch):
-    import graphforge as gf
+    import tiga as gf
 
-    monkeypatch.setenv("GRAPHFORGE_TENSOR_BACKEND", "native")
+    monkeypatch.setenv("TIGA_TENSOR_BACKEND", "native")
     initial = gf.tensor(
         [2.0, 3.0], dtype=gf.float32, requires_grad=True)
     scale = gf.tensor(0.5, dtype=gf.float32, requires_grad=True)
@@ -52,7 +52,7 @@ def test_fixed_repeat_uses_automatic_existing_tensor_vjps(monkeypatch):
 
 
 def test_fixed_repeat_composes_message_passing_vjp(monkeypatch):
-    import graphforge as gf
+    import tiga as gf
 
     class Step(gf.MessagePassing):
         reducer = gf.sum()
@@ -65,7 +65,7 @@ def test_fixed_repeat_composes_message_passing_vjp(monkeypatch):
             del dst
             return base + damping * incoming
 
-    monkeypatch.setenv("GRAPHFORGE_TENSOR_BACKEND", "native")
+    monkeypatch.setenv("TIGA_TENSOR_BACKEND", "native")
     nodes, degree, iterations = 4, 2, 3
     graph = gf.Graph.from_csr(
         gf.tensor([0, 2, 4, 6, 8], dtype=gf.int64),
@@ -98,7 +98,7 @@ def test_cuda_repeat_fuses_csr_message_reduction_and_node_epilogue(monkeypatch):
     if not torch.cuda.is_available():
         pytest.skip("CUDA is unavailable")
 
-    import graphforge as gf
+    import tiga as gf
 
     class Step(gf.MessagePassing):
         reducer = gf.sum()
@@ -136,7 +136,7 @@ def test_cuda_repeat_fuses_csr_message_reduction_and_node_epilogue(monkeypatch):
         iterations=5,
     )
 
-    monkeypatch.setenv("GRAPHFORGE_TENSOR_BACKEND", "native")
+    monkeypatch.setenv("TIGA_TENSOR_BACKEND", "native")
     actual = output.to_torch()
     torch.testing.assert_close(actual, torch.full_like(actual, 1.0 / nodes))
     assert output.execution["backend"] == "cuda-control-loop-ttir-triton"

@@ -1,16 +1,17 @@
-site_name: GraphForge Compiler
+site_name: Tiga Compiler
 site_description: Relation-oriented compilation for sparse, dense, and generated graph computations
 site_url: https://graphforge-docs.app.walkerchi.com/
-repo_url: https://github.com/walkerchi/graphforge
-repo_name: walkerchi/graphforge
-copyright: Copyright &copy; 2026 GraphForge contributors
+repo_url: https://github.com/walkerchi/TIGA-lang
+repo_name: walkerchi/TIGA-lang
+copyright: Copyright &copy; 2026 Tiga contributors
 docs_dir: docs
 site_dir: site
 theme:
   name: material
   language: en
-  logo: assets/graphforge-mark.svg
-  favicon: assets/graphforge-mark.svg
+  font: false
+  logo: assets/tiga-mark.svg
+  favicon: assets/tiga-mark.svg
   palette:
     - media: "(prefers-color-scheme: light)"
       scheme: default
@@ -27,8 +28,6 @@ theme:
         icon: material/weather-sunny
         name: Switch to light mode
   features:
-    - navigation.instant
-    - navigation.instant.progress
     - navigation.tracking
     - navigation.tabs
     - navigation.tabs.sticky
@@ -59,13 +58,62 @@ markdown_extensions:
   - pymdownx.snippets:
       base_path:
         - .
-  - pymdownx.superfences
+  - pymdownx.arithmatex:
+      generic: true
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
 plugins:
   - search
+  - i18n:
+      docs_structure: suffix
+      reconfigure_material: true
+      reconfigure_search: true
+      languages:
+        - locale: en
+          name: English
+          default: true
+        - locale: zh
+          name: 简体中文
+          site_name: Tiga 编译器
+          nav_translations:
+            Overview: 概览
+            Guide: 指南
+            Start here: 快速上手
+            Programming model: 编程模型
+            Message passing: 消息传递
+            Reducers: Reducer
+            How Tiga compares: 对比与定位
+            Examples: 示例
+            Attention and dense relations: 注意力与稠密关系
+            Message passing and graph algorithms: 消息传递与图算法
+            Dynamic and generated relations: 动态与生成式关系
+            Linear solvers and control flow: 线性求解器与控制流
+            Tensor kernels, programs and Torch interop: Tensor kernel、程序与 Torch 互操作
+            Distributed and memory hierarchy: 分布式与内存层级
+            Compiler: 编译器
+            Pipeline and IR: 流水线与 IR
+            Dynamic relations: 动态关系
+            Linear solvers and implicit VJP: 线性求解器与隐式 VJP
+            Tensor runtime & autograd: Tensor 运行时与自动微分
+            Memory & distributed: 内存与分布式
+            Benchmark: 基准测试
+            Measured results: 实测结果
+            Benchmark suite: 基准套件
+            Methodology and protocol: 方法论与协议
+            Reference: 参考
+            Python API: Python API
+            Current status & roadmap: 当前状态与路线图
+            Development: 开发
 extra_css:
-  - stylesheets/graphforge.css
+  - stylesheets/tiga.css
 extra_javascript:
-  - javascripts/graphforge.js
+  - javascripts/mathjax.js
+  - https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js
+  - https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js
+  - javascripts/tiga.js
 extra:
   generator: false
 nav:
@@ -73,26 +121,36 @@ nav:
   - Guide:
       - Start here: getting-started.md
       - Programming model: programming-model.md
-      - Examples: examples.md
+      - Message passing: message-passing.md
+      - Reducers: reducers.md
+      - How Tiga compares: comparison.md
+  - Examples:
+      - examples.md
+      - Message passing and graph algorithms: examples/message-passing.md
+      - Dynamic and generated relations: examples/dynamic-relations.md
+      - Distributed and memory hierarchy: examples/distributed-memory.md
+      - Tensor kernels, programs and Torch interop: examples/programs-and-interop.md
+      - Visualization: examples/visualization.md
+      - Linear solvers and control flow: examples/solvers.md
+      - Attention and dense relations: examples/attention.md
   - Compiler:
       - Pipeline and IR: compiler-pipeline.md
       - Dynamic relations: dynamic-graphs.md
       - Linear solvers and implicit VJP: linear-solvers.md
       - Tensor runtime & autograd: runtime-and-autograd.md
       - Memory & distributed: memory-and-distributed.md
-  - Performance:
+  - Benchmark:
       - Measured results: benchmark-results.md
-      - Methodology and reproduction: performance.md
+      - Benchmark suite: benchmark-suite.md
+      - Methodology and protocol: performance.md
   - Reference:
       - Python API: api.md
       - Current status & roadmap: roadmap.md
       - Development: development.md
-  - Design notes:
-      - Design notes index: design-notes.md
-      - Architecture RFC: rfcs/0001-architecture.md
-      - IR implementation notes: IR_DESIGN.md
-      - Related work: RELATED_WORK.md
-      - Benchmark protocol: BENCHMARKS.md
-      - Scheduling abstractions: SCHEDULING_ABSTRACTIONS.md
-      - GPU graph optimization: GPU_GRAPH_OPTIMIZATION.md
-      - Compiler bootstrap: COMPILER_BOOTSTRAP.md
+exclude_docs: |
+  design-notes.md
+  IR_DESIGN.md
+  RELATED_WORK.md
+  SCHEDULING_ABSTRACTIONS.md
+  GPU_GRAPH_OPTIMIZATION.md
+  rfcs/**

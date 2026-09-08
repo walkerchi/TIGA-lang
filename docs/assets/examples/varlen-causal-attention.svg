@@ -1,0 +1,55 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="680" height="420" viewBox="0 0 680 420" role="img" aria-labelledby="title desc">
+  <title id="title">Varlen: edges stop at sequence boundaries</title>
+  <desc id="desc">A 5 by 5 attention matrix for cu_seqlens 0, 3, 5: two block-diagonal causal triangles. Positions 0 to 2 attend within sequence 0, positions 3 to 4 within sequence 1, and every cross-sequence cell is absent.</desc>
+  <defs><style>
+      text{font-family:Arial,sans-serif}
+      .title{font-size:20px;font-weight:700;fill:#0f172a}
+      .body{font-size:12.5px;fill:#334155}
+      .mono{font-family:Consolas,monospace;font-size:12px;fill:#312e81}
+      .axis{font-size:11.5px;fill:#64748b}
+      .cap{font-size:11px;fill:#64748b}
+</style></defs>
+  <rect width="680" height="420" rx="18" fill="#f8fafc" />
+  <text x="32" y="44" class="title">Varlen: edges stop at sequence boundaries</text>
+<rect x="150" y="128" width="34" height="34" rx="3" fill="#4f46e5" stroke="#ffffff" stroke-width="1.5" />
+  <rect x="184" y="128" width="34" height="34" rx="3" fill="#ffffff" stroke="#e2e8f0" stroke-width="1.5" />
+  <rect x="218" y="128" width="34" height="34" rx="3" fill="#ffffff" stroke="#e2e8f0" stroke-width="1.5" />
+  <rect x="252" y="128" width="34" height="34" rx="3" fill="#ffffff" stroke="#e2e8f0" stroke-width="1.5" />
+  <rect x="286" y="128" width="34" height="34" rx="3" fill="#ffffff" stroke="#e2e8f0" stroke-width="1.5" />
+  <rect x="150" y="162" width="34" height="34" rx="3" fill="#4f46e5" stroke="#ffffff" stroke-width="1.5" />
+  <rect x="184" y="162" width="34" height="34" rx="3" fill="#4f46e5" stroke="#ffffff" stroke-width="1.5" />
+  <rect x="218" y="162" width="34" height="34" rx="3" fill="#ffffff" stroke="#e2e8f0" stroke-width="1.5" />
+  <rect x="252" y="162" width="34" height="34" rx="3" fill="#ffffff" stroke="#e2e8f0" stroke-width="1.5" />
+  <rect x="286" y="162" width="34" height="34" rx="3" fill="#ffffff" stroke="#e2e8f0" stroke-width="1.5" />
+  <rect x="150" y="196" width="34" height="34" rx="3" fill="#4f46e5" stroke="#ffffff" stroke-width="1.5" />
+  <rect x="184" y="196" width="34" height="34" rx="3" fill="#4f46e5" stroke="#ffffff" stroke-width="1.5" />
+  <rect x="218" y="196" width="34" height="34" rx="3" fill="#4f46e5" stroke="#ffffff" stroke-width="1.5" />
+  <rect x="252" y="196" width="34" height="34" rx="3" fill="#ffffff" stroke="#e2e8f0" stroke-width="1.5" />
+  <rect x="286" y="196" width="34" height="34" rx="3" fill="#ffffff" stroke="#e2e8f0" stroke-width="1.5" />
+  <rect x="150" y="230" width="34" height="34" rx="3" fill="#ffffff" stroke="#e2e8f0" stroke-width="1.5" />
+  <rect x="184" y="230" width="34" height="34" rx="3" fill="#ffffff" stroke="#e2e8f0" stroke-width="1.5" />
+  <rect x="218" y="230" width="34" height="34" rx="3" fill="#ffffff" stroke="#e2e8f0" stroke-width="1.5" />
+  <rect x="252" y="230" width="34" height="34" rx="3" fill="#4f46e5" stroke="#ffffff" stroke-width="1.5" />
+  <rect x="286" y="230" width="34" height="34" rx="3" fill="#ffffff" stroke="#e2e8f0" stroke-width="1.5" />
+  <rect x="150" y="264" width="34" height="34" rx="3" fill="#ffffff" stroke="#e2e8f0" stroke-width="1.5" />
+  <rect x="184" y="264" width="34" height="34" rx="3" fill="#ffffff" stroke="#e2e8f0" stroke-width="1.5" />
+  <rect x="218" y="264" width="34" height="34" rx="3" fill="#ffffff" stroke="#e2e8f0" stroke-width="1.5" />
+  <rect x="252" y="264" width="34" height="34" rx="3" fill="#4f46e5" stroke="#ffffff" stroke-width="1.5" />
+  <rect x="286" y="264" width="34" height="34" rx="3" fill="#4f46e5" stroke="#ffffff" stroke-width="1.5" />
+  <text x="235" y="112" text-anchor="middle" class="axis">j · key / value (src)</text>
+  <text x="132" y="213" text-anchor="middle" class="axis" transform="rotate(-90 132 213)">i · query (dst)</text>
+  <text x="235" y="330" text-anchor="middle" class="cap">filled cell = edge j→i</text>
+  <path d="M153 84 L153 92 L249 92 L249 84" fill="none" stroke="#64748b" stroke-width="1.6" />
+  <text x="201" y="76" text-anchor="middle" class="axis">seq 0</text>
+  <path d="M255 84 L255 92 L317 92 L317 84" fill="none" stroke="#64748b" stroke-width="1.6" />
+  <text x="286" y="76" text-anchor="middle" class="axis">seq 1</text>
+  <text x="167" y="62" text-anchor="middle" class="cap">0</text>
+  <text x="201" y="62" text-anchor="middle" class="cap">1</text>
+  <text x="235" y="62" text-anchor="middle" class="cap">2</text>
+  <text x="269" y="62" text-anchor="middle" class="cap">3</text>
+  <text x="303" y="62" text-anchor="middle" class="cap">4</text>
+  <text x="376" y="162" class="mono">cu_seqlens = [0, 3, 5]</text>
+  <text x="376" y="186" class="body">9 edges = 6 + 3</text>
+  <text x="376" y="210" class="body">cross-sequence cells</text>
+  <text x="376" y="234" class="body">have no edge</text>
+</svg>

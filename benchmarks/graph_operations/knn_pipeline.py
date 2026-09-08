@@ -10,7 +10,7 @@ import statistics
 
 import torch
 
-import graphforge as gf
+import tiga as gf
 from benchmarks.common.hardware_roofline import (
     interleaved_samples_ms,
     measure_roofs,
@@ -70,7 +70,7 @@ def main() -> None:
         ).sum(dim=1)
 
     actual = graphforge_pipeline()
-    # GraphForge's ranked metric is explicitly pairwise squared Euclidean
+    # Tiga's ranked metric is explicitly pairwise squared Euclidean
     # accumulation with source-index tie breaking. PyTorch's default cdist may
     # switch to a GEMM identity and perturb nearly equal boundary distances;
     # use its direct-distance mode for the one-time semantic oracle while
@@ -104,8 +104,8 @@ def main() -> None:
         + args.nodes * source.element_size())
     intensity = useful_flops / common_bytes
     providers = (
-        ("graphforge.knn_build_consume_ttir", graphforge_pipeline),
-        ("graphforge.knn_build_consume_prepared_ttir", prepared_pipeline),
+        ("tiga.knn_build_consume_ttir", graphforge_pipeline),
+        ("tiga.knn_build_consume_prepared_ttir", prepared_pipeline),
         ("torch.cdist_topk_gather_sum", torch_pipeline),
     )
     raw_by_provider = interleaved_samples_ms(
@@ -127,7 +127,7 @@ def main() -> None:
             "memory_roof": "DRAM", "samples_ms": raw,
         })
     gate = evaluate_sota_gates(
-        results, {"graphforge.knn_build_consume_prepared_ttir"},
+        results, {"tiga.knn_build_consume_prepared_ttir"},
         baselines={"torch.cdist_topk_gather_sum"}, threshold=1.0)[0]
     case = f"cuda_n{args.nodes}_d{args.dimensions}_k{args.k}_consume"
     output = args.output_dir or operation_dir("knn_graph", case)
@@ -151,10 +151,10 @@ def main() -> None:
     plot_latency(payload, output)
     candidate = next(
         item for item in results
-        if item["provider"] == "graphforge.knn_build_consume_prepared_ttir")
+        if item["provider"] == "tiga.knn_build_consume_prepared_ttir")
     ordinary = next(
         item for item in results
-        if item["provider"] == "graphforge.knn_build_consume_ttir")
+        if item["provider"] == "tiga.knn_build_consume_ttir")
     baseline = next(
         item for item in results
         if item["provider"] == "torch.cdist_topk_gather_sum")
@@ -164,7 +164,7 @@ def main() -> None:
         "TTIR launch. Candidate tiles retain a masked next-power-of-two "
         "selection state and consume exactly k stable keys; no CSR or "
         "pairwise distance matrix is materialized.\n\n"
-        f"GraphForge prepared: {candidate['milliseconds']:.4f} ms; ordinary "
+        f"Tiga prepared: {candidate['milliseconds']:.4f} ms; ordinary "
         f"lazy-JIT hot call: {ordinary['milliseconds']:.4f} ms; matched cdist/top-k/"
         f"gather-sum: {baseline['milliseconds']:.4f} ms. Strict gate: "
         f"{'PASS' if gate.passed else 'FAIL'}, {gate.speedup_vs_sota:.3f}x, "

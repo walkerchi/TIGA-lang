@@ -6,13 +6,13 @@ from unittest import mock
 
 import torch
 
-import graphforge as gf
+import tiga as gf
 
 
 def compiler_tools_available() -> bool:
     """Use the same wheel/editable-build discovery contract as the runtime."""
     try:
-        from graphforge.interop.torch.compiler_bridge import (
+        from tiga.interop.torch.compiler_bridge import (
             find_gf_opt,
             find_gf_translate,
         )
@@ -118,7 +118,7 @@ class ReferenceTest(unittest.TestCase):
                 num_src=1, num_dst=2)
 
     def test_compiler_derived_source_vjp_reuses_transpose_relation(self):
-        from graphforge.interop.torch.relation_vjp import compile_source_vjp
+        from tiga.interop.torch.relation_vjp import compile_source_vjp
 
         row_ptr, col_idx = ring_csr(8, 2)
         graph = gf.Graph.from_csr(row_ptr, col_idx, num_src=8)
@@ -316,7 +316,7 @@ class ReferenceTest(unittest.TestCase):
         self.assertTrue(torch.isfinite(actual).all())
         self.assertIn("block_prune_threshold", kernel.ir("domain"))
         source = kernel.ir("kernel_ttir")
-        self.assertIn("graphforge.reducer block_prune=", source)
+        self.assertIn("tiga.reducer block_prune=", source)
         self.assertIn("scf.if", source)
         self.assertIn("%old_block_m", source)
 
@@ -364,6 +364,50 @@ class ReferenceTest(unittest.TestCase):
             col_idx.tolist(), [0, 0, 1, 0, 1, 2, 0, 1, 2, 3])
         self.assertIn("boundary=lower_inclusive", graph.explain())
 
+    def test_ndata_binds_both_endpoint_roles_on_homogeneous_graphs(self):
+        row_ptr = torch.tensor([0, 2, 4, 6, 8], dtype=torch.int64)
+        col_idx = torch.tensor(
+            [1, 3, 0, 2, 1, 3, 0, 2], dtype=torch.int64)  # ring, both ways
+        graph = gf.Graph.from_csr(row_ptr, col_idx, num_src=4)
+        u = torch.tensor([0.0, 1.0, 0.5, -0.5])
+        weight = torch.ones(8)
+
+        via_ndata = Diffusion()(
+            graph=graph, ndata={"u": u}, edge={"weight": weight}, dt=0.1)
+        via_roles = Diffusion()(
+            graph=graph, src={"u": u}, dst={"u": u},
+            edge={"weight": weight}, dt=0.1)
+        torch.testing.assert_close(via_ndata, via_roles)
+
+        with self.assertRaisesRegex(TypeError, "cannot be combined"):
+            Diffusion()(graph=graph, ndata={"u": u}, dst={}, edge={})
+        bipartite = gf.Graph.from_csr(
+            torch.tensor([0, 1, 2], dtype=torch.int64),
+            torch.tensor([0, 2], dtype=torch.int64),
+            num_src=3,
+        )
+        with self.assertRaisesRegex(ValueError, "homogeneous"):
+            Diffusion()(graph=bipartite, ndata={"u": u}, edge={})
+
+    def test_regular_graph_has_fixed_degree_and_modular_sources(self):
+        graph = gf.Graph.regular(4, 2)
+        self.assertEqual(graph.num_edges, 8)
+        self.assertEqual(graph.degree_statistics(), (2, 2, 8))
+        row_ptr, col_idx = graph.resolve_csr()
+        self.assertEqual(row_ptr.tolist(), [0, 2, 4, 6, 8])
+        self.assertEqual(col_idx.tolist(), [0, 1, 2, 3, 0, 1, 2, 3])
+        with self.assertRaisesRegex(ValueError, "num_nodes"):
+            gf.Graph.regular(0, 2)
+        with self.assertRaisesRegex(ValueError, "degree"):
+            gf.Graph.regular(4, -1)
+
+    @unittest.skipUnless(torch.cuda.is_available(), "CUDA is unavailable")
+    def test_regular_graph_builds_index_tensors_on_cuda(self):
+        graph = gf.Graph.regular(8, 3, device="cuda")
+        row_ptr, col_idx = graph.resolve_csr()
+        self.assertEqual(row_ptr.tolist(), [3 * i for i in range(9)])
+        self.assertEqual(col_idx.tolist(), [e % 8 for e in range(24)])
+
     def test_large_dense_graph_refuses_csr_materialization(self):
         graph = gf.Graph.dense(4096, device="cpu")
         with self.assertRaisesRegex(RuntimeError, "tiled consumer"):
@@ -402,7 +446,7 @@ class ReferenceTest(unittest.TestCase):
     def test_online_softmax_rejects_misaligned_lane_shape(self):
         reducer = gf.online_softmax()
         item = reducer(torch.randn(4, 2), torch.randn(4, 3, 5))
-        from graphforge.interop.torch.reducer_oracle import reduce_online_softmax
+        from tiga.interop.torch.reducer_oracle import reduce_online_softmax
         with self.assertRaisesRegex(ValueError, "score lane dimensions"):
             reduce_online_softmax(
                 reducer, item, torch.tensor([0, 0, 1, 1]), num_dst=2)
@@ -603,7 +647,7 @@ class ReferenceTest(unittest.TestCase):
             self.assertIn("periodic=", graph.explain())
 
     def test_generated_cell_directory_reuses_immutable_snapshot_and_invalidates(self):
-        from graphforge.interop.torch.graph import from_native
+        from tiga.interop.torch.graph import from_native
 
         positions = torch.rand(64, 3)
         graph = gf.Graph.radius(positions, 0.25)

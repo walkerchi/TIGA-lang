@@ -8,8 +8,8 @@ import sys
 
 from mpi4py import MPI
 
-import graphforge as gf
-from graphforge.distributed import DistributedRuntime, owned_range
+import tiga as gf
+from tiga.distributed import DistributedRuntime, owned_range
 
 
 class NeighborSum(gf.MessagePassing):

@@ -1,8 +1,8 @@
 """Matched causal linear-recurrence benchmark against official FLA.
 
-The GraphForge candidate is written only with public Tensor algebra. The
+The Tiga candidate is written only with public Tensor algebra. The
 compiler structurally fuses map(outer product) -> cumsum -> map/reduce into a
-single recurrent kernel; no attention operation lives in GraphForge core.
+single recurrent kernel; no attention operation lives in Tiga core.
 """
 
 from __future__ import annotations
@@ -16,8 +16,8 @@ import time
 
 import torch
 
-import graphforge as gf
-from graphforge.compiler.gpu_tensor import compile_tensor
+import tiga as gf
+from tiga.compiler.gpu_tensor import compile_tensor
 from benchmarks.common.hardware_roofline import measure_roofs, samples_ms
 from benchmarks.common.output_layout import operation_dir
 from benchmarks.common.perf_protocol import evaluate_sota_gates
@@ -53,7 +53,7 @@ def main() -> None:
     device = torch.device("cuda")
     generator = torch.Generator(device=device).manual_seed(20260813)
     # FLA consumes [B,T,H,D]. H=1 makes the same contiguous allocations valid
-    # as GraphForge's [lane,T,D] Tensor views without copies or transposes.
+    # as Tiga's [lane,T,D] Tensor views without copies or transposes.
     q_fla = torch.randn(
         (args.lanes, args.sequence, 1, args.key_width),
         device=device, dtype=torch.float32, generator=generator,
@@ -115,7 +115,7 @@ def main() -> None:
         )
     generated_ttir = output.generated_code("ttir")
     if "gf_tensor_scan_contract" not in generated_ttir:
-        raise RuntimeError("GraphForge did not select scan-contract fusion")
+        raise RuntimeError("Tiga did not select scan-contract fusion")
     if "attention" in generated_ttir.lower():
         raise RuntimeError("workload naming leaked into compiler output")
 
@@ -130,7 +130,7 @@ def main() -> None:
     )
     intensity = useful_flops / common_bytes
     providers = (
-        ("graphforge.compiler_scan_contract", graphforge_run),
+        ("tiga.compiler_scan_contract", graphforge_run),
         ("fla.fused_recurrent", fla_recurrent_run),
         ("fla.chunk", fla_chunk_run),
     )
@@ -152,7 +152,7 @@ def main() -> None:
             "memory_roof": "DRAM", "samples_ms": raw,
         })
     gate = evaluate_sota_gates(
-        results, {"graphforge.compiler_scan_contract"},
+        results, {"tiga.compiler_scan_contract"},
         # Project policy is SOTA parity: the lower confidence bound must be at
         # least 1.0x.  Requiring an unrelated 5% margin would label a kernel
         # that is statistically faster than every peer as a failure.
@@ -167,7 +167,7 @@ def main() -> None:
     payload = {
         "operation": "linear_attention",
         "workload": "causal unnormalized linear-attention recurrence",
-        "case": case, "title_prefix": "GraphForge vs official FLA",
+        "case": case, "title_prefix": "Tiga vs official FLA",
         "roof": asdict(roof), "results": results,
         "sota_gates": [gate.to_dict()],
         "config": {
@@ -190,11 +190,11 @@ def main() -> None:
     candidate = results[0]
     peer = min(results[1:], key=lambda item: item["milliseconds"])
     (output_dir / "REPORT.md").write_text(
-        "# Causal linear recurrence: GraphForge vs official FLA\n\n"
-        "GraphForge receives ordinary broadcast/multiply/cumsum/sum Tensor IR. "
+        "# Causal linear recurrence: Tiga vs official FLA\n\n"
+        "Tiga receives ordinary broadcast/multiply/cumsum/sum Tensor IR. "
         "The compiler fuses the mapped outer product, inclusive scan and "
         "contraction; the rank-four recurrent state never reaches HBM.\n\n"
-        f"GraphForge: {candidate['milliseconds']:.4f} ms; fastest FLA peer "
+        f"Tiga: {candidate['milliseconds']:.4f} ms; fastest FLA peer "
         f"({peer['provider']}): {peer['milliseconds']:.4f} ms. Gate: "
         f"{'PASS' if gate.passed else 'FAIL'}, speedup "
         f"{gate.speedup_vs_sota:.3f}x, 95% CI "

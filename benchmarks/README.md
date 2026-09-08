@@ -9,7 +9,7 @@ they are not top-level benchmark categories.
 | `sparse_compute/` | SpMV/SpMM, sparse reductions, diffusion, fusion | `weighted_aggregation`, `cpu_relation`, `diffusion_roofline`, `fusion` |
 | `graph_operations/` | topology build/rebuild and generated relations | `radius_build`, `radius_pipeline`, `radius_roofline`, `knn_build` |
 | `graph_algorithms/` | representative compiler probes, not NetworkX coverage | PageRank (loop/convergence), BFS (frontier), triangle counting (intersection) |
-| `neural_networks/` | NN workloads expressed with generic GraphForge semantics | `dense_attention`, `linear_attention`, `sparse_attention`, `online_softmax`, `dense_matmul` |
+| `neural_networks/` | NN workloads expressed with generic GraphForge semantics | `dense_attention`, `linear_attention`, `sparse_attention`, `online_softmax`, `dense_matmul`, `radius_edge_mlp` |
 | `compiler/` | compile/JIT/cache/provider translation—not an algorithm result | `provider_gate`, `jit_latency`, `tensor_fusion`, `cpu_pointwise` |
 | `memory_hierarchy/` | register/shared/HBM/RAM/NVMe placement and pipeline | pinned↔HBM DMA and RAM↔NVMe spill |
 | `distributed/` | partition/halo/collective/overlap | stdlib and real MPI two-process exact halo exchange |
@@ -34,6 +34,7 @@ python -m benchmarks.neural_networks.dense_attention --quick
 python -m benchmarks.neural_networks.dense_attention --quick --causal --fail-on-gate
 python -m benchmarks.neural_networks.linear_attention --quick --fail-on-gate
 python -m benchmarks.neural_networks.sparse_attention --quick --fail-on-gate
+python -m benchmarks.neural_networks.radius_edge_mlp --quick
 python -m benchmarks.compiler.provider_gate --quick
 python -m benchmarks.compiler.tensor_fusion --quick --torch-compile
 python -m benchmarks.compiler.cpu_pointwise --quick --fail-on-gate
@@ -49,6 +50,14 @@ python -m benchmarks.common.plot_collections
 python -m benchmarks.common.plot_diagnostics
 python -m benchmarks.common.plot_cases
 ```
+
+`benchmarks.compiler.provider_gate` additionally needs the built `gf-opt` and
+`gf-translate`; they are auto-discovered from `build/*/bin/` or can be set
+explicitly with `GRAPHFORGE_OPT` / `GRAPHFORGE_TRANSLATE`.
+
+`benchmarks.neural_networks.radius_edge_mlp` additionally needs the
+`warp-lang` package (`pip install warp-lang`); NVIDIA Warp is the handwritten
+fused-kernel peer, never a GraphForge dependency.
 
 Every performance claim must compare identical semantics and keep its artifacts
 under `output/roofline/<operation>/<case>/`. Handwritten oracle code may set a

@@ -1,24 +1,18 @@
-"""Dynamic-radius matrix-free solve with a bounded device-side CG loop.
-
-The radius relation is generated from positions, the shifted graph Laplacian
-is a normal MessagePassing UDF, and CG captures its convergence test and four
-carried states in one ``gf_control.while``.  No adjacency or sparse matrix is
-written by the user.
-"""
+"""Dynamic-radius matrix-free solve with a bounded device-side CG loop."""
 
 from __future__ import annotations
 
-import graphforge as gf
-from solvers import cg, vector_norm
+import tiga as gf
+from solvers import linear_solve, vector_norm
 
 
+# --8<-- [start:core]
 class ShiftedRadiusLaplacian(gf.MessagePassing):
     """Apply ``mass * u + sum_neighbour(u_dst - u_src)``."""
 
     reducer = gf.sum()
 
     def edge(self, src, dst, edge):
-        del edge
         return dst.u - src.u
 
     def node(self, dst, laplacian, mass):
@@ -38,7 +32,7 @@ def solve(
     positions = gf.tensor(
         [[index * spacing, 0.0] for index in range(points)],
         dtype=gf.float32,
-    )
+    )  # (N, 2)
     # The logical relation remains procedural. Its current physical snapshot
     # may be built, streamed, cached, or rebuilt by the selected provider.
     graph = gf.Graph.radius(positions, cutoff=1.01 * spacing)
@@ -48,16 +42,17 @@ def solve(
     rhs = gf.tensor(
         [1.0 + float(index % 3) for index in range(points)],
         dtype=gf.float32,
-    )
-    solution = cg(
+    )  # (N,)
+    solution = linear_solve(
         apply_laplacian,
         rhs,
+        method="cg",
         graph=graph,
         field="u",
         params={"mass": 1.0},
         tolerance=tolerance,
         max_iterations=max_iterations,
-    )
+    )  # (N,)
     residual_norm = vector_norm(
         apply_laplacian(
             graph=graph,
@@ -68,13 +63,11 @@ def solve(
         - rhs
     )
     return solution, residual_norm, graph, apply_laplacian
+# --8<-- [end:core]
 
+
+# Inspect: solve()[2].explain(), solve()[0].mlir(),
+#   solve()[0].generated_code("cpu_loop")
 
 if __name__ == "__main__":
-    x, residual, relation, kernel = solve()
-    print("solution:", [round(value, 6) for value in x.tolist()])
-    print("residual norm:", residual.tolist())
-    print("relation:", relation.explain())
-    print("solver uses gf_control.while:", "gf_control.while" in x.mlir())
-    print("operator provider:", kernel.last_variant.provider)
-    print(x.generated_code("cpu_loop"))
+    solve()

@@ -1,6 +1,6 @@
 """Captured product-reducer VJP: compiler TTIR versus handwritten Triton.
 
-The UDF has no custom backward.  GraphForge proves the reducer's product
+The UDF has no custom backward.  Tiga proves the reducer's product
 monoid from ``identity/lift/combine/finalize``, emits a zero-safe CSR VJP and
 compares the warm backward kernel with a benchmark-only equivalent.
 """
@@ -15,7 +15,7 @@ import statistics
 
 import torch
 
-import graphforge as gf
+import tiga as gf
 from benchmarks.common.hardware_roofline import measure_roofs, samples_ms
 from benchmarks.common.output_layout import artifact_path
 from benchmarks.common.perf_protocol import evaluate_sota_gates
@@ -109,7 +109,7 @@ def main() -> None:
         graph=graph, src={}, dst={}, edge={"value": native_message})
     gradient = gf.autograd.grad(
         output, native_message, grad_output=native_cotangent)
-    from graphforge.compiler.gpu_tensor import compile_tensor
+    from tiga.compiler.gpu_tensor import compile_tensor
 
     executable = compile_tensor(gradient)
     generated_output = gradient.to_torch()
@@ -131,7 +131,7 @@ def main() -> None:
             retain_graph=True)[0]
 
     providers = {
-        "graphforge.generated_vjp": generated,
+        "tiga.generated_vjp": generated,
         "handwritten.triton": lambda: oracle.run(message, cotangent),
         "torch.autograd": torch_autograd,
     }
@@ -176,14 +176,14 @@ def main() -> None:
             arithmetic_intensity_flop_per_byte=intensity,
             samples_ms=raw,
             compile_ms=(executable.compile_ms
-                        if name == "graphforge.generated_vjp" else None),
+                        if name == "tiga.generated_vjp" else None),
             materialize_ms=(executable.materialize_ms
-                            if name == "graphforge.generated_vjp" else None),
+                            if name == "tiga.generated_vjp" else None),
             lowering=("captured-product→gf_tensor.csr_segment_product_vjp→TTIR"
-                      if name == "graphforge.generated_vjp" else None),
+                      if name == "tiga.generated_vjp" else None),
         ))
     gates = evaluate_sota_gates(
-        results, ["graphforge.generated_vjp"],
+        results, ["tiga.generated_vjp"],
         baselines={"handwritten.triton", "torch.autograd"}, threshold=1.0)
     gate = gates[0]
     for item in results:

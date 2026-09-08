@@ -5,7 +5,7 @@ from lit.llvm import llvm_config
 from lit.llvm.subst import ToolSubst
 
 
-config.name = "GraphForge"
+config.name = "Tiga"
 config.test_format = lit.formats.ShTest(not llvm_config.use_lit_shell)
 config.suffixes = [".mlir"]
 config.excludes = ["CMakeLists.txt", "lit.cfg.py", "lit.site.cfg.py"]

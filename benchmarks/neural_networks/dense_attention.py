@@ -17,14 +17,14 @@ from benchmarks.common.hardware_roofline import measure_roofs, samples_ms
 from benchmarks.common.output_layout import operation_dir
 from benchmarks.common.perf_protocol import evaluate_sota_gates
 from benchmarks.common.plotting import plot_latency, plot_roofline, write_report
-import graphforge as gf
+import tiga as gf
 from benchmarks.kernels.dense_streaming_reducer import (
     _kernel as streaming_oracle_kernel,
 )
 
 
 class DenseAttention(gf.MessagePassing):
-    """Benchmark workload; GraphForge itself contains no attention operator."""
+    """Benchmark workload; Tiga itself contains no attention operator."""
 
     reducer = gf.online_softmax()
 
@@ -65,7 +65,7 @@ def main():
     v = torch.randn(source_shape, device=device, dtype=dtype, generator=generator)
     lanes = args.batch * args.heads
     source_lanes = args.batch * args.kv_heads
-    # GraphForge fields are entity-major views over the same physical
+    # Tiga fields are entity-major views over the same physical
     # [batch*heads, sequence, width] storage consumed by the SOTA providers.
     q_nodes = q.permute(2, 0, 1, 3).reshape(
         args.sequence, lanes, args.width)
@@ -153,7 +153,7 @@ def main():
 
     results = []
     providers = (
-        ("graphforge.direct_ttir", run_graphforge),
+        ("tiga.direct_ttir", run_graphforge),
         ("triton.streaming_oracle", run_oracle),
         ("torch.sdpa.flash", lambda: run(SDPBackend.FLASH_ATTENTION)),
         ("torch.sdpa.math", lambda: run(SDPBackend.MATH)),
@@ -193,7 +193,7 @@ def main():
     payload = {
         "operation": "dense_attention",
         "workload": "causal_sdpa_forward" if args.causal else "dense_sdpa_forward",
-        "case": case, "title_prefix": "GraphForge vs SOTA",
+        "case": case, "title_prefix": "Tiga vs SOTA",
         "roof": roof_payload, "results": results,
         "config": {
             **vars(args), "dtype": "float16",
@@ -206,7 +206,7 @@ def main():
         },
     }
     gates = evaluate_sota_gates(
-        results, {"graphforge.direct_ttir"},
+        results, {"tiga.direct_ttir"},
         # Flash SDPA is the external production SOTA. The local handwritten
         # Triton kernel remains a parity/tuning oracle and is reported, but it
         # is not relabelled as an independent SOTA implementation.
@@ -224,18 +224,18 @@ def main():
     speedup = flash["milliseconds"] / graphforge_result["milliseconds"]
     oracle_ratio = graphforge_result["milliseconds"] / oracle["milliseconds"]
     (output / "REPORT.md").write_text(
-        "# Dense attention: GraphForge direct TTIR vs SOTA\n\n"
-        "The GraphForge point is produced by the user-defined MessagePassing "
-        "program through Domain → Iter → Kernel → serialized TTIR; GraphForge "
+        "# Dense attention: Tiga direct TTIR vs SOTA\n\n"
+        "The Tiga point is produced by the user-defined MessagePassing "
+        "program through Domain → Iter → Kernel → serialized TTIR; Tiga "
         "contains no built-in attention operator. The Triton point is a "
         "benchmark-only handwritten parity oracle.\n\n"
-        f"GraphForge direct TTIR: {graphforge_result['milliseconds']:.4f} ms "
+        f"Tiga direct TTIR: {graphforge_result['milliseconds']:.4f} ms "
         f"({graphforge_result['achieved_gflops'] / 1000:.2f} TFLOP/s).  "
         f"PyTorch Flash SDPA: {flash['milliseconds']:.4f} ms "
         f"({flash['achieved_gflops'] / 1000:.2f} TFLOP/s).  "
         f"PyTorch math SDPA: {math['milliseconds']:.4f} ms.  "
-        f"Flash/GraphForge speed ratio: {speedup:.3f}x; "
-        f"GraphForge/oracle latency ratio: {oracle_ratio:.3f}x.  "
+        f"Flash/Tiga speed ratio: {speedup:.3f}x; "
+        f"Tiga/oracle latency ratio: {oracle_ratio:.3f}x.  "
         f"Strict gate: {'PASS' if gate.passed else 'FAIL'}, "
         f"{gate.speedup_vs_sota:.3f}x, 95% CI "
         f"[{gate.speedup_ci_low:.3f}, {gate.speedup_ci_high:.3f}].  "

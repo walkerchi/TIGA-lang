@@ -1,0 +1,62 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="300" viewBox="0 0 1000 300" role="img" aria-labelledby="title desc">
+  <title id="title">Power-law scheduling: worklist rows vs chunked hub rows</title>
+  <desc id="desc">Rows sorted by degree split into two schedules: short and medium rows go to degree-CDF worklists as one tile per row; a high-degree hub row splits into fixed-size edge chunks. All partials merge deterministically into disjoint per-destination outputs.</desc>
+  <defs>
+    <marker id="plA" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0l10 5-10 5z" fill="#64748b" />
+    </marker>
+    <style>
+      text{font-family:Arial,sans-serif}
+      .lbl{font-size:14px;font-weight:700;fill:#0f172a}
+      .sub{font-size:11.5px;fill:#64748b}
+      .mono{font-family:Consolas,monospace;font-size:12px;fill:#312e81}
+    </style>
+  </defs>
+
+  <!-- rows sorted by degree -->
+  <rect x="30" y="50" width="240" height="200" rx="12" fill="#ffffff" stroke="#e2e8f0" stroke-width="1.5"/>
+  <text class="lbl" x="50" y="80">rows by degree</text>
+  <text class="sub" x="50" y="99">power-law: many short, few hubs</text>
+  <g stroke-width="7" stroke-linecap="round">
+    <line x1="50" y1="122" x2="72" y2="122" stroke="#94a3b8"/>
+    <line x1="50" y1="140" x2="80" y2="140" stroke="#94a3b8"/>
+    <line x1="50" y1="158" x2="88" y2="158" stroke="#94a3b8"/>
+    <line x1="50" y1="176" x2="96" y2="176" stroke="#94a3b8"/>
+    <line x1="50" y1="194" x2="104" y2="194" stroke="#94a3b8"/>
+    <line x1="50" y1="218" x2="216" y2="218" stroke="#4f46e5"/>
+  </g>
+  <text class="sub" x="224" y="222">hub</text>
+
+  <!-- fan-out arrows -->
+  <path d="M278 130 C 310 120 320 105 346 100" fill="none" stroke="#64748b" stroke-width="2" marker-end="url(#plA)"/>
+  <path d="M278 200 C 310 205 320 212 346 214" fill="none" stroke="#64748b" stroke-width="2" marker-end="url(#plA)"/>
+
+  <!-- schedule A: worklist -->
+  <rect x="352" y="56" width="290" height="88" rx="12" fill="#ffffff" stroke="#e2e8f0" stroke-width="1.5"/>
+  <text class="mono" x="372" y="86">deg ≤ τ → worklist</text>
+  <text class="sub" x="372" y="106">one row tile each, no idle lanes</text>
+  <g stroke-width="6" stroke-linecap="round">
+    <line x1="520" y1="126" x2="540" y2="126" stroke="#94a3b8"/>
+    <line x1="552" y1="126" x2="576" y2="126" stroke="#94a3b8"/>
+    <line x1="588" y1="126" x2="616" y2="126" stroke="#94a3b8"/>
+  </g>
+
+  <!-- schedule B: chunks -->
+  <rect x="352" y="168" width="290" height="88" rx="12" fill="#ffffff" stroke="#e2e8f0" stroke-width="1.5"/>
+  <text class="mono" x="372" y="198">deg &gt; τ → ⌈deg / C⌉ edge chunks</text>
+  <text class="sub" x="372" y="218">hub work split, no single block stalls</text>
+  <g stroke-width="6" stroke-linecap="round">
+    <line x1="520" y1="238" x2="556" y2="238" stroke="#4f46e5"/>
+    <line x1="566" y1="238" x2="602" y2="238" stroke="#4f46e5"/>
+    <line x1="612" y1="238" x2="648" y2="238" stroke="#4f46e5"/>
+  </g>
+
+  <!-- merge arrows -->
+  <path d="M650 100 C 690 110 700 130 728 140" fill="none" stroke="#64748b" stroke-width="2" marker-end="url(#plA)"/>
+  <path d="M650 212 C 690 200 700 180 728 168" fill="none" stroke="#64748b" stroke-width="2" marker-end="url(#plA)"/>
+
+  <!-- deterministic merge -->
+  <rect x="736" y="112" width="230" height="88" rx="12" fill="#eef2ff" stroke="#4f46e5" stroke-width="1.8"/>
+  <text class="lbl" x="758" y="146">deterministic merge</text>
+  <text class="sub" x="758" y="168">out[i] disjoint — no global atomics</text>
+</svg>

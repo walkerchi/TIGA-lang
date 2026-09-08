@@ -6,15 +6,15 @@ import multiprocessing
 from pathlib import Path
 import tempfile
 
-import graphforge as gf
-from graphforge.distributed import DistributedRuntime, PipeTransport, owned_range
+import tiga as gf
+from tiga.distributed import DistributedRuntime, PipeTransport, owned_range
 
 
+# --8<-- [start:core]
 class NeighborSum(gf.MessagePassing):
     reducer = gf.sum()
 
     def edge(self, src, dst, edge):
-        del dst, edge
         return src.x
 
 
@@ -34,27 +34,19 @@ def worker(rank, endpoint, graph_path, queue):
         gradient = gf.autograd.grad(output.sum(), local_x)
         values, gradients = output.tolist(), gradient.tolist()
     queue.put((rank, (values, gradients)))
+# --8<-- [end:core]
 
 
+# 8-node ring; rank r owns rows [4r, 4r+4). out[i] = x[i-1] + x[i] + x[i+1],
+# and every node is read by exactly 3 rows, so the gradient is 3 everywhere —
+# including the contributions that cross the rank boundary.
 def main():
     entities = 8
-    row_ptr = [3 * row for row in range(entities + 1)]
-    col_idx = [
-        source
-        for destination in range(entities)
-        for source in (
-            (destination - 1) % entities,
-            destination,
-            (destination + 1) % entities,
-        )
-    ]
     with tempfile.TemporaryDirectory() as directory:
         graph_path = Path(directory) / "ring.gfg"
         gf.save(
-            gf.Graph.from_csr(
-                gf.tensor(row_ptr, dtype=gf.int64),
-                gf.tensor(col_idx, dtype=gf.int64),
-                num_src=entities, validate="full"),
+            gf.Graph.stencil(
+                (entities,), ((-1,), (0,), (1,)), periodic=True),
             graph_path,
         )
         context = multiprocessing.get_context("spawn")
@@ -71,8 +63,7 @@ def main():
             process.join(timeout=10)
             if process.exitcode:
                 raise RuntimeError(f"rank exited with code {process.exitcode}")
-    print("rank-local (output, gradient):", shards)
-
+    return shards
 
 if __name__ == "__main__":
     main()

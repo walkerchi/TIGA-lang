@@ -1,7 +1,7 @@
 """Measured roofline and provider comparison for weighted CSR aggregation.
 
 The workload is ``out[dst, f] = sum_edge weight[e] * x[src, f]``.  This is a
-deliberately common semantic intersection: GraphForge MessagePassing, sparse
+deliberately common semantic intersection: Tiga MessagePassing, sparse
 matrix multiplication, PyG propagation, and DGL gspmm can all express it
 without changing the mathematics.
 """
@@ -17,7 +17,7 @@ import warnings
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
-import graphforge as gf
+import tiga as gf
 import torch
 
 from benchmarks.common.hardware_roofline import (
@@ -106,12 +106,12 @@ def compiler_chunked_tail(kernel, graph, row_ptr, col_idx, x, weight):
     are reported separately; the returned callable submits only the execute
     phase.  Returning ``None`` means the compiler did not select row splitting.
     """
-    from graphforge.codegen import prepare_ttir_task_primitive
-    from graphforge.interop.torch.compiler_bridge import (
+    from tiga.codegen import prepare_ttir_task_primitive
+    from tiga.interop.torch.compiler_bridge import (
         lower_mlir_stages,
         message_passing_domain_mlir,
     )
-    from graphforge.interop.torch.provider import TorchCudaSubmissionProvider
+    from tiga.interop.torch.provider import TorchCudaSubmissionProvider
 
     started = time.perf_counter_ns()
     module = message_passing_domain_mlir(
@@ -288,7 +288,7 @@ def benchmark_case(args, roof: Roof, device: torch.device, features: int,
 
     if not args.skip_scatter:
         providers["torch.index_add"] = torch_scatter
-    providers["graphforge.auto"] = lambda: gf_kernel(
+    providers["tiga.auto"] = lambda: gf_kernel(
         graph=graph,
         src={"x": x},
         dst={"x": x},
@@ -305,14 +305,14 @@ def benchmark_case(args, roof: Roof, device: torch.device, features: int,
             graph=graph, src={"x": x}, dst={"x": x},
             edge={"weight": edge_weight})
         synchronize(device)
-        compile_times["graphforge.auto"] = (
+        compile_times["tiga.auto"] = (
             time.perf_counter_ns() - compile_started) / 1e6
-        compile_times["graphforge.prepared_auto"] = compile_times[
-            "graphforge.auto"
+        compile_times["tiga.prepared_auto"] = compile_times[
+            "tiga.auto"
         ]
-        providers["graphforge.prepared_auto"] = prepared_auto
+        providers["tiga.prepared_auto"] = prepared_auto
     if not args.skip_reference:
-        providers["graphforge.reference"] = lambda: gf_kernel.reference(
+        providers["tiga.reference"] = lambda: gf_kernel.reference(
             graph=graph,
             src={"x": x},
             dst={"x": x},
@@ -331,6 +331,19 @@ def benchmark_case(args, roof: Roof, device: torch.device, features: int,
         providers["triton.csr"] = triton_csr
 
     skipped = []
+    if not args.skip_scatter:
+        # torch.compile over the eager gather-multiply-scatter path: the
+        # honest "why not just torch.compile" comparison on message passing.
+        # (torch.compile cannot graph-capture torch.sparse.mm, so the scatter
+        # formulation is the meaningful target.)
+        compiled_scatter = torch.compile(torch_scatter)
+        try:
+            compiled_scatter()  # compilation/graph breaks surface on first call
+        except Exception as error:  # noqa: BLE001 - torch.compile probe
+            skipped.append(
+                ("torch.compile.index_add", f"compilation failed: {error}"))
+        else:
+            providers["torch.compile.index_add"] = compiled_scatter
     if (
         scalar
         and device.type == "cuda"
@@ -342,19 +355,19 @@ def benchmark_case(args, roof: Roof, device: torch.device, features: int,
         except Exception as error:  # noqa: BLE001 - compiler candidate probe
             candidate = None
             skipped.append((
-                "graphforge.compiler_chunked_tail",
+                "tiga.compiler_chunked_tail",
                 f"compiler candidate unavailable: {error}",
             ))
         if candidate is None:
-            if not any(name == "graphforge.compiler_chunked_tail"
+            if not any(name == "tiga.compiler_chunked_tail"
                        for name, _ in skipped):
                 skipped.append((
-                    "graphforge.compiler_chunked_tail",
+                    "tiga.compiler_chunked_tail",
                     "compiler did not select compact high-degree splitting",
                 ))
         else:
-            providers["graphforge.compiler_chunked_tail"], compile_times[
-                "graphforge.compiler_chunked_tail"
+            providers["tiga.compiler_chunked_tail"], compile_times[
+                "tiga.compiler_chunked_tail"
             ] = candidate
     optional_factories = () if scalar else (
         ("pyg.message_passing", optional_pyg),
@@ -438,10 +451,10 @@ def benchmark_case(args, roof: Roof, device: torch.device, features: int,
             lowering=(
                 gf_kernel.last_variant.lowering
                 if name in {
-                    "graphforge.auto", "graphforge.prepared_auto"
+                    "tiga.auto", "tiga.prepared_auto"
                 }
                 else "gf-task-worklist-chunked-tail"
-                if name == "graphforge.compiler_chunked_tail"
+                if name == "tiga.compiler_chunked_tail"
                 else None
             ),
             compile_ms=compile_times.get(name),

@@ -1,6 +1,6 @@
 """Dynamic tile-pruned online reducer benchmark against official FSA.
 
-The workload class lives here, not in GraphForge.  The compiler sees a dense
+The workload class lives here, not in Tiga.  The compiler sees a dense
 Cartesian relation, a dot-product message and an online-softmax reducer with a
 semantic block-admission threshold.  Its generic dense streaming lowering
 emits the dynamic ``scf.if`` around payload load/update.
@@ -19,7 +19,7 @@ import torch
 import torch.nn.functional as F
 from torch.nn.attention import SDPBackend, sdpa_kernel
 
-import graphforge as gf
+import tiga as gf
 from benchmarks.common.hardware_roofline import measure_roofs, samples_ms
 from benchmarks.common.output_layout import operation_dir
 from benchmarks.common.perf_protocol import evaluate_sota_gates
@@ -82,7 +82,7 @@ def main() -> None:
     k_fsa = torch.randn_like(q_fsa)
     v_fsa = torch.randn_like(q_fsa)
 
-    # FSA uses token-major [B,N,H,D], whereas GraphForge's currently registered
+    # FSA uses token-major [B,N,H,D], whereas Tiga's currently registered
     # dense tile consumes lane-major [B,H,N,D].  Provider-native layout is
     # allowed by the benchmark protocol; the one-time repack is measured and
     # reported separately, never hidden in either warm kernel number.
@@ -150,13 +150,13 @@ def main() -> None:
     graphforge_error = error_metrics(graphforge_lane)
     fsa_error = error_metrics(fsa_lane)
     # Both providers implement thresholded approximation and may traverse
-    # score tiles in a different legal order.  Require GraphForge's accuracy
+    # score tiles in a different legal order.  Require Tiga's accuracy
     # to be no worse than FSA (5% measurement/numerics allowance), rather than
     # incorrectly asserting bit equality between two order-dependent methods.
     accuracy_limit = max(1e-3, 1.05 * fsa_error["relative_l2"])
     if graphforge_error["relative_l2"] > accuracy_limit:
         raise RuntimeError(
-            "GraphForge tile pruning exceeds the official FSA accuracy budget: "
+            "Tiga tile pruning exceeds the official FSA accuracy budget: "
             f"{graphforge_error['relative_l2']:.6g} > {accuracy_limit:.6g}"
         )
     source_ttir = candidate.last_variant.artifacts.get("gf.kernel.ttir", "")
@@ -181,7 +181,7 @@ def main() -> None:
     )
     intensity = useful_flops / semantic_bytes
     providers = (
-        ("graphforge.compiler_tile_pruned", graphforge_run),
+        ("tiga.compiler_tile_pruned", graphforge_run),
         ("flash_sparse_attn.official", fsa_run),
         ("torch.sdpa.flash_exact", exact_flash_run),
     )
@@ -203,7 +203,7 @@ def main() -> None:
             "memory_roof": "DRAM", "samples_ms": raw,
         })
     gate = evaluate_sota_gates(
-        results, {"graphforge.compiler_tile_pruned"},
+        results, {"tiga.compiler_tile_pruned"},
         baselines={"flash_sparse_attn.official"}, threshold=1.0,
     )[0]
     case = (
@@ -214,7 +214,7 @@ def main() -> None:
     payload = {
         "operation": "sparse_attention",
         "workload": "dynamic block-threshold online softmax",
-        "case": case, "title_prefix": "GraphForge vs official FSA",
+        "case": case, "title_prefix": "Tiga vs official FSA",
         "roof": asdict(roof), "results": results,
         "sota_gates": [gate.to_dict()],
         "config": {
@@ -238,20 +238,20 @@ def main() -> None:
     plot_latency(payload, output_dir)
     graphforge_result, fsa_result, exact_result = results
     (output_dir / "REPORT.md").write_text(
-        "# Dynamic tile-pruned attention: GraphForge vs official FSA\n\n"
-        "The workload is a benchmark-defined MessagePassing class. GraphForge "
+        "# Dynamic tile-pruned attention: Tiga vs official FSA\n\n"
+        "The workload is a benchmark-defined MessagePassing class. Tiga "
         "retains the block threshold in reducer IR and emits dynamic control "
         "flow around payload load/update; no attention operator is in core.\n\n"
-        f"GraphForge: {graphforge_result['milliseconds']:.4f} ms; official FSA: "
+        f"Tiga: {graphforge_result['milliseconds']:.4f} ms; official FSA: "
         f"{fsa_result['milliseconds']:.4f} ms; exact Flash SDPA: "
         f"{exact_result['milliseconds']:.4f} ms. Gate: "
         f"{'PASS' if gate.passed else 'FAIL'}, speedup "
         f"{gate.speedup_vs_sota:.3f}x, 95% CI "
         f"[{gate.speedup_ci_low:.3f}, {gate.speedup_ci_high:.3f}].\n\n"
-        f"Relative-L2 error vs exact: GraphForge "
+        f"Relative-L2 error vs exact: Tiga "
         f"{graphforge_error['relative_l2']:.6g}, FSA "
         f"{fsa_error['relative_l2']:.6g}. One-time provider-native layout "
-        f"repack: {repack_ms:.3f} ms; GraphForge cold compile + first launch: "
+        f"repack: {repack_ms:.3f} ms; Tiga cold compile + first launch: "
         f"{cold_ms:.2f} ms. All points use x={intensity:.6g} logical useful "
         "FLOP/common byte; admitted-tile hardware FLOPs are not fabricated.\n\n"
         "![Roofline](roofline.svg)\n\n![Latency](provider_latency.svg)\n"

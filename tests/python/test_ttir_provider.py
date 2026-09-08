@@ -5,16 +5,16 @@ import os
 import unittest
 from unittest import mock
 
-import graphforge as gf
+import tiga as gf
 import torch
-from graphforge.codegen import compile_ttir, prepare_ttir_task_primitive
-from graphforge.compiler.toolchain import find_gf_opt, find_gf_translate
-from graphforge.interop.torch.compiler_bridge import (
+from tiga.codegen import compile_ttir, prepare_ttir_task_primitive
+from tiga.compiler.toolchain import find_gf_opt, find_gf_translate
+from tiga.interop.torch.compiler_bridge import (
     lower_kernel_to_ttir_plan,
     lower_mlir_stages,
     message_passing_domain_mlir,
 )
-from graphforge.interop.torch.provider import TorchCudaSubmissionProvider
+from tiga.interop.torch.provider import TorchCudaSubmissionProvider
 
 
 class WeightedAggregation(gf.MessagePassing):
@@ -48,7 +48,7 @@ class TTIRProviderTest(unittest.TestCase):
     def test_compiler_degree_worklist_primitives_compile_and_execute(self):
         gf_opt, gf_translate = self._tools()
         if not gf_opt.is_file() or not gf_translate.is_file():
-            self.skipTest("built GraphForge MLIR tools are required")
+            self.skipTest("built Tiga MLIR tools are required")
         degrees = torch.tensor(
             [0, 1, 2, 4, 8, 16, 32, 64] * 16,
             device="cuda", dtype=torch.int64,
@@ -165,7 +165,7 @@ class TTIRProviderTest(unittest.TestCase):
         weight = torch.randn(nodes * degree, device="cuda")
         graph = gf.Graph.from_csr(row_ptr, col_idx, num_src=nodes)
         kernel = WeightedAggregation()
-        with mock.patch.dict(os.environ, {"GRAPHFORGE_CUDA_LAUNCHER": "driver"}):
+        with mock.patch.dict(os.environ, {"TIGA_CUDA_LAUNCHER": "driver"}):
             actual = kernel(
                 graph=graph, src={"x": x}, dst={}, edge={"weight": weight}
             )
@@ -184,7 +184,7 @@ class TTIRProviderTest(unittest.TestCase):
         """A compact row count must never shorten a direct-filter grid."""
         gf_opt, gf_translate = self._tools()
         if not gf_opt.is_file() or not gf_translate.is_file():
-            self.skipTest("built GraphForge MLIR tools are required")
+            self.skipTest("built Tiga MLIR tools are required")
         nodes = 512
         generator = torch.Generator(device="cuda").manual_seed(47)
         degrees = torch.cat((
@@ -264,7 +264,7 @@ class TTIRProviderTest(unittest.TestCase):
     def test_compiler_chunked_tail_bundle_compiles_and_executes(self):
         gf_opt, gf_translate = self._tools()
         if not gf_opt.is_file() or not gf_translate.is_file():
-            self.skipTest("built GraphForge MLIR tools are required")
+            self.skipTest("built Tiga MLIR tools are required")
         nodes = 512
         generator = torch.Generator(device="cuda").manual_seed(57)
         # Exercise the intended power-law shape: most rows stay on the
@@ -355,7 +355,7 @@ class TTIRProviderTest(unittest.TestCase):
     def test_generated_radius_auto_selects_direct_ttir_and_rebinds(self):
         gf_opt, gf_translate = self._tools()
         if not gf_opt.is_file() or not gf_translate.is_file():
-            self.skipTest("built GraphForge MLIR tools are required")
+            self.skipTest("built Tiga MLIR tools are required")
         generator = torch.Generator(device="cuda").manual_seed(37)
         nodes = 256
         positions = torch.rand(nodes, 3, device="cuda", generator=generator)
@@ -365,8 +365,8 @@ class TTIRProviderTest(unittest.TestCase):
         with mock.patch.dict(
             "os.environ",
             {
-                "GRAPHFORGE_OPT": str(gf_opt),
-                "GRAPHFORGE_TRANSLATE": str(gf_translate),
+                "TIGA_OPT": str(gf_opt),
+                "TIGA_TRANSLATE": str(gf_translate),
             },
             clear=False,
         ):
@@ -393,7 +393,7 @@ class TTIRProviderTest(unittest.TestCase):
     def test_generated_radius_kernel_ir_compiles_and_launches(self):
         gf_opt, gf_translate = self._tools()
         if not gf_opt.is_file() or not gf_translate.is_file():
-            self.skipTest("built GraphForge MLIR tools are required")
+            self.skipTest("built Tiga MLIR tools are required")
         generator = torch.Generator(device="cuda").manual_seed(31)
         nodes = 128
         positions = torch.rand(nodes, 3, device="cuda", generator=generator)
@@ -444,7 +444,7 @@ class TTIRProviderTest(unittest.TestCase):
     def test_periodic_generated_radius_uses_minimum_image_for_box_and_skew(self):
         gf_opt, gf_translate = self._tools()
         if not gf_opt.is_file() or not gf_translate.is_file():
-            self.skipTest("built GraphForge MLIR tools are required")
+            self.skipTest("built Tiga MLIR tools are required")
         generator = torch.Generator(device="cuda").manual_seed(20260813)
         fractional = torch.rand(
             256, 3, device="cuda", generator=generator)
@@ -481,7 +481,7 @@ class TTIRProviderTest(unittest.TestCase):
     def test_generated_radius_derives_fixed_snapshot_geometry_vjp(self):
         gf_opt, gf_translate = self._tools()
         if not gf_opt.is_file() or not gf_translate.is_file():
-            self.skipTest("built GraphForge MLIR tools are required")
+            self.skipTest("built Tiga MLIR tools are required")
         generator = torch.Generator(device="cuda").manual_seed(20260814)
         nodes = 256
         lattice = torch.tensor(
@@ -538,7 +538,7 @@ class TTIRProviderTest(unittest.TestCase):
     def test_generated_radius_adapts_reuse_and_invalidates_on_position_mutation(self):
         gf_opt, gf_translate = self._tools()
         if not gf_opt.is_file() or not gf_translate.is_file():
-            self.skipTest("built GraphForge MLIR tools are required")
+            self.skipTest("built Tiga MLIR tools are required")
         generator = torch.Generator(device="cuda").manual_seed(43)
         nodes = 512
         positions = torch.rand(nodes, 3, device="cuda", generator=generator)
@@ -546,9 +546,9 @@ class TTIRProviderTest(unittest.TestCase):
         graph = gf.Graph.radius(positions, cutoff=0.20)
         kernel = RadiusDistanceAggregation()
         environment = {
-            "GRAPHFORGE_OPT": str(gf_opt),
-            "GRAPHFORGE_TRANSLATE": str(gf_translate),
-            "GRAPHFORGE_RADIUS_REUSE_THRESHOLD": "2",
+            "TIGA_OPT": str(gf_opt),
+            "TIGA_TRANSLATE": str(gf_translate),
+            "TIGA_RADIUS_REUSE_THRESHOLD": "2",
         }
         with mock.patch.dict("os.environ", environment, clear=False):
             first = kernel(graph=graph, src={"x": x}, dst={"x": x})
@@ -576,7 +576,7 @@ class TTIRProviderTest(unittest.TestCase):
     def test_scalar_fixed_graph_auto_selects_direct_kernel_ttir(self):
         gf_opt, gf_translate = self._tools()
         if not gf_opt.is_file() or not gf_translate.is_file():
-            self.skipTest("built GraphForge MLIR tools are required")
+            self.skipTest("built Tiga MLIR tools are required")
         nodes, degree = 128, 4
         row_ptr = torch.arange(
             0, nodes * degree + 1, degree,
@@ -590,8 +590,8 @@ class TTIRProviderTest(unittest.TestCase):
         with mock.patch.dict(
             "os.environ",
             {
-                "GRAPHFORGE_OPT": str(gf_opt),
-                "GRAPHFORGE_TRANSLATE": str(gf_translate),
+                "TIGA_OPT": str(gf_opt),
+                "TIGA_TRANSLATE": str(gf_translate),
             },
             clear=False,
         ):
@@ -613,7 +613,7 @@ class TTIRProviderTest(unittest.TestCase):
     def test_vector_fixed_graph_auto_selects_feature_tiled_kernel_ttir(self):
         gf_opt, gf_translate = self._tools()
         if not gf_opt.is_file() or not gf_translate.is_file():
-            self.skipTest("built GraphForge MLIR tools are required")
+            self.skipTest("built Tiga MLIR tools are required")
         nodes, degree, features = 257, 16, 16
         row_ptr = torch.arange(
             0, nodes * degree + 1, degree,
@@ -627,8 +627,8 @@ class TTIRProviderTest(unittest.TestCase):
         with mock.patch.dict(
             "os.environ",
             {
-                "GRAPHFORGE_OPT": str(gf_opt),
-                "GRAPHFORGE_TRANSLATE": str(gf_translate),
+                "TIGA_OPT": str(gf_opt),
+                "TIGA_TRANSLATE": str(gf_translate),
             },
             clear=False,
         ):
@@ -653,7 +653,7 @@ class TTIRProviderTest(unittest.TestCase):
     def test_scalar_bounded_ragged_auto_selects_direct_kernel_ttir(self):
         gf_opt, gf_translate = self._tools()
         if not gf_opt.is_file() or not gf_translate.is_file():
-            self.skipTest("built GraphForge MLIR tools are required")
+            self.skipTest("built Tiga MLIR tools are required")
         nodes = 1024
         degrees = torch.arange(
             nodes, device="cuda", dtype=torch.int64) % 37
@@ -671,8 +671,8 @@ class TTIRProviderTest(unittest.TestCase):
         with mock.patch.dict(
             "os.environ",
             {
-                "GRAPHFORGE_OPT": str(gf_opt),
-                "GRAPHFORGE_TRANSLATE": str(gf_translate),
+                "TIGA_OPT": str(gf_opt),
+                "TIGA_TRANSLATE": str(gf_translate),
             },
             clear=False,
         ):
@@ -694,7 +694,7 @@ class TTIRProviderTest(unittest.TestCase):
     def test_kernel_ir_translator_compiles_and_launches(self):
         gf_opt, gf_translate = self._tools()
         if not gf_opt.is_file() or not gf_translate.is_file():
-            self.skipTest("built GraphForge MLIR tools are required")
+            self.skipTest("built Tiga MLIR tools are required")
 
         nodes, degree = 9, 2
         row_ptr = torch.arange(
@@ -737,7 +737,7 @@ class TTIRProviderTest(unittest.TestCase):
 
         gf_opt, gf_translate = self._tools()
         if not gf_opt.is_file() or not gf_translate.is_file():
-            self.skipTest("built GraphForge MLIR tools are required")
+            self.skipTest("built Tiga MLIR tools are required")
         nodes, degree = 64, 4
         row_ptr = torch.arange(
             0, nodes * degree + 1, degree,
@@ -751,8 +751,8 @@ class TTIRProviderTest(unittest.TestCase):
         with mock.patch.dict(
             "os.environ",
             {
-                "GRAPHFORGE_OPT": str(gf_opt),
-                "GRAPHFORGE_TRANSLATE": str(gf_translate),
+                "TIGA_OPT": str(gf_opt),
+                "TIGA_TRANSLATE": str(gf_translate),
             },
             clear=False,
         ):
@@ -781,7 +781,7 @@ class TTIRProviderTest(unittest.TestCase):
         # A vendor compiler crash is isolated to the persistent worker.  The
         # next identical request starts a new worker and reloads the valid
         # content-addressed disk artifact in this runtime process.
-        from graphforge.codegen.compile_worker import _WORKER
+        from tiga.codegen.compile_worker import _WORKER
 
         first_pid = _WORKER.pid
         self.assertIsNotNone(first_pid)

@@ -20,7 +20,7 @@ class PlotBenchmarksTest(unittest.TestCase):
             },
             "results": [
                 {
-                    "provider": "graphforge.compiler_ttir",
+                    "provider": "tiga.compiler_ttir",
                     "cache": "hot", "features": 16,
                     "milliseconds": 0.1, "achieved_gflops": performance,
                     "memory_roof": "L2", "optimistic_roof_gflops": 1000.0,
@@ -84,7 +84,7 @@ class PlotBenchmarksTest(unittest.TestCase):
                     "target_degree": 16,
                 },
                 "results": [{
-                    "provider": "graphforge.cell_list",
+                    "provider": "tiga.cell_list",
                     "milliseconds": 0.5,
                     "candidate_pairs": 65536,
                     "accepted_edges": 16384,
@@ -94,16 +94,16 @@ class PlotBenchmarksTest(unittest.TestCase):
                 "config": {"particles": 32, "dimensions": 3},
                 "graph": {"accepted_edges": 96},
                 "results": [
-                    {"phase": "build-only", "provider": "graphforge.radius_build",
+                    {"phase": "build-only", "provider": "tiga.radius_build",
                      "milliseconds": 0.4},
-                    {"phase": "consume-only", "provider": "graphforge.auto",
+                    {"phase": "consume-only", "provider": "tiga.auto",
                      "milliseconds": 0.1},
                     {"phase": "consume-only", "provider": "torch.sparse.mm",
                      "milliseconds": 0.2},
-                    {"phase": "build+consume", "provider": "graphforge.dynamic.auto",
+                    {"phase": "build+consume", "provider": "tiga.dynamic.auto",
                      "milliseconds": 0.5},
                     {"phase": "build+consume",
-                     "provider": "graphforge.builder+torch.sparse.mm",
+                     "provider": "tiga.builder+torch.sparse.mm",
                      "milliseconds": 0.6},
                 ],
                 "sota_gates": [
@@ -133,11 +133,11 @@ class PlotBenchmarksTest(unittest.TestCase):
         from benchmarks.common.plotting import provider_color
 
         self.assertEqual(
-            provider_color("graphforge.compiler_ttir"),
-            provider_color("graphforge.compiler_ttir"),
+            provider_color("tiga.compiler_ttir"),
+            provider_color("tiga.compiler_ttir"),
         )
         self.assertNotEqual(
-            provider_color("graphforge.compiler_ttir"),
+            provider_color("tiga.compiler_ttir"),
             provider_color("torch.sparse.mm"),
         )
         first = self._roof_payload()
@@ -170,7 +170,7 @@ class PlotBenchmarksTest(unittest.TestCase):
                     "operation": "test_operation", "case": "case",
                     "filters": {"features": 16, "cache": "hot"},
                     "providers": [
-                        "graphforge.compiler_ttir", "torch.sparse.mm"],
+                        "tiga.compiler_ttir", "torch.sparse.mm"],
                     "baseline": "torch.sparse.mm",
                 }],
             }, output, output / "compiler-report.png")
@@ -182,7 +182,7 @@ class PlotBenchmarksTest(unittest.TestCase):
                 "operation": "test_operation", "case": "case",
                 "filters": {"features": 16, "cache": "hot"},
                 "providers": [
-                    "graphforge.compiler_ttir", "torch.sparse.mm"],
+                    "tiga.compiler_ttir", "torch.sparse.mm"],
                 "baseline": "torch.sparse.mm",
             }
             showcase = plot_release_showcase({
@@ -200,7 +200,7 @@ class PlotBenchmarksTest(unittest.TestCase):
             interactive_text = interactive.read_text(encoding="utf-8")
             self.assertIn("application/json", interactive_text)
             self.assertIn("Sparse test kernel", interactive_text)
-            self.assertIn("GraphForge", interactive_text)
+            self.assertIn("Tiga", interactive_text)
 
     def test_knn_roofline_uses_specialized_overlap_view(self):
         from benchmarks.common.plotting import plot_roofline
@@ -223,7 +223,7 @@ class PlotBenchmarksTest(unittest.TestCase):
         from benchmarks.common.diagnostic_plotting import plot_json
 
         payload = {
-            "schema": "graphforge.memory-hierarchy.v1",
+            "schema": "tiga.memory-hierarchy.v1",
             "gate": "PASS", "h2d_ms": 1.0, "d2h_ms": 1.1,
             "nvme_spill_ms": 8.0, "nvme_restore_ms": 6.0,
             "h2d_GBps": 16.0, "d2h_GBps": 15.0,

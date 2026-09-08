@@ -14,7 +14,7 @@ import torch
 import triton
 import triton.language as tl
 
-import graphforge as gf
+import tiga as gf
 from benchmarks.common.hardware_roofline import measure_roofs, samples_ms
 from benchmarks.common.output_layout import operation_dir
 from benchmarks.common.perf_protocol import evaluate_sota_gates
@@ -140,12 +140,12 @@ def main() -> None:
     if kernel.last_variant is None or kernel.last_variant.lowering != (
         "gf-kernel-to-ttir-csr-stable-weighted-tile"
     ):
-        raise RuntimeError("GraphForge candidate did not use the compiler tile")
+        raise RuntimeError("Tiga candidate did not use the compiler tile")
     generated_ttir = kernel.ir("gf.kernel.ttir")
     schedule = re.search(
         r"block_rows=(\d+) num_warps=(\d+)", generated_ttir)
     if schedule is None:
-        raise RuntimeError("GraphForge TTIR omitted its launch schedule")
+        raise RuntimeError("Tiga TTIR omitted its launch schedule")
     graphforge_block_rows, graphforge_num_warps = map(int, schedule.groups())
 
     roof = measure_roofs(device, args.quick, args.repeat)
@@ -161,7 +161,7 @@ def main() -> None:
         + args.nodes * score.element_size())
     intensity = useful_flops / common_bytes
     providers = (
-        ("graphforge.compiler_ttir", prepared_graphforge),
+        ("tiga.compiler_ttir", prepared_graphforge),
         ("triton.handwritten_fused", triton_run),
         ("torch.explicit", torch_run),
     )
@@ -182,7 +182,7 @@ def main() -> None:
             "memory_roof": "DRAM", "samples_ms": raw,
         })
     gate = evaluate_sota_gates(
-        results, {"graphforge.compiler_ttir"},
+        results, {"tiga.compiler_ttir"},
         baselines={"triton.handwritten_fused", "torch.explicit"},
         threshold=1.0)[0]
     case = f"cuda_n{args.nodes}_degree{args.degree}_f1"
@@ -213,11 +213,11 @@ def main() -> None:
         results[1:], key=lambda result: result["milliseconds"])
     (output_dir / "REPORT.md").write_text(
         "# Segmented online softmax\n\n"
-        "`StableWeightedMean` is a benchmark-defined user reducer. GraphForge "
+        "`StableWeightedMean` is a benchmark-defined user reducer. Tiga "
         "captures its identity/lift/combine/finalize regions, structurally "
         "proves the stable tuple algebra and emits tiled max/exp/sum reductions; "
         "no reducer class or online-softmax name is recognized.\n\n"
-        f"GraphForge: {candidate['milliseconds']:.4f} ms; fastest matched peer "
+        f"Tiga: {candidate['milliseconds']:.4f} ms; fastest matched peer "
         f"({baseline['provider']}): {baseline['milliseconds']:.4f} ms. Strict "
         f"SOTA gate: {'PASS' if gate.passed else 'FAIL'}, speedup "
         f"{gate.speedup_vs_sota:.3f}x, 95% CI "

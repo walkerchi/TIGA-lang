@@ -14,8 +14,8 @@ from pathlib import Path
 import statistics
 import time
 
-import graphforge as gf
-from graphforge.distributed import DeviceBufferSlice, create_transport, nccl_unique_id
+import tiga as gf
+from tiga.distributed import DeviceBufferSlice, create_transport, nccl_unique_id
 
 
 def main() -> None:
@@ -78,7 +78,7 @@ def main() -> None:
 
     gate = "PASS" if all(case["correct"] for case in cases) else "FAIL"
     result = {
-        "schema": "graphforge.nccl-device-conformance.v1",
+        "schema": "tiga.nccl-device-conformance.v1",
         "scope": "single-rank-device-pointer-conformance",
         "device": args.device,
         "world_size": 1,

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-import graphforge as gf
+import tiga as gf
 
 
 class SymbolicShapeTest(unittest.TestCase):

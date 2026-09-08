@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.21)
 if(POLICY CMP0219)
   cmake_policy(SET CMP0219 NEW)
 endif()
-project(GraphForge LANGUAGES C CXX)
+project(Tiga LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 17 CACHE STRING "C++ standard")
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -10,24 +10,24 @@ set(CMAKE_BUILD_WITH_INSTALL_NAME_DIR ON)
 
 include(cmake/LLVMRevision.cmake)
 option(
-  GRAPHFORGE_STRICT_LLVM_VERSION
-  "Reject an MLIR SDK that differs from the pinned GraphForge release"
+  TIGA_STRICT_LLVM_VERSION
+  "Reject an MLIR SDK that differs from the pinned Tiga release"
   ON)
-option(GRAPHFORGE_INCLUDE_TESTS "Build GraphForge lit test targets" ON)
+option(TIGA_INCLUDE_TESTS "Build Tiga lit test targets" ON)
 option(
-  GRAPHFORGE_BUNDLE_LLVM_RUNTIME
+  TIGA_BUNDLE_LLVM_RUNTIME
   "Install the MLIR and LLVM shared libraries needed by a standalone wheel"
   ON)
 
 if(APPLE)
-  set(GRAPHFORGE_EXTENSION_RPATH "@loader_path/lib")
-  set(GRAPHFORGE_TOOL_RPATH "@loader_path/../lib")
+  set(TIGA_EXTENSION_RPATH "@loader_path/lib")
+  set(TIGA_TOOL_RPATH "@loader_path/../lib")
 elseif(UNIX)
-  set(GRAPHFORGE_EXTENSION_RPATH "$ORIGIN/lib")
-  set(GRAPHFORGE_TOOL_RPATH "$ORIGIN/../lib")
+  set(TIGA_EXTENSION_RPATH "$ORIGIN/lib")
+  set(TIGA_TOOL_RPATH "$ORIGIN/../lib")
 else()
-  set(GRAPHFORGE_EXTENSION_RPATH "")
-  set(GRAPHFORGE_TOOL_RPATH "")
+  set(TIGA_EXTENSION_RPATH "")
+  set(TIGA_TOOL_RPATH "")
 endif()
 
 find_package(MLIR REQUIRED CONFIG)
@@ -36,10 +36,10 @@ message(STATUS "Using LLVMConfig.cmake from ${LLVM_DIR}")
 
 # The official Linux LLVM binary SDK exports LLVMSupport with an unconditional
 # dependency on zstd::libzstd_static.  On distributions where that system
-# archive was not compiled as PIC, linking GraphForge's Python extension then
+# archive was not compiled as PIC, linking Tiga's Python extension then
 # fails even though Findzstd also found a usable shared library.  Imported
 # targets are only build metadata, so point LLVM's static alias at the shared
-# artifact for shared GraphForge consumers.  LLVM itself does not require zstd
+# artifact for shared Tiga consumers.  LLVM itself does not require zstd
 # to be linked statically, and wheel repair can bundle this dynamic dependency.
 if(UNIX AND NOT APPLE AND
    TARGET zstd::libzstd_static AND TARGET zstd::libzstd_shared)
@@ -53,11 +53,11 @@ if(UNIX AND NOT APPLE AND
   unset(_graphforge_shared_zstd)
 endif()
 
-if(GRAPHFORGE_STRICT_LLVM_VERSION AND
-   NOT LLVM_PACKAGE_VERSION VERSION_EQUAL GRAPHFORGE_LLVM_VERSION)
+if(TIGA_STRICT_LLVM_VERSION AND
+   NOT LLVM_PACKAGE_VERSION VERSION_EQUAL TIGA_LLVM_VERSION)
   message(FATAL_ERROR
-    "GraphForge is pinned to LLVM ${GRAPHFORGE_LLVM_VERSION}, but found "
-    "${LLVM_PACKAGE_VERSION}. Pass -DGRAPHFORGE_STRICT_LLVM_VERSION=OFF only "
+    "Tiga is pinned to LLVM ${TIGA_LLVM_VERSION}, but found "
+    "${LLVM_PACKAGE_VERSION}. Pass -DTIGA_STRICT_LLVM_VERSION=OFF only "
     "for an intentional compatibility experiment.")
 endif()
 
@@ -90,14 +90,14 @@ link_directories(${LLVM_BUILD_LIBRARY_DIR})
 # definitions to targets; otherwise CMake turns the entire tail into the value
 # of _GLIBCXX_USE_CXX11_ABI.
 separate_arguments(
-  GRAPHFORGE_LLVM_DEFINITIONS NATIVE_COMMAND "${LLVM_DEFINITIONS}")
-add_definitions(${GRAPHFORGE_LLVM_DEFINITIONS})
+  TIGA_LLVM_DEFINITIONS NATIVE_COMMAND "${LLVM_DEFINITIONS}")
+add_definitions(${TIGA_LLVM_DEFINITIONS})
 
 add_subdirectory(include)
 add_subdirectory(lib)
 add_subdirectory(tools)
 add_subdirectory(python_bindings)
-if(GRAPHFORGE_INCLUDE_TESTS)
+if(TIGA_INCLUDE_TESTS)
   add_subdirectory(tests)
 endif()
 
@@ -106,7 +106,7 @@ endif()
 # installed at the path used to build it, so make those runtime artifacts part
 # of the wheel component.  Static SDK builds have no runtime artifact here and
 # need no extra installation step.
-if(GRAPHFORGE_BUNDLE_LLVM_RUNTIME)
+if(TIGA_BUNDLE_LLVM_RUNTIME)
   set(_graphforge_llvm_runtime_targets)
   foreach(_target IN ITEMS MLIR LLVM)
     if(TARGET ${_target})
@@ -150,17 +150,17 @@ if(GRAPHFORGE_BUNDLE_LLVM_RUNTIME)
         endif()
         install(
           FILES "${_real_location}"
-          DESTINATION graphforge/lib
+          DESTINATION tiga/lib
           RENAME "${_soname}"
-          COMPONENT GraphForgeWheel)
+          COMPONENT TigaWheel)
       endforeach()
     else()
       install(
         IMPORTED_RUNTIME_ARTIFACTS ${_graphforge_llvm_runtime_targets}
-        LIBRARY DESTINATION graphforge/lib
-          COMPONENT GraphForgeWheel
-        RUNTIME DESTINATION graphforge
-          COMPONENT GraphForgeWheel)
+        LIBRARY DESTINATION tiga/lib
+          COMPONENT TigaWheel
+        RUNTIME DESTINATION tiga
+          COMPONENT TigaWheel)
     endif()
   endif()
 endif()

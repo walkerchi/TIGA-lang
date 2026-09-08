@@ -7,8 +7,8 @@ import time
 
 import torch
 
-import graphforge as gf
-from graphforge.interop.torch.message_passing import _csr_bundle_runner
+import tiga as gf
+from tiga.interop.torch.message_passing import _csr_bundle_runner
 
 
 class Diffusion(gf.MessagePassing):

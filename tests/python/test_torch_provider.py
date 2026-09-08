@@ -3,9 +3,9 @@ from __future__ import annotations
 import unittest
 
 import torch
-import graphforge as gf
+import tiga as gf
 
-from graphforge.interop.torch.provider import (
+from tiga.interop.torch.provider import (
     reusable_dense_output,
     reusable_vector_output,
 )

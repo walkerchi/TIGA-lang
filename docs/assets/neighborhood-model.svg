@@ -3,7 +3,7 @@
   <desc id="desc">Cartesian, triangular, and two-site honeycomb meshes all lower to an index domain, sites, endpoint maps, embedding, and boundary action.</desc>
   <defs>
     <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-      <path d="M 0 0 L 10 5 L 0 10 z" fill="#475569"/>
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#475569" />
     </marker>
     <style>
       .title { font-family: DejaVu Sans, Arial, sans-serif; font-size: 34px; font-weight: 700; fill: #0f172a; }
@@ -26,89 +26,89 @@
     </style>
   </defs>
 
-  <rect width="1440" height="920" fill="#f8fafc"/>
+  <rect width="1440" height="920" fill="#f8fafc" />
   <text x="52" y="58" class="title">One relation model, many meshes</text>
   <text x="52" y="88" class="subtitle">Convenience builders differ; the compiler sees the same domain, sites, endpoint maps, embedding, and boundary action.</text>
 
-  <!-- Cartesian panel -->
-  <rect x="42" y="118" width="420" height="480" rx="18" class="panel"/>
+  
+  <rect x="42" y="118" width="420" height="480" rx="18" class="panel" />
   <text x="68" y="158" class="panel-title">Cartesian</text>
   <text x="68" y="184" class="small">one site per unit cell · four endpoint shifts</text>
   <g>
-    <path d="M100 230H400 M100 300H400 M100 370H400 M100 440H400 M100 510H400" class="grid"/>
-    <path d="M120 210V530 M190 210V530 M260 210V530 M330 210V530 M400 210V530" class="grid"/>
-    <rect x="225" y="335" width="70" height="70" class="unit"/>
-    <circle cx="120" cy="230" r="9" class="site"/><circle cx="190" cy="230" r="9" class="site"/><circle cx="260" cy="230" r="9" class="site"/><circle cx="330" cy="230" r="9" class="site"/><circle cx="400" cy="230" r="9" class="site"/>
-    <circle cx="120" cy="300" r="9" class="site"/><circle cx="190" cy="300" r="9" class="site"/><circle cx="260" cy="300" r="9" class="site"/><circle cx="330" cy="300" r="9" class="site"/><circle cx="400" cy="300" r="9" class="site"/>
-    <circle cx="120" cy="370" r="9" class="site"/><circle cx="190" cy="370" r="9" class="site"/><circle cx="260" cy="370" r="14" class="center"/><circle cx="330" cy="370" r="9" class="site"/><circle cx="400" cy="370" r="9" class="site"/>
-    <circle cx="120" cy="440" r="9" class="site"/><circle cx="190" cy="440" r="9" class="site"/><circle cx="260" cy="440" r="9" class="site"/><circle cx="330" cy="440" r="9" class="site"/><circle cx="400" cy="440" r="9" class="site"/>
-    <circle cx="120" cy="510" r="9" class="site"/><circle cx="190" cy="510" r="9" class="site"/><circle cx="260" cy="510" r="9" class="site"/><circle cx="330" cy="510" r="9" class="site"/><circle cx="400" cy="510" r="9" class="site"/>
-    <path d="M260 350V312 M280 370H318 M260 390V428 M240 370H202" class="active-link"/>
+    <path d="M100 230H400 M100 300H400 M100 370H400 M100 440H400 M100 510H400" class="grid" />
+    <path d="M120 210V530 M190 210V530 M260 210V530 M330 210V530 M400 210V530" class="grid" />
+    <rect x="225" y="335" width="70" height="70" class="unit" />
+    <circle cx="120" cy="230" r="9" class="site" /><circle cx="190" cy="230" r="9" class="site" /><circle cx="260" cy="230" r="9" class="site" /><circle cx="330" cy="230" r="9" class="site" /><circle cx="400" cy="230" r="9" class="site" />
+    <circle cx="120" cy="300" r="9" class="site" /><circle cx="190" cy="300" r="9" class="site" /><circle cx="260" cy="300" r="9" class="site" /><circle cx="330" cy="300" r="9" class="site" /><circle cx="400" cy="300" r="9" class="site" />
+    <circle cx="120" cy="370" r="9" class="site" /><circle cx="190" cy="370" r="9" class="site" /><circle cx="260" cy="370" r="14" class="center" /><circle cx="330" cy="370" r="9" class="site" /><circle cx="400" cy="370" r="9" class="site" />
+    <circle cx="120" cy="440" r="9" class="site" /><circle cx="190" cy="440" r="9" class="site" /><circle cx="260" cy="440" r="9" class="site" /><circle cx="330" cy="440" r="9" class="site" /><circle cx="400" cy="440" r="9" class="site" />
+    <circle cx="120" cy="510" r="9" class="site" /><circle cx="190" cy="510" r="9" class="site" /><circle cx="260" cy="510" r="9" class="site" /><circle cx="330" cy="510" r="9" class="site" /><circle cx="400" cy="510" r="9" class="site" />
+    <path d="M260 350V312 M280 370H318 M260 390V428 M240 370H202" class="active-link" />
   </g>
   <text x="68" y="570" class="tiny">shifts: (±1,0), (0,±1)</text>
 
-  <!-- Triangular panel -->
-  <rect x="510" y="118" width="420" height="480" rx="18" class="panel"/>
+  
+  <rect x="510" y="118" width="420" height="480" rx="18" class="panel" />
   <text x="536" y="158" class="panel-title">Triangular lattice</text>
   <text x="536" y="184" class="small">hex-cell centers · one site · six shifts</text>
   <g>
-    <path d="M560 250H870 M600 320H910 M560 390H870 M600 460H910" class="grid"/>
-    <path d="M560 250L600 320L560 390L600 460 M630 250L670 320L630 390L670 460 M700 250L740 320L700 390L740 460 M770 250L810 320L770 390L810 460 M840 250L880 320L840 390L880 460" class="grid"/>
-    <path d="M630 250L600 320L630 390L600 460 M700 250L670 320L700 390L670 460 M770 250L740 320L770 390L740 460 M840 250L810 320L840 390L810 460" class="grid"/>
-    <polygon points="700,355 740,320 810,320 840,355 800,390 730,390" class="unit"/>
-    <circle cx="600" cy="320" r="9" class="site"/><circle cx="670" cy="320" r="9" class="site"/><circle cx="740" cy="320" r="14" class="center"/><circle cx="810" cy="320" r="9" class="site"/><circle cx="880" cy="320" r="9" class="site"/>
-    <circle cx="560" cy="390" r="9" class="site"/><circle cx="630" cy="390" r="9" class="site"/><circle cx="700" cy="390" r="9" class="site"/><circle cx="770" cy="390" r="9" class="site"/><circle cx="840" cy="390" r="9" class="site"/>
-    <circle cx="700" cy="250" r="9" class="site"/><circle cx="770" cy="250" r="9" class="site"/>
-    <path d="M724 320H682 M756 320H798 M728 334L708 378 M752 334L765 378 M728 306L708 262 M752 306L765 262" class="active-link"/>
+    <path d="M560 250H870 M600 320H910 M560 390H870 M600 460H910" class="grid" />
+    <path d="M560 250L600 320L560 390L600 460 M630 250L670 320L630 390L670 460 M700 250L740 320L700 390L740 460 M770 250L810 320L770 390L810 460 M840 250L880 320L840 390L880 460" class="grid" />
+    <path d="M630 250L600 320L630 390L600 460 M700 250L670 320L700 390L670 460 M770 250L740 320L770 390L740 460 M840 250L810 320L840 390L810 460" class="grid" />
+    <polygon points="700,355 740,320 810,320 840,355 800,390 730,390" class="unit" />
+    <circle cx="600" cy="320" r="9" class="site" /><circle cx="670" cy="320" r="9" class="site" /><circle cx="740" cy="320" r="14" class="center" /><circle cx="810" cy="320" r="9" class="site" /><circle cx="880" cy="320" r="9" class="site" />
+    <circle cx="560" cy="390" r="9" class="site" /><circle cx="630" cy="390" r="9" class="site" /><circle cx="700" cy="390" r="9" class="site" /><circle cx="770" cy="390" r="9" class="site" /><circle cx="840" cy="390" r="9" class="site" />
+    <circle cx="700" cy="250" r="9" class="site" /><circle cx="770" cy="250" r="9" class="site" />
+    <path d="M724 320H682 M756 320H798 M728 334L708 378 M752 334L765 378 M728 306L708 262 M752 306L765 262" class="active-link" />
   </g>
   <text x="536" y="570" class="tiny">entity = (axial cell coordinate, site)</text>
 
-  <!-- Honeycomb panel -->
-  <rect x="978" y="118" width="420" height="480" rx="18" class="panel"/>
+  
+  <rect x="978" y="118" width="420" height="480" rx="18" class="panel" />
   <text x="1004" y="158" class="panel-title">Honeycomb</text>
   <text x="1004" y="184" class="small">two sites A/B · links may cross unit cells</text>
   <g>
-    <polygon points="1080,245 1145,225 1210,250 1210,320 1145,345 1080,315" class="unit"/>
-    <polygon points="1145,345 1210,320 1275,345 1275,415 1210,440 1145,415" class="unit"/>
-    <path d="M1050 285L1080 245L1145 225L1210 250L1245 285 M1080 315L1145 345L1210 320L1275 345L1310 320 M1110 390L1145 415L1210 440L1275 415L1310 455" class="link" fill="none"/>
-    <path d="M1050 285L1080 315 M1145 225L1145 345 M1210 250L1210 320 M1275 345L1275 415 M1110 390L1145 345 M1210 440L1210 320" class="link"/>
-    <circle cx="1145" cy="345" r="14" class="site-a"/><text x="1139" y="351" class="label">A</text>
-    <circle cx="1210" cy="320" r="14" class="site-b"/><text x="1204" y="326" class="label">B</text>
-    <circle cx="1145" cy="225" r="10" class="site-a"/><circle cx="1210" cy="250" r="10" class="site-b"/>
-    <circle cx="1210" cy="440" r="10" class="site-b"/><circle cx="1275" cy="345" r="10" class="site-a"/><circle cx="1145" cy="415" r="10" class="site-a"/>
-    <path d="M1162 341L1194 326" class="active-link"/>
-    <path d="M1138 330L1145 240" class="active-link"/>
-    <path d="M1132 356L1120 383" class="active-link"/>
+    <polygon points="1080,245 1145,225 1210,250 1210,320 1145,345 1080,315" class="unit" />
+    <polygon points="1145,345 1210,320 1275,345 1275,415 1210,440 1145,415" class="unit" />
+    <path d="M1050 285L1080 245L1145 225L1210 250L1245 285 M1080 315L1145 345L1210 320L1275 345L1310 320 M1110 390L1145 415L1210 440L1275 415L1310 455" class="link" fill="none" />
+    <path d="M1050 285L1080 315 M1145 225L1145 345 M1210 250L1210 320 M1275 345L1275 415 M1110 390L1145 345 M1210 440L1210 320" class="link" />
+    <circle cx="1145" cy="345" r="14" class="site-a" /><text x="1139" y="351" class="label">A</text>
+    <circle cx="1210" cy="320" r="14" class="site-b" /><text x="1204" y="326" class="label">B</text>
+    <circle cx="1145" cy="225" r="10" class="site-a" /><circle cx="1210" cy="250" r="10" class="site-b" />
+    <circle cx="1210" cy="440" r="10" class="site-b" /><circle cx="1275" cy="345" r="10" class="site-a" /><circle cx="1145" cy="415" r="10" class="site-a" />
+    <path d="M1162 341L1194 326" class="active-link" />
+    <path d="M1138 330L1145 240" class="active-link" />
+    <path d="M1132 356L1120 383" class="active-link" />
     <text x="1180" y="305" class="tiny">shift (0,0)</text>
     <text x="1010" y="228" class="tiny">unit cell</text>
   </g>
   <text x="1004" y="570" class="tiny">link = (dst site, src site, cell shift)</text>
 
-  <!-- Common lowering -->
-  <rect x="42" y="630" width="1356" height="238" rx="18" class="panel"/>
+  
+  <rect x="42" y="630" width="1356" height="238" rx="18" class="panel" />
   <text x="68" y="672" class="panel-title">Common lowering — no tiling-kind switch</text>
 
-  <rect x="76" y="718" width="242" height="92" rx="14" class="chip"/>
+  <rect x="76" y="718" width="242" height="92" rx="14" class="chip" />
   <text x="102" y="752" class="label">Convenience builder</text>
   <text x="102" y="778" class="small">cartesian / triangular /</text>
   <text x="102" y="799" class="small">honeycomb / custom mesh</text>
 
-  <path d="M328 764H394" class="flow"/>
+  <path d="M328 764H394" class="flow" />
 
-  <rect x="406" y="704" width="390" height="120" rx="14" fill="#ecfeff" stroke="#06b6d4" stroke-width="2"/>
+  <rect x="406" y="704" width="390" height="120" rx="14" fill="#ecfeff" stroke="#06b6d4" stroke-width="2" />
   <text x="432" y="738" class="label">Indexed relation schema</text>
   <text x="432" y="765" class="small">IndexDomain + Sites + EndpointMaps</text>
   <text x="432" y="790" class="small">Embedding + BoundaryAction</text>
 
-  <path d="M806 764H872" class="flow"/>
+  <path d="M806 764H872" class="flow" />
 
-  <rect x="884" y="718" width="202" height="92" rx="14" fill="#f0fdf4" stroke="#22c55e" stroke-width="2"/>
+  <rect x="884" y="718" width="202" height="92" rx="14" fill="#f0fdf4" stroke="#22c55e" stroke-width="2" />
   <text x="914" y="752" class="label">Graph Relation</text>
   <text x="914" y="780" class="small">who can be read</text>
 
-  <path d="M1096 764H1162" class="flow"/>
+  <path d="M1096 764H1162" class="flow" />
 
-  <rect x="1174" y="718" width="190" height="92" rx="14" fill="#fff7ed" stroke="#f97316" stroke-width="2"/>
+  <rect x="1174" y="718" width="190" height="92" rx="14" fill="#fff7ed" stroke="#f97316" stroke-width="2" />
   <text x="1202" y="752" class="label">Operator</text>
   <text x="1202" y="780" class="small">math and coefficients</text>
 </svg>

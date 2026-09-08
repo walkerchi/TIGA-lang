@@ -4,7 +4,7 @@ import os
 import unittest
 from unittest.mock import patch
 
-import graphforge as gf
+import tiga as gf
 
 
 class AffineAggregation(gf.MessagePassing):
@@ -178,6 +178,49 @@ class MessagePassingAutogradTest(unittest.TestCase):
         self.assertEqual(kernel.last_variant.lowering,
                          "gf-tensor-relation-autograd")
 
+    def test_repeated_calls_reuse_the_compiled_variant(self):
+        kernel = AffineAggregation()
+        kernel(  # first call compiles the variant
+            graph=self.graph,
+            src={"temperature": self.temperature},
+            dst={"bias": self.bias},
+            edge={"conductivity": self.conductivity},
+        ).tolist()
+        self.assertEqual(
+            kernel.cache_info, {"hits": 0, "misses": 1, "variants": 1})
+
+        kernel(  # identical call reuses it
+            graph=self.graph,
+            src={"temperature": self.temperature},
+            dst={"bias": self.bias},
+            edge={"conductivity": self.conductivity},
+        ).tolist()
+        self.assertEqual(
+            kernel.cache_info, {"hits": 1, "misses": 1, "variants": 1})
+
+        kernel(  # structurally identical fresh tensors: still one variant
+            graph=self.graph,
+            src={"temperature": gf.tensor([4.0, 5.0, 6.0], requires_grad=True)},
+            dst={"bias": self.bias},
+            edge={"conductivity": self.conductivity},
+        ).tolist()
+        self.assertEqual(kernel.cache_info["hits"], 2)
+        self.assertEqual(kernel.cache_info["variants"], 1)
+
+        kernel(  # a dtype change compiles a new variant
+            graph=self.graph,
+            src={"temperature": gf.tensor(
+                [1.0, 2.0, 3.0], dtype=gf.float64, requires_grad=True)},
+            dst={"bias": gf.tensor(
+                [0.1, 0.2, 0.3], dtype=gf.float64, requires_grad=True)},
+            edge={"conductivity": gf.tensor(
+                [2.0, 3.0, 4.0, 5.0, 6.0], dtype=gf.float64,
+                requires_grad=True)},
+        ).tolist()
+        self.assertEqual(kernel.cache_info["misses"], 2)
+        self.assertEqual(kernel.cache_info["variants"], 2)
+        self.assertIn("executable cache: hits=2, misses=2", kernel.explain())
+
     def test_reverse_graph_preserves_csr_structure(self):
         _, output = self._forward()
         gradient = gf.autograd.grad(output.sum(), self.temperature)
@@ -188,8 +231,8 @@ class MessagePassingAutogradTest(unittest.TestCase):
         self.assertNotIn("destination_index", expression)
 
     def test_forward_and_vjp_lower_to_native_cpu(self):
-        old = os.environ.get("GRAPHFORGE_TENSOR_BACKEND")
-        os.environ["GRAPHFORGE_TENSOR_BACKEND"] = "native"
+        old = os.environ.get("TIGA_TENSOR_BACKEND")
+        os.environ["TIGA_TENSOR_BACKEND"] = "native"
         try:
             _, output = self._forward()
             gradient = gf.autograd.grad(output.sum(), self.temperature)
@@ -200,14 +243,14 @@ class MessagePassingAutogradTest(unittest.TestCase):
             self.assertEqual(output.execution["backend"], "cpu-llvm-jit")
             self.assertEqual(gradient.execution["backend"], "cpu-llvm-jit")
         except RuntimeError as error:
-            if "native GraphForge compiler extension is unavailable" in str(error):
+            if "native Tiga compiler extension is unavailable" in str(error):
                 self.skipTest(str(error))
             raise
         finally:
             if old is None:
-                os.environ.pop("GRAPHFORGE_TENSOR_BACKEND", None)
+                os.environ.pop("TIGA_TENSOR_BACKEND", None)
             else:
-                os.environ["GRAPHFORGE_TENSOR_BACKEND"] = old
+                os.environ["TIGA_TENSOR_BACKEND"] = old
 
     def test_additive_tuple_udf_reducer_has_automatic_vjp(self):
         x = gf.tensor([1.0, 2.0, 4.0], requires_grad=True)
@@ -305,7 +348,7 @@ class MessagePassingAutogradTest(unittest.TestCase):
         )
         x = gf.tensor([2.0, 3.0, 5.0], requires_grad=True)
         kernel = ProductAggregation()
-        with patch.dict(os.environ, {"GRAPHFORGE_TENSOR_BACKEND": "native"}):
+        with patch.dict(os.environ, {"TIGA_TENSOR_BACKEND": "native"}):
             output = kernel(graph=graph, src={"x": x}, dst={})
             gradient = gf.autograd.grad(output.sum(), x)
             self.assertEqual(output.tolist(), [6.0, 1.0, 30.0])
@@ -333,7 +376,7 @@ class MessagePassingAutogradTest(unittest.TestCase):
         )
         x = gf.tensor(
             [2.0, 3.0, 5.0], device=device, requires_grad=True)
-        with patch.dict(os.environ, {"GRAPHFORGE_TENSOR_BACKEND": "native"}):
+        with patch.dict(os.environ, {"TIGA_TENSOR_BACKEND": "native"}):
             output = ProductAggregation()(
                 graph=graph, src={"x": x}, dst={})
             gradient = gf.autograd.grad(output.sum(), x)
@@ -360,7 +403,7 @@ class MessagePassingAutogradTest(unittest.TestCase):
             [2.0, 0.0, 3.0, 4.0, 5.0], device=device,
             requires_grad=True)
         cotangent = gf.tensor([7.0, 11.0], device=device)
-        with patch.dict(os.environ, {"GRAPHFORGE_TENSOR_BACKEND": "native"}):
+        with patch.dict(os.environ, {"TIGA_TENSOR_BACKEND": "native"}):
             output = EdgeProductAggregation()(
                 graph=graph, src={}, dst={}, edge={"x": edge})
             gradient = gf.autograd.grad(output, edge, grad_output=cotangent)
@@ -380,7 +423,7 @@ class MessagePassingAutogradTest(unittest.TestCase):
             [[2.0, 3.0], [5.0, 7.0], [11.0, 13.0]],
             requires_grad=True,
         )
-        with patch.dict(os.environ, {"GRAPHFORGE_TENSOR_BACKEND": "native"}):
+        with patch.dict(os.environ, {"TIGA_TENSOR_BACKEND": "native"}):
             output = ProductAggregation()(
                 graph=graph, src={"x": x}, dst={})
             gradient = gf.autograd.grad(output.sum(), x)
@@ -408,7 +451,7 @@ class MessagePassingAutogradTest(unittest.TestCase):
             [[2.0, 3.0], [5.0, 7.0], [11.0, 13.0]],
             device=device, requires_grad=True,
         )
-        with patch.dict(os.environ, {"GRAPHFORGE_TENSOR_BACKEND": "native"}):
+        with patch.dict(os.environ, {"TIGA_TENSOR_BACKEND": "native"}):
             output = ProductAggregation()(
                 graph=graph, src={"x": x}, dst={})
             gradient = gf.autograd.grad(output.sum(), x)
@@ -428,7 +471,7 @@ class MessagePassingAutogradTest(unittest.TestCase):
         )
         scale = gf.tensor([2.0, 3.0, 5.0], requires_grad=True)
         bias = gf.tensor([1.0, 4.0, 2.0], requires_grad=True)
-        with patch.dict(os.environ, {"GRAPHFORGE_TENSOR_BACKEND": "native"}):
+        with patch.dict(os.environ, {"TIGA_TENSOR_BACKEND": "native"}):
             output = CompositionAggregation()(
                 graph=graph,
                 src={"scale": scale, "bias": bias}, dst={})

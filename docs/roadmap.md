@@ -59,15 +59,3 @@ cached spatial-directory reuse is not substituted for rebuild timing.
 6. Use the FEM/solver probe to add bounded multi-state control flow and
    residual-guarded implicit differentiation without introducing
    workload-named kernels.
-
-## Claim discipline
-
-- FLA/FSA, attention, PageRank and visualization remain examples/benchmarks;
-  the compiler core contains no workload-named kernel.
-- Results apply only to registered shapes, dtypes, topology distributions,
-  cache states and hardware.
-- External dispatch is labeled as dispatch. A semantic evaluator is labeled as
-  an oracle. Neither is reported as generated TTIR.
-- One-GPU NCCL binding proves integration, not peer-link performance.
-- Public status changes must update the ledger, tests, benchmark artifacts and
-  this page together.

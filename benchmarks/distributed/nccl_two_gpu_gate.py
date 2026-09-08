@@ -15,8 +15,8 @@ from pathlib import Path
 import statistics
 import time
 
-import graphforge as gf
-from graphforge.distributed import (
+import tiga as gf
+from tiga.distributed import (
     DeviceBufferSlice, DistributedRuntime, NCCLTransport, nccl_unique_id,
     owned_range,
 )
@@ -32,7 +32,7 @@ class NeighborSum(gf.MessagePassing):
 
 def _worker(rank, communicator_id, byte_count, repeats, queue):
     device = f"cuda:{rank}"
-    os.environ["GRAPHFORGE_TENSOR_BACKEND"] = "native"
+    os.environ["TIGA_TENSOR_BACKEND"] = "native"
     transport = NCCLTransport(
         rank, 2, communicator_id, device=device,
     )
@@ -147,7 +147,7 @@ def main() -> None:
     combined = [sample for record in records for sample in record["samples_ms"]]
     median_ms = statistics.median(combined)
     result = {
-        "schema": "graphforge.nccl-two-gpu.v1",
+        "schema": "tiga.nccl-two-gpu.v1",
         "world_size": 2,
         "capabilities": capabilities,
         "payload_bytes_per_rank": args.bytes,
@@ -163,7 +163,7 @@ def main() -> None:
     from benchmarks.common.diagnostic_plotting import plot_json
     plot_json(args.output)
     (args.output.parent / "REPORT.md").write_text(
-        "# Two-GPU NCCL GraphForge gate\n\n"
+        "# Two-GPU NCCL Tiga gate\n\n"
         f"Gate: **{result['gate']}**. Median rank exchange: {median_ms:.4f} ms. "
         f"Aggregate unidirectional payload bandwidth: "
         f"{result['aggregate_unidirectional_payload_GBps']:.3f} GB/s.\n\n"

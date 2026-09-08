@@ -1,150 +1,166 @@
-# GraphForge 调度抽象调研：从 Tensor Axis 到多空间映射
+# Tiga Scheduling Abstractions Survey: From Tensor Axes to Multi-Space Mappings
 
-> 非规范调研记录。已经采纳的调度契约只在仓库根目录 `PROJECT.md` 生效。
+> Non-normative research note. Adopted scheduling contracts take effect only in
+> `PROJECT.md` at the repository root.
 
-状态：设计建议  
-日期：2026-08-06
+Date: 2026-08-06
 
-## 1. 结论
+## 1. Conclusion
 
-可以直接以 tensor/iteration axis 为调度入口，而且规则 tensor、stencil、FFT stage、
-contraction 的大部分局部优化都应这样表达。但“把每个 axis 放到某个硬件或存储层级”
-不够成为 GraphForge 的完整调度抽象。
+Using the tensor/iteration axis as the scheduling entry point works, and most
+local optimizations for regular tensors, stencils, FFT stages, and contractions
+should be expressed that way. But "place every axis on some hardware or storage
+level" is not a complete scheduling abstraction for Tiga.
 
-原因是高性能实现同时包含六类相互关联、但语义不同的决策：
+The reason is that a high-performance implementation contains six kinds of
+decisions that are interrelated but semantically distinct:
 
 ```text
 Schedule
-  = IterationTransform   迭代域如何 split/fuse/reorder/segment
-  + AccessLayout         逻辑坐标如何访问并布局每个 tensor/field
-  + ExecutionMapping     迭代点由 device/block/warp/lane/vector 谁执行
-  + StoragePlan          哪个 region/tile 的哪个版本驻留在哪个 memory space
-  + PipelinePlan         producer/copy/compute/store 何时执行，如何同步和复用 buffer
-  + TaskPlacement        partition、halo、collective 和跨设备 task 如何放置
+  = IterationTransform   how the iteration domain is split/fused/reordered/segmented
+  + AccessLayout         how logical coordinates access and lay out each tensor/field
+  + ExecutionMapping     which device/block/warp/lane/vector executes each iteration point
+  + StoragePlan          which version of which region/tile resides in which memory space
+  + PipelinePlan         when producer/copy/compute/store run, and how they synchronize and reuse buffers
+  + TaskPlacement        how partitions, halos, collectives, and cross-device tasks are placed
 ```
 
-这不是用户必须手写的六组 annotation，而是 compiler 的内部决策空间和
-`explain()` 输出结构。M0–M2 用户输入是 coarse MessagePassing；compiler 将其 lower
-成仍保留 iteration/relation/reduction 结构的内部 IR，再构造这些映射。
+These are not six sets of annotations users must hand-write; they are the
+compiler's internal decision spaces and the structure of `explain()` output. In
+M0–M2 the user input is coarse MessagePassing; the compiler lowers it into an
+internal IR that still preserves iteration/relation/reduction structure, and
+then constructs these mappings.
 
-如果把这六件事压成一个 `axis -> level` 表，规则 GEMM 的简单例子看起来很漂亮，遇到
-CSR、online softmax、异步 copy、同一迭代域上的多种 tensor layout 或 distributed halo
-时就会产生歧义。更合适的统一方式是：保留多个有类型的空间，并显式描述它们之间的
-映射。
+If all six are collapsed into a single `axis -> level` table, simple regular
+GEMM examples look beautiful, but CSR, online softmax, asynchronous copies,
+multiple tensor layouts over one iteration domain, or distributed halos produce
+ambiguity. A better unification is to keep several typed spaces and describe
+the mappings between them explicitly.
 
-## 2. 为什么单一 axis hierarchy 不够
+## 2. Why a Single Axis Hierarchy Is Not Enough
 
-### 2.1 迭代轴不等于 tensor 轴
+### 2.1 Iteration axes are not tensor axes
 
-矩阵乘的逻辑迭代域是 `(m, n, k)`，但 A、B、C 的访问分别是 `(m, k)`、`(k, n)`、
-`(m, n)`。一个迭代轴可能不存在于某个 tensor 中，也可能通过 affine、gather 或
-relation map 访问多个 tensor 轴。MLIR Linalg 因而把 `iterator_types` 与每个 operand
-的 `indexing_maps` 分开，而不是给 tensor dimension 直接绑定 thread。
+The logical iteration domain of matrix multiplication is `(m, n, k)`, but the
+accesses of A, B, and C are `(m, k)`, `(k, n)`, and `(m, n)` respectively. An
+iteration axis may not exist in a given tensor, and it may reach multiple
+tensor axes through affine, gather, or relation maps. This is why MLIR Linalg
+separates `iterator_types` from each operand's `indexing_maps` instead of
+binding threads directly to tensor dimensions.
 
-GraphForge 也应区分：
+Tiga should likewise distinguish:
 
-- `IterAxis`：计算实例的逻辑坐标；
-- `AccessMap`：迭代坐标到 Field/Relation 坐标；
-- `Layout`：Field 坐标到物理地址、lane 或 fragment 坐标。
+- `IterAxis`: the logical coordinates of a compute instance;
+- `AccessMap`: from iteration coordinates to Field/Relation coordinates;
+- `Layout`: from Field coordinates to physical addresses, lanes, or fragment
+  coordinates.
 
-### 2.2 sparse/ragged 不是矩形 axis
+### 2.2 Sparse/ragged is not a rectangular axis
 
-CSR 的邻居轴是依赖父坐标的：
+The neighbor axis of CSR depends on the parent coordinate:
 
 ```text
 dst in [0, N)
 neighbor in [rowptr[dst], rowptr[dst + 1])
 ```
 
-它的 extent 随 `dst` 改变。radius relation 甚至需要运行时生成这个集合。普通
-`tensor<N, max_degree>` axis 只能通过 padding/mask 表达，会隐藏有效工作量和
-degree skew。
+Its extent changes with `dst`. A radius relation may even need to generate this
+set at runtime. A plain `tensor<N, max_degree>` axis can only express this
+through padding/masking, which hides the effective workload and degree skew.
 
-因此需要 `segmented/dependent/generated` axis，以及从逻辑 dimension 到物理
-coordinate level 的映射。TACO 与 MLIR SparseTensor 的 dense/compressed/singleton
-level、Finch 的 looplet，以及 CoRa 的 ragged dimension 都说明：稀疏结构是
-coordinate hierarchy，不只是 stride 不同的 dense tensor。
+Hence the need for `segmented/dependent/generated` axes and for a mapping from
+logical dimensions to physical coordinate levels. TACO and MLIR SparseTensor's
+dense/compressed/singleton levels, Finch's looplets, and CoRa's ragged
+dimensions all show that sparse structure is a coordinate hierarchy, not just a
+dense tensor with different strides.
 
-### 2.3 execution mapping 不等于 memory placement
+### 2.3 Execution mapping is not memory placement
 
-`dst_outer -> block` 描述由哪个 program instance 执行；`Q_tile -> shared` 描述数据
-驻留；`feature_inner -> lane` 可能同时决定协作加载和寄存器 fragment layout。这些
-约束有关联，但不是同一种关系。
+`dst_outer -> block` describes which program instance executes;
+`Q_tile -> shared` describes where data resides; `feature_inner -> lane` may
+simultaneously determine cooperative loading and the register fragment layout.
+These constraints are related, but they are not the same relation.
 
-特别是一个 tile 可以先在 HBM，异步复制到 shared，再由各 lane 按不同 fragment
-layout 读入 register。它不是被唯一地“放在 shared axis”上。
+In particular, a tile can start in HBM, be asynchronously copied to shared
+memory, and then be read into registers by each lane under a different fragment
+layout. It is not uniquely "placed on the shared axis".
 
-### 2.4 pipeline 不是空间轴映射
+### 2.4 A pipeline is not a spatial axis mapping
 
-double buffering 至少还要描述：
+Double buffering additionally has to describe:
 
-- 哪个 producer/copy 与哪个 consumer/compute 构成 stage；
-- `k+1` 的 copy 与 `k` 的 compute 是否可 overlap；
-- buffer 数量、phase、barrier/token 和复用条件；
-- fill/drain、尾块 predicate 和容量约束。
+- which producer/copy forms a stage with which consumer/compute;
+- whether the copy of `k+1` can overlap the compute of `k`;
+- buffer counts, phases, barriers/tokens, and reuse conditions;
+- fill/drain, tail predication, and capacity constraints.
 
-TileLang 的 `Pipelined`、MLIR NVGPU 的 async-copy token/group/wait 都把这些作为时序和
-依赖，而不是 layout。FlashAttention 的性能也来自 IO-aware tiling、online reducer
-和数据搬运时序的联合，而非只选择 thread tile。
+TileLang's `Pipelined` and MLIR NVGPU's async-copy token/group/wait all treat
+these as timing and dependence, not layout. FlashAttention's performance
+likewise comes from the combination of IO-aware tiling, online reducers, and
+data-movement timing, not merely from choosing a thread tile.
 
-### 2.5 存储和机器拓扑不总是一棵树
+### 2.5 Storage and machine topology are not always a tree
 
-register/shared/HBM 在一个 kernel 内近似层次结构；HBM、CPU RAM、NVMe、peer HBM、
-remote RAM 之间则是带多条 transfer path、不同 engine、并发能力和一致性范围的图。
-一个只读 Region 还可能同时有多个 replica。因此长期 storage placement 应映射到
-`MemoryTopology`，不能只用整数 level。
+Register/shared/HBM approximate a hierarchy inside one kernel; HBM, CPU RAM,
+NVMe, peer HBM, and remote RAM form a graph with multiple transfer paths,
+different engines, concurrency capabilities, and coherence scopes. A read-only
+Region may also have several replicas at once. Long-term storage placement
+should therefore map onto a `MemoryTopology`, not just an integer level.
 
-### 2.6 distributed tensor sharding 很强，但仍不是完整 distributed schedule
+### 2.6 Distributed tensor sharding is powerful, but still not a complete distributed schedule
 
-GSPMD 和 MLIR Shard 证明 `tensor axis -> device mesh axis` 是非常好的分片标注：它能
-统一 data/model/spatial parallel，并由编译器传播和插入 collective。GraphForge 应
-直接学习这一层。
+GSPMD and MLIR Shard prove that `tensor axis -> device mesh axis` is an
+excellent sharding annotation: it unifies data/model/spatial parallelism and
+lets the compiler propagate shards and insert collectives. Tiga should
+adopt this layer directly.
 
-但不规则 relation 还需要 graph/mesh partition、owned/ghost region、halo packing、
-负载平衡和迁移；communication/computation overlap 又需要 task/event DAG。因此
-sharding 是 `TaskPlacement` 的重要子集，不是完整 runtime schedule。
+But irregular relations additionally need graph/mesh partitioning, owned/ghost
+regions, halo packing, load balancing, and migration; communication/computation
+overlap needs a task/event DAG. Sharding is therefore an important subset of
+`TaskPlacement`, not the complete runtime schedule.
 
-## 3. 相关系统带来的具体启发
+## 3. Concrete Lessons from Related Systems
 
-| 系统 | 核心抽象 | 对 GraphForge 的启发 | 不能直接覆盖的部分 |
+| System | Core abstraction | Lesson for Tiga | What it does not cover |
 |---|---|---|---|
-| Halide | algorithm/schedule 分离；split/reorder/compute_at/store_at | axis transform 之外还要有 producer-consumer placement 和 storage lifetime | irregular coordinate、distributed |
-| TVM TensorIR | block、loop、buffer region、cache、tensorize | schedule 作用于 iteration/block，访问 region 单独分析 | relation provenance、dynamic graph runtime |
-| MLIR Linalg/Transform | iterator types + operand indexing maps；独立 transform IR | 分开 iteration/access；专家与自动调度走同一种 transform | sparse/dynamic relation 需扩展 |
-| CuTe | hierarchical shape/stride 与 layout composition/divide | 用可组合 layout 映射数据和 thread fragment，避免枚举 layout 名称 | 主要面向 dense、单 kernel、NVIDIA |
-| TileLang | tile instruction、fragment layout、显式 memory scope、software pipeline | `gf.kernel` 需要 tile、copy、pipeline 和 reducer 同时可见 | Domain/Relation/Task 不是其目标 |
-| TACO / MLIR SparseTensor | per-level format、coordinate hierarchy、coiteration | logical dimension 与 storage level 分开；复用成熟 sparse theory | geometric builder、task runtime |
-| Finch | looplet 和逐步 lowering 的 structured iteration | generated/run/sequence/control-flow 结构不能过早拍平 | GPU mapping/pipeline 仍需下层 IR |
-| CoRa | ragged dimension 与 dimension graph、最少 padding | dependent extent 是一等信息；schedule 需支持 ragged fusion | 通用 sparse format 与 distributed |
-| GraphIt | graph iteration space；direction、segment、parallel、layout schedule | traversal direction、degree segmentation 是 axis transform 之外的一等决策 | 连续 tensor tile、memory pipeline |
-| DaCe | dataflow、memlet、storage location 与 stateful graph | 跨 kernel 数据移动和 lifetime 需要 data/task flow | 不替代 relation/domain IR |
-| GSPMD / MLIR Shard | tensor dimension 到 device mesh axis 的 sharding | 规则 distributed tensor 采用轴分片和传播 | irregular partition、halo overlap |
+| Halide | algorithm/schedule separation; split/reorder/compute_at/store_at | beyond axis transforms, producer-consumer placement and storage lifetime are needed | irregular coordinates, distributed |
+| TVM TensorIR | blocks, loops, buffer regions, cache, tensorize | schedules act on iteration/blocks; accessed regions are analyzed separately | relation provenance, dynamic graph runtime |
+| MLIR Linalg/Transform | iterator types + operand indexing maps; standalone transform IR | separate iteration from access; expert and automatic scheduling share one transform mechanism | sparse/dynamic relations need extensions |
+| CuTe | hierarchical shape/stride and layout composition/division | map data and thread fragments with composable layouts instead of enumerating layout names | mainly dense, single-kernel, NVIDIA |
+| TileLang | tile instructions, fragment layouts, explicit memory scopes, software pipelines | `gf.kernel` needs tile, copy, pipeline, and reducer visible together | Domain/Relation/Task are not its goal |
+| TACO / MLIR SparseTensor | per-level formats, coordinate hierarchies, coiteration | separate logical dimensions from storage levels; reuse mature sparse theory | geometric builders, task runtime |
+| Finch | looplets and stepwise-lowered structured iteration | generated/run/sequence/control-flow structure must not be flattened too early | GPU mapping/pipelines still need a lower IR |
+| CoRa | ragged dimensions and dimension graphs, minimal padding | dependent extents are first-class information; schedules must support ragged fusion | general sparse formats and distributed |
+| GraphIt | graph iteration space; direction, segment, parallel, layout schedules | traversal direction and degree segmentation are first-class decisions beyond axis transforms | continuous tensor tiles, memory pipelines |
+| DaCe | dataflow, memlets, storage locations, and stateful graphs | cross-kernel data movement and lifetimes need data/task flow | not a replacement for relation/domain IR |
+| GSPMD / MLIR Shard | sharding tensor dimensions onto device mesh axes | regular distributed tensors use axis sharding and propagation | irregular partitions, halo overlap |
 
-主要资料：
+Primary references:
 
 - [MLIR Linalg dialect](https://mlir.llvm.org/docs/Dialects/Linalg/)
 - [MLIR Transform tutorial](https://mlir.llvm.org/docs/Tutorials/transform/)
 - [TVM TensorIR](https://tvm.apache.org/docs/deep_dive/tensor_ir/index.html)
 - [CuTe Layout Algebra](https://docs.nvidia.com/cutlass/latest/media/docs/cpp/cute/02_layout_algebra.html)
-- [TileLang instructions](https://tilelang.com/programming_guides/instructions.html) 与
+- [TileLang instructions](https://tilelang.com/programming_guides/instructions.html) and
   [software pipeline](https://www.tilelang.com/programming_guides/software_pipeline.html)
 - [MLIR SparseTensor dialect](https://mlir.llvm.org/docs/Dialects/SparseTensorOps/)
 - [Finch paper](https://arxiv.org/abs/2404.16730)
 - [CoRa paper](https://proceedings.mlsys.org/paper_files/paper/2022/file/afe8a4577080504b8bec07bbe4b2b9cc-Paper.pdf)
 - [GraphIt paper](https://arxiv.org/abs/1805.00923)
 - [DaCe SDFG paper](https://arxiv.org/abs/1902.10345)
-- [GSPMD paper](https://arxiv.org/abs/2105.04663) 与
+- [GSPMD paper](https://arxiv.org/abs/2105.04663) and
   [MLIR Shard dialect](https://mlir.llvm.org/docs/Dialects/Shard/)
-- [MLIR GPU dialect](https://mlir.llvm.org/docs/Dialects/GPU/) 与
+- [MLIR GPU dialect](https://mlir.llvm.org/docs/Dialects/GPU/) and
   [NVGPU dialect](https://mlir.llvm.org/docs/Dialects/NVGPU/)
 - [FlashAttention paper](https://arxiv.org/abs/2205.14135)
 
-## 4. 建议的统一模型
+## 4. Proposed Unified Model
 
-### 4.0 先统一 coarse MessagePassing 的内部 IR，不先设计细粒度语言
+### 4.0 Coarse MessagePassing first, fine-grained language later
 
-M0–M2 用户只写 coarse `MessagePassing`，其中 edge/optional-node region 允许 tensor 和
-标量表达式，但 node/edge/neighbor traversal 不通过 public loop syntax 暴露：
+In M0–M2 users write only coarse `MessagePassing`, where the edge/optional-node
+regions allow tensor and scalar expressions, but node/edge/neighbor traversal is
+not exposed through public loop syntax:
 
 ```python
 class Diffusion(gf.MessagePassing):
@@ -154,8 +170,9 @@ class Diffusion(gf.MessagePassing):
         return edge.weight * (src.u - dst.u)
 ```
 
-Compiler 将 Graph/Relation、Message、Reducer 和 Effect lower 成内部细粒度 SSA/
-Iteration IR，同一份内部 IR 再按 target lower：
+The compiler lowers Graph/Relation, Message, Reducer, and Effect into an
+internal fine-grained SSA/iteration IR, and the same internal IR is then
+lowered per target:
 
 ```text
                          ┌→ CPU: scf/affine loops + vector + parallel runtime
@@ -164,43 +181,50 @@ gf.domain → gf.iter ─────┤
                                   → gf.kernel → CUDA/HIP/PPU provider
 ```
 
-GPU 路径通过 reuse/liveness、协作访问、tile footprint、layout conversion、memory
-capacity 和 occupancy 推导 register/shared/LDS；随后插入 cooperative copy、barrier、
-double buffer 和 async pipeline。CPU 路径不模拟 shared memory，同一逻辑 temporary
-lower 成 SSA/vector、stack allocation 或 cache-blocked loop。
+The GPU path derives register/shared/LDS usage from reuse/liveness, cooperative
+access, tile footprints, layout conversion, memory capacity, and occupancy; it
+then inserts cooperative copies, barriers, double buffers, and async pipelines.
+The CPU path does not emulate shared memory; the same logical temporary lowers
+to SSA/vector values, stack allocations, or cache-blocked loops.
 
-“GPU block-tensor/dense lowering”指把有效 relation item 上的 feature/message/reducer
-计算变成规则 tile、vector、dot/MMA 和 reduction；它不要求把 sparse graph 变成
-`N×N` dense adjacency。CSR coordinate stream 可以保持稀疏，degree bucket 内部则可按
-cost model 选择小范围 padding/masking，以规则计算换取更高硬件利用率。
+"GPU block-tensor/dense lowering" means turning the feature/message/reducer
+computation over valid relation items into regular tiles, vectors, dot/MMA, and
+reductions; it does not require densifying a sparse graph into an `N×N`
+adjacency. The CSR coordinate stream can stay sparse, while inside a degree
+bucket the cost model may choose a small amount of padding/masking, trading
+regularity for higher hardware utilization.
 
-这里“细粒度”首先是 compiler IR 的性质，不是 public language commitment。只有 naive
-Static/Dynamic Graph 和至少一项硬件优化完成后，才从被验证的 dependent axis、work
-tile、partial reducer、materialize/reuse 等需求反推用户语法。
+Here "fine-grained" is first a property of the compiler IR, not a public
+language commitment. There is no public `gf.Schedule` in M0–M2: only after the
+naive Static/Dynamic Graph backends and at least one hardware optimization are
+complete is user syntax reverse-engineered from validated needs such as
+dependent axes, work tiles, partial reducers, and materialize/reuse.
 
-### 4.1 IterationDomain：允许矩形、依赖和生成轴
+### 4.1 IterationDomain: rectangular, dependent, and generated axes
 
-轴必须有稳定名字和类型，不能只按 loop number 引用：
+Axes must have stable names and types; they cannot be referenced by loop number
+alone:
 
 ```text
 axis kind:
-  parallel       独立空间轴
-  reduction      具有 reducer 代数的归约轴
-  sequential     有 loop-carried dependency
-  scan           有顺序/结合律约束的前缀轴
-  segmented      extent 依赖父坐标，如 CSR row
-  generated      由 relation builder/iterator 动态产生
-  stage          FFT/time integration 等算法 stage；不是普通数据维
+  parallel       independent spatial axis
+  reduction      reduction axis with reducer algebra
+  sequential     has a loop-carried dependency
+  scan           prefix axis with ordering/associativity constraints
+  segmented      extent depends on the parent coordinate, e.g. a CSR row
+  generated      produced dynamically by a relation builder/iterator
+  stage          algorithmic stage such as FFT/time integration; not an ordinary data dimension
 ```
 
-`IterationDomain` 是轴及其依赖构成的 DAG/coordinate hierarchy，而不是永远矩形的
-shape tuple。规则子域可以直接 lower 到 `linalg/affine/scf`；structured sparse 子域
-尽量 lower 到 `sparse_tensor`；GraphForge 只保留 upstream 难以表达的 relation
-provenance、generate 和 traversal policy。
+An `IterationDomain` is a DAG/coordinate hierarchy of axes and their
+dependencies, not an always-rectangular shape tuple. Regular subdomains lower
+directly to `linalg/affine/scf`; structured sparse subdomains lower to
+`sparse_tensor` where possible; Tiga keeps only what upstream struggles
+to express: relation provenance, generation, and traversal policy.
 
-### 4.2 AccessMap 与 Layout：使用可组合映射
+### 4.2 AccessMap and Layout: composable mappings
 
-建议把 layout 看作函数而不是枚举：
+Treat layout as a function, not an enumeration:
 
 ```text
 iteration coordinate --AccessMap--> logical field coordinate
@@ -208,45 +232,50 @@ logical field coordinate --DataLayout--> physical address
 logical tile coordinate --ThreadLayout--> (lane, lane-local coordinate)
 ```
 
-最小组合子包括 `compose`、`product`、`divide/tile`、`permute`、`broadcast`、
-`pad`、`swizzle` 和 `vectorize`。M0/M1 不必实现完整 CuTe 类型代数，但 IR 不能锁死在
-`row_major/col_major` 两个字符串上。
+The minimal combinators are `compose`, `product`, `divide/tile`, `permute`,
+`broadcast`, `pad`, `swizzle`, and `vectorize`. M0/M1 need not implement the
+full CuTe type algebra, but the IR must not be locked into the two strings
+`row_major/col_major`.
 
-Sparse layout 不能硬套 stride algebra；它由 dimension-to-level map、level properties
-和 position/coordinate buffers 表达。dense layout 与 sparse coordinate layout 在
-`AccessMap` 处汇合，而不是强行成为同一种底层表示。
+Sparse layouts cannot be forced into stride algebra; they are expressed by
+dimension-to-level maps, level properties, and position/coordinate buffers.
+Dense layouts and sparse coordinate layouts meet at the `AccessMap` rather than
+being forced into a single underlying representation.
 
-### 4.3 ExecutionMapping：映射到逻辑 machine axes
+### 4.3 ExecutionMapping: mapping onto logical machine axes
 
-使用 target-neutral machine vocabulary：
+Use a target-neutral machine vocabulary:
 
 ```text
 cluster / device / program / workgroup / subgroup / lane / vector / sequential
 ```
 
-Target capability 再把 `subgroup` 解释为 NVIDIA warp、AMD wave 或 PPU 对应实体。映射
-允许多轴 co-map、一个轴分层 split 后映射多级 machine axis，并携带 predication、
-replication 和 ownership 约束。
+Target capabilities then interpret `subgroup` as an NVIDIA warp, an AMD wave,
+or the corresponding PPU entity. A mapping may co-map several axes, split one
+axis hierarchically and map it onto multiple machine-axis levels, and carry
+predication, replication, and ownership constraints.
 
-不要在高层 schedule 写死 `warp_size=32`；schedule 参数可以是 target-dependent symbol，
-specialization 后才成为常量。
+Do not hard-code `warp_size=32` in a high-level schedule; schedule parameters
+can be target-dependent symbols that become constants only after
+specialization.
 
-### 4.4 StoragePlan：Region/Instance 而不是 tensor axis 标签
+### 4.4 StoragePlan: Regions/Instances, not tensor-axis labels
 
-StoragePlan 选择：
+StoragePlan chooses:
 
-- materialize、cache、recompute 还是 stream；
-- Region tile 在什么 memory space 建立 PhysicalInstance；
-- instance 的 layout、容量、alignment、version、lifetime 和 ownership；
-- producer 在何处 `compute_at`，值在何处 `store_at`；
-- spill/evict/writeback/replicate 的约束。
+- materialize, cache, recompute, or stream;
+- in which memory space a Region tile establishes a PhysicalInstance;
+- the instance's layout, capacity, alignment, version, lifetime, and ownership;
+- where the producer is `compute_at` and where values are `store_at`;
+- spill/evict/writeback/replicate constraints.
 
-用户可以写 `.cache(q, "workgroup", at=k_outer)`，但其语义应展开成 instance、copy 和
-lifetime，而不是给 q 的某个轴永久加一个 scope 属性。
+A user may write `.cache(q, "workgroup", at=k_outer)`, but its semantics should
+expand into an instance, copies, and a lifetime — not permanently attach a
+scope attribute to some axis of q.
 
-### 4.5 PipelinePlan：显式 stage、buffer 和 event
+### 4.5 PipelinePlan: explicit stages, buffers, and events
 
-PipelinePlan 作用于 executable statements/dataflow edges：
+PipelinePlan acts on executable statements/dataflow edges:
 
 ```text
 copy(K_tile): HBM -> shared       stage 0, async
@@ -256,38 +285,44 @@ output_accumulate                 stage 2
 store                             epilogue
 ```
 
-它记录 `num_stages`、buffer rotation、prefetch distance、async token、barrier scope 和
-资源预算。通用层只表达 dependence；backend 选择 `cp.async/TMA`、AMD/PPU 对应机制或
-同步 copy fallback。
+It records `num_stages`, buffer rotation, prefetch distance, async tokens,
+barrier scopes, and resource budgets. The generic layer expresses only
+dependence; the backend chooses `cp.async/TMA`, the AMD/PPU equivalents, or a
+synchronous copy fallback.
 
-### 4.6 TaskPlacement：mesh sharding 与 relation partition 并存
+### 4.6 TaskPlacement: mesh sharding and relation partition coexist
 
-规则 tensor 使用：
+Regular tensors use:
 
 ```text
 tensor axis -> device mesh axis -> inferred collective
 ```
 
-Relation 使用：
+Relations use:
 
 ```text
 entity/relation partition -> owned/ghost regions -> halo/update/migration tasks
 ```
 
-两者最终都生成 `gf.task` 的 region privilege、copy/collective 和 Event DAG，pipeline
-planner 才能把 interior compute 与 halo transfer overlap。
+Both ultimately generate `gf.task` region privileges, copies/collectives, and
+an Event DAG, so the pipeline planner can overlap interior compute with halo
+transfers.
 
-## 5. MLIR 中的落点
+## 5. Where This Lands in MLIR
 
-不建议创建一个永久承载所有信息的 `gf.schedule` 大 dialect。建议两层表示：
+Creating one permanent `gf.schedule` mega-dialect that carries everything is
+not recommended. A two-layer representation is better:
 
-1. **Transform program**：主要由 compiler/autotuner 生成，采用 MLIR Transform dialect 风格，
-   通过稳定 handle/name 匹配 payload IR；GraphForge 只添加 relation/segment/storage/
-   pipeline 所需 extension op。专家可以外置 override，但普通用户不需要接触。
-2. **Scheduled payload IR**：变换应用后，结果显式存在 `gf.iter`、`linalg`、`gf.kernel`、
-   `gf.storage` 和 `gf.task` 中；codegen 不依赖隐藏 Python schedule 对象。
+1. **Transform program**: mostly generated by the compiler/autotuner, in the
+   style of the MLIR Transform dialect, matching payload IR through stable
+   handles/names; Tiga adds only the extension ops needed for
+   relation/segment/storage/pipeline. Experts can supply external overrides,
+   but ordinary users never touch it.
+2. **Scheduled payload IR**: after transforms are applied, the results live
+   explicitly in `gf.iter`, `linalg`, `gf.kernel`, `gf.storage`, and `gf.task`;
+   codegen does not depend on hidden Python schedule objects.
 
-概念 IR：
+Conceptual IR:
 
 ```mlir
 gf.iter.domain @attn {
@@ -309,7 +344,7 @@ transform.sequence failures(propagate) {
 }
 ```
 
-建议增加的 pass：
+Proposed passes:
 
 ```text
 gf-normalize-iteration-domain
@@ -324,60 +359,57 @@ gf-verify-schedule
 gf-report-schedule
 ```
 
-`gf-verify-schedule` 至少检查 reduction/scan 代数、race、ragged bounds、layout
-injectivity、barrier convergence、instance capacity、async buffer lifetime 和 distributed
-region version。
+`gf-verify-schedule` checks at least reduction/scan algebra, races, ragged
+bounds, layout injectivity, barrier convergence, instance capacity, async
+buffer lifetimes, and distributed region versions.
 
-## 6. 用户 API 建议：M0–M2 只有 coarse API
+## 6. User API Recommendation for M0–M2
 
-普通用户只写 coarse MessagePassing 语义。Kernel 首次调用自动 JIT，编译器从内部
-细粒度 IR 选择 schedule：
+As stated in §4.0, ordinary users write only coarse MessagePassing semantics
+and there is no public `gf.Schedule`. The first kernel call triggers automatic
+JIT, and the compiler picks the schedule from the internal fine-grained IR. The
+information available to the compiler includes named/dependent IterAxes,
+AccessMaps, Effects, Relation provenance/statistics, reducer algebra,
+dependencies, reuse distances, value lifetimes, and target capabilities plus
+runtime profiles. Layout, placement, copies, and pipelines are compilation
+results, not part of the Field definition.
 
-```python
-class Diffusion(gf.MessagePassing):
-    reducer = gf.sum(dtype=gf.float32)
-
-    def edge(self, src, dst, edge):
-        return src.x - dst.x
-
-kernel = Diffusion()
-output = kernel(graph=graph, src={"x": x}, dst={"x": x})
-```
-
-编译器可用的信息包括 named/dependent IterAxis、AccessMap、Effect、Relation
-provenance/statistics、reducer algebra、依赖、reuse distance、value lifetime，以及 target
-capability 和 runtime profile。layout、placement、copy 和 pipeline 是编译结果，不是
-Field 定义的一部分。
-
-内存预算、可用设备和允许使用的 storage tier 无法从计算代码推导，作为独立部署输入：
+Memory budgets, available devices, and permitted storage tiers cannot be
+derived from compute code; they are separate deployment inputs:
 
 ```python
 deployment = gf.DeploymentPolicy(
     memory_budget={"hbm": "12GiB"},
     allowed_tiers=("hbm", "pinned", "ram", "nvme"),
 )
-# 通过独立 runtime/deployment context 提供，不写入 Field 或 physics source。
+# Provided through a separate runtime/deployment context, not written into Field or physics source.
 ```
 
-M0–M2 不公开 `gf.Schedule`。Compiler 可以在内部生成 Transform artifact 以便 dump、
-测试和复现 autotune 结果，但不承诺其 Python syntax 或稳定 ABI。完成 naive
-Static/Dynamic Graph 与一项显著优化后，再决定哪些 override 值得成为专家接口。
+The compiler may internally emit Transform artifacts to dump, test, and
+reproduce autotune results, but it commits to no Python syntax or stable ABI
+for them. Which overrides deserve to become expert interfaces is decided after
+the naive Static/Dynamic Graph backends and one significant optimization are
+done.
 
-API 必须区分三类信息：
+The API must distinguish three kinds of information:
 
-- **Semantic declaration**：Effect、Reducer、persistence、external ownership、
-  determinism；影响正确性或可观察行为；
-- **Deployment constraint**：设备、容量、允许的 storage/transport；来自运行环境；
-- **Optimization decision**：tile、layout、placement、prefetch、pipeline、sharding；默认由
-  compiler/runtime 产生，可被外置 Transform artifact 覆盖。
+- **Semantic declaration**: Effects, Reducers, persistence, external ownership,
+  determinism — anything affecting correctness or observable behavior;
+- **Deployment constraint**: devices, capacities, permitted
+  storage/transport — coming from the runtime environment;
+- **Optimization decision**: tiles, layouts, placement, prefetch, pipelines,
+  sharding — produced by the compiler/runtime by default, overridable by an
+  external Transform artifact.
 
-API 不应要求所有 op 都具有同名轴。例如 FFT 可以暴露 `batch/stage/butterfly/element`，
-stencil 暴露 `time/x/y/z/offset`，CSR 暴露 `dst/neighbor/feature`。公共的是 axis kind、
-transform 和映射协议，而不是固定 axis 列表。
+The API must not require every op to have identically named axes. For example,
+an FFT can expose `batch/stage/butterfly/element`, a stencil can expose
+`time/x/y/z/offset`, and CSR can expose `dst/neighbor/feature`. What is shared
+is the axis kinds, the transforms, and the mapping protocol — not a fixed axis
+list.
 
-## 7. Online softmax 例子：为什么需要六类决策
+## 7. Online Softmax Example: Why Six Kinds of Decisions Are Needed
 
-对每个 destination 的邻居做 attention：
+Attention over the neighbors of each destination:
 
 ```text
 iteration:
@@ -408,55 +440,65 @@ dynamic variants:
   large degree split-row + tuple-state combine
 ```
 
-这里只用 `dst/neighbor/feature -> block/warp/lane` 无法表达 `(m,l,o)` 的 lifetime、K/V
-的 shared instance、async copy 的 phase，以及 split-row 后 tuple reducer 的 combine。
-这正是将多个映射分开的最小反例。
+`dst/neighbor/feature -> block/warp/lane` alone cannot express the lifetime of
+`(m,l,o)`, the shared instances of K/V, the phases of async copies, or the
+combine of the tuple reducer after split-row. This is the minimal counterexample
+showing why the mappings must be kept separate.
 
-## 8. 分阶段实现建议
+## 8. Phased Implementation Recommendation
 
-### M0/M1：只实现 naive lowering 所需内部结构
+### M0/M1: implement only the internal structures needed for naive lowering
 
-- named `IterAxis`，支持 `parallel/reduction/segmented/generated`；
-- iteration/access mapping 分离；
-- StaticGraph edge-atomic/CSR-row 与 CPU nested loops；
-- Dynamic RadiusGraph cell-list materialize + consume；
-- 不实现 public Schedule、通用 working-set promotion 或 pipeline language。
+- named `IterAxis` supporting `parallel/reduction/segmented/generated`;
+- separation of iteration and access mappings;
+- StaticGraph edge-atomic/CSR-row and CPU nested loops;
+- Dynamic RadiusGraph cell-list materialize + consume;
+- no public Schedule, no general working-set promotion, no pipeline language.
 
-### M2：只实现 profile 选中的一项优化
+### M2: implement only the one optimization selected by profiling
 
-- Static neighbor×feature/subgraph tile，或 Dynamic cell-tile/fusion/reuse；
-- 只加入该优化需要的 tile、working-set、layout、copy/pipeline pass；
-- profitability guard、naive fallback 和 end-to-end benchmark。
+- Static neighbor×feature/subgraph tiling, or Dynamic cell-tile/fusion/reuse;
+- add only the tile, working-set, layout, and copy/pipeline passes that
+  optimization needs;
+- profitability guards, naive fallback, and end-to-end benchmarks.
 
-### M3 之后扩展
+### Post-M3 extensions
 
-- 从已验证的至少两个 workload 中归纳可复用内部 transform；
-- 再决定是否需要 public fine-grained traversal 与专家 Schedule；
-- affine stencil axis、halo tile、time skew；
-- layout composition、swizzle、fragment mapping；
-- backend async-copy lowering。
+- distill reusable internal transforms from at least two validated workloads;
+- then decide whether public fine-grained traversal and an expert Schedule are
+  needed;
+- affine stencil axes, halo tiles, time skewing;
+- layout composition, swizzle, fragment mapping;
+- backend async-copy lowering.
 
-### M6/M7 扩展
+### M6/M7 extensions
 
-- HBM/RAM/NVMe instance 与 pipeline；
-- device mesh sharding propagation；
-- relation partition、owned/ghost/halo；
-- task/event overlap 与 runtime feedback。
+- HBM/RAM/NVMe instances and pipelines;
+- device mesh sharding propagation;
+- relation partitioning, owned/ghost/halo;
+- task/event overlap and runtime feedback.
 
-## 9. 需要实验回答的问题
+## 9. Questions That Require Experiments
 
-1. named axis + dependent extent 能否同时自然 lower CSR、stencil 和 block-sparse
-   attention，而不引入三套 schedule API？
-2. layout 使用简单 affine map 到什么程度后必须引入 CuTe 风格层次代数？
-3. degree bucket 是 iteration transform、variant dispatch 还是二者组合，哪种 IR 最稳定？
-4. pipeline 自动推导能覆盖哪些 producer/consumer pattern，何时必须要求专家标注？
-5. target-neutral `subgroup` 在 warp32、wave64 和 PPU 上需要哪些 capability/legality
-   约束？
-6. Transform program 的 canonical form 和 payload hash 能否将 GraphForge optimization
-   控制在毫秒级，并把慢速 vendor compilation 隔离到 persistent cache？
-7. online softmax 的 row/split-row 与 1/2/3-stage pipeline 在 degree、feature width 和
-   shared/register budget 上的 crossover 在哪里？
+1. Can named axes + dependent extents lower CSR, stencils, and block-sparse
+   attention naturally at the same time, without introducing three schedule
+   APIs?
+2. How far can layouts go with simple affine maps before a CuTe-style
+   hierarchical algebra becomes mandatory?
+3. Is degree bucketing an iteration transform, variant dispatch, or a
+   combination — and which IR is most stable?
+4. Which producer/consumer patterns can automatic pipeline inference cover, and
+   when must expert annotation be required?
+5. What capability/legality constraints does a target-neutral `subgroup` need
+   on warp32, wave64, and PPU?
+6. Can a canonical form plus payload hash for Transform programs keep
+   Tiga optimization at millisecond scale and isolate slow vendor
+   compilation behind a persistent cache?
+7. Where are the crossovers for online softmax row/split-row and 1/2/3-stage
+   pipelines across degree, feature width, and shared/register budgets?
 
-首个原型不应追求完整 schedule language。应先证明同一套 named/dependent axis、
-layout、mapping 和 pipeline IR 能生成 static CSR sum、online softmax 与 affine stencil
-三类结构不同的 kernel；这比只把单个 GEMM tile 做得漂亮更能验证抽象。
+The first prototype should not chase a complete schedule language. It should
+first prove that one set of named/dependent axis, layout, mapping, and pipeline
+IR can generate three structurally different kernels — static CSR sum, online
+softmax, and an affine stencil. That validates the abstraction better than
+polishing a single GEMM tile.

@@ -1,46 +1,40 @@
-"""The single optional PyTorch interoperability example.
-
-GraphForge's compiler/runtime does not depend on Torch. This file demonstrates
-the compatibility boundary: Torch tensors may call the same MessagePassing
-UDF, and native gf.Tensor can wrap Torch storage without a copy.
-"""
+"""The single optional PyTorch interoperability example."""
 
 import torch
 
-import graphforge as gf
+import tiga as gf
+
+nodes, degree = 8, 2
+x = torch.linspace(0, 1, nodes)                                            # (N,)
+weight = torch.ones(nodes * degree)                                        # (E,)
 
 
+# --8<-- [start:core]
 class WeightedAggregation(gf.MessagePassing):
     reducer = gf.sum()
 
     def edge(self, src, dst, edge):
-        del dst
         return edge.weight * src.x
 
 
-nodes, degree = 8, 2
-row_ptr = torch.arange(0, nodes * degree + 1, degree, dtype=torch.int64)
-col_idx = (
+# Ring adjacency with unit weights: out[i] = x[(i-1) mod N] + x[(i+1) mod N].
+row_ptr = torch.arange(0, nodes * degree + 1, degree, dtype=torch.int64)  # (N+1,)
+col_idx = (  # (E,)
     torch.arange(nodes)[:, None] + torch.tensor([-1, 1])
 ).remainder(nodes).flatten()
-x = torch.linspace(0, 1, nodes)
-weight = torch.ones(nodes * degree)
 
+# Torch tensors call the UDF directly — no conversion, no copy.
 graph = gf.Graph.from_csr(row_ptr, col_idx, num_src=nodes, validate="full")
 kernel = WeightedAggregation()
-output = kernel(
+output = kernel(  # (N,)
     graph=graph, src={"x": x}, dst={}, edge={"weight": weight})
+# --8<-- [end:core]
 
-# Explicit zero-copy adaptation in both directions.
+# from_torch/to_torch are NOT required for the call above. They exist for the
+# other direction: entering the native gf.Tensor system (deferred expression
+# capture, compiler-generated VJP) while still sharing torch storage.
 native = gf.from_torch(x)
-round_trip = native.to_torch()
-assert round_trip.data_ptr() == x.data_ptr()
+round_trip = native.to_torch()  # same storage, zero copy
 
-print("Torch-compatible output:", output)
-print("zero-copy pointer:", x.data_ptr())
-print(kernel.explain())
-for schedule in kernel.schedules:
-    print("machine schedule:", schedule)
-    print("resources:", schedule.resources)
-    print("roles:", schedule.roles)
-    print("instructions:", schedule.instructions)
+# Inspect: kernel.explain(), kernel.schedules
+#          (schedule.resources, schedule.roles, schedule.instructions)

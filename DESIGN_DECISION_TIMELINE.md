@@ -1,10 +1,10 @@
-# GraphForge 设计决策时间线
+# Tiga 设计决策时间线
 
 状态：历史记录，不是现行规范  
 整理日期：2026-08-12  
 现行规范：[PROJECT.md](PROJECT.md)
 
-本文按讨论和实现发生的先后顺序，记录 GraphForge 从“科学仿真是否都能抽象为
+本文按讨论和实现发生的先后顺序，记录 Tiga 从“科学仿真是否都能抽象为
 MessagePassing”发展为 relation-oriented compiler 的过程。每个节点尽量保留当时的问题、
 候选方案、验证、结论和后续影响。
 
@@ -58,7 +58,7 @@ kernel。
 
 **结论：固定**
 
-GraphForge 采用 **relation/message/reducer 作为主要领域语义**，但 IR 和 runtime 必须允许
+Tiga 采用 **relation/message/reducer 作为主要领域语义**，但 IR 和 runtime 必须允许
 dense contraction、scan、FFT、solver/library call 等其他结构化 primitive。所谓“图是通用
 表示”只说明语义可表达，不代表物理执行必须枚举 edge。
 
@@ -103,7 +103,7 @@ reducer algebra 中恢复/保留这些结构，而不是把所有结构抹平成
 
 **分析**
 
-方案 1 会把 GraphForge 变成 kernel library；方案 2 会把硬件细节泄漏到仿真代码并破坏跨
+方案 1 会把 Tiga 变成 kernel library；方案 2 会把硬件细节泄漏到仿真代码并破坏跨
 CPU/GPU；方案 3 是目标，但早期 optimizer 不可能自动解决全部图不规则性；因此需要方案 3
 和方案 4 的分阶段组合。
 
@@ -170,7 +170,7 @@ Public semantics 与 physical schedule 分层。默认自动调度；只有 prof
 - Graph schema、reducer algebra、storage/task dependency 必须在高层 IR 保留；
 - tensor axis mapping 不能替代 sparse/ragged coordinate hierarchy；
 - layout/pipeline 是 target planning 的结果，不应成为每个用户程序的必写注解；
-- backend portability 依赖稳定的 GraphForge Kernel IR，而不是稳定的 Triton 内部 IR；
+- backend portability 依赖稳定的 Tiga Kernel IR，而不是稳定的 Triton 内部 IR；
 - benchmark 必须语义匹配、包含构图成本和冷/热 JIT，而不是只挑有利数字。
 
 **结论：已落地**
@@ -184,7 +184,7 @@ Public semantics 与 physical schedule 分层。默认自动调度；只有 prof
 
 **初始诉求**
 
-GraphForge 应能直接接入 Torch，甚至在其覆盖范围内替代 Torch。
+Tiga 应能直接接入 Torch，甚至在其覆盖范围内替代 Torch。
 
 **设计演化**
 
@@ -195,17 +195,17 @@ GraphForge 应能直接接入 Torch，甚至在其覆盖范围内替代 Torch。
 **最终分层**
 
 ```text
-graphforge core:
+tiga core:
   Graph / Reducer / MessagePassing / Tensor / runtime / compiler
 
 optional adapter:
-  graphforge.interop.torch
+  tiga.interop.torch
   Torch Tensor binding / semantic oracle / library provider
 ```
 
 **结论：固定，核心已落地**
 
-Torch 是可选 adapter 和 oracle，不是 GraphForge IR、Reducer、Graph 或 runtime 的基类。Public
+Torch 是可选 adapter 和 oracle，不是 Tiga IR、Reducer、Graph 或 runtime 的基类。Public
 API 接受 Torch tensor 时可以 lazy 进入 interop；无 Torch 环境必须仍能加载 compiler、native
 Tensor/runtime 和 bundled tools。
 
@@ -624,7 +624,7 @@ build、consume、materialized、generated 的不同语义点混在一张图上�
 
 **观察**
 
-最初 weighted aggregation roofline 中 GraphForge 明显慢于 `torch.sparse.mm`；radius build 与
+最初 weighted aggregation roofline 中 Tiga 明显慢于 `torch.sparse.mm`；radius build 与
 aggregation 图上还出现 roofline 下方大片空白、不同 provider x-axis 不一致、标签拥挤等问题。
 
 **根因分类**
@@ -652,7 +652,7 @@ Roofline 是诊断工具，不是装饰图。图上空白本身不一定是 bug�
 
 ---
 
-## T20：Backend 从 `triton.py` 改为 GraphForge Kernel IR + provider boundary
+## T20：Backend 从 `triton.py` 改为 Tiga Kernel IR + provider boundary
 
 **争议**
 
@@ -681,9 +681,9 @@ gf.domain → gf.iter → gf.kernel
 
 **关键限制**
 
-TTIR/TTGIR 是 Triton 内部 dialect，不保证跨版本/厂商稳定。GraphForge 的稳定边界是
+TTIR/TTGIR 是 Triton 内部 dialect，不保证跨版本/厂商稳定。Tiga 的稳定边界是
 `gf.kernel`；`gf.kernel → TTIR` 位于 provider plugin，并把 provider version/target 纳入 cache
-key。GraphForge 固定 MLIR 与 vendor Triton MLIR 可能 ABI 不兼容，因此二者通过 serialized
+key。Tiga 固定 MLIR 与 vendor Triton MLIR 可能 ABI 不兼容，因此二者通过 serialized
 TTIR/worker 隔离，而不是链接进同一 `MLIRContext`。
 
 **结论：固定，NVIDIA vertical slice 已落地**
@@ -698,15 +698,15 @@ artifact、JIT、roofline 和 conformance 通过后才算支持。
 **触发问题**
 
 源码中出现 `generated_radius_distance_sum_domain_mlir`、attention/diffusion 特定函数和大量
-Triton kernel，违背“GraphForge 只是 compiler”的定位。
+Triton kernel，违背“Tiga 只是 compiler”的定位。
 
 **边界重申**
 
-- `python/graphforge`：typed frontend、compiler/runtime/provider adapter；
+- `python/tiga`：typed frontend、compiler/runtime/provider adapter；
 - `lib/`：dialect、analysis、passes、IR translation；
 - `examples/`：用户算法；
 - `benchmarks/kernels/`：手写 CUDA/Triton 性能 oracle；
-- 不允许 GraphForge runtime import benchmark oracle。
+- 不允许 Tiga runtime import benchmark oracle。
 
 Compiler 可以有结构化 pattern，例如“scalar multiply + additive reducer”“stable streaming tuple
 algebra”“dense contraction”，但不能匹配 `Diffusion`、`Attention`、字段名或 workload 名。
@@ -746,7 +746,7 @@ class DenseAttention(gf.MessagePassing):
 
 **结论：已落地，覆盖仍有限**
 
-GraphForge core 中没有 `attention()` 算子。Dense attention 只是用户程序和 benchmark。FLA/FSA
+Tiga core 中没有 `attention()` 算子。Dense attention 只是用户程序和 benchmark。FLA/FSA
 应作为 separate matched workloads 放在 examples/benchmarks，不能加入 core 源码。
 
 ---
@@ -759,7 +759,7 @@ GraphForge core 中没有 `attention()` 算子。Dense attention 只是用户程
 
 **结论形成**
 
-GraphForge 需要最小 runtime 承载 compiler artifact，并需要 Tensor/autograd 表达输入、views、
+Tiga 需要最小 runtime 承载 compiler artifact，并需要 Tensor/autograd 表达输入、views、
 broadcast 和梯度；但复制完整训练框架会稀释 compiler 主线。
 
 **最终范围**
@@ -771,7 +771,7 @@ broadcast 和梯度；但复制完整训练框架会稀释 compiler 主线。
 
 **结论：固定，Tensor/部分 autograd 已落地**
 
-GraphForge 是 compiler，加上承载 compiler 的最小 execution substrate，不是另一个 PyTorch。
+Tiga 是 compiler，加上承载 compiler 的最小 execution substrate，不是另一个 PyTorch。
 
 ---
 
@@ -965,7 +965,7 @@ Torch、CPU compiler 生成字符串、MLIR bridge 是文本模板、distributed
 
 **结论：已落地**
 
-GraphForge 的 compiler claim 必须由 typed OpBuilder、verified IR、passes、provider artifacts 和
+Tiga 的 compiler claim 必须由 typed OpBuilder、verified IR、passes、provider artifacts 和
 runtime execution共同支撑。文件名叫 `compiler` 或打印一段 MLIR 不构成 compiler。
 
 ---
@@ -1075,7 +1075,7 @@ zero-identity、逐分量 additive tuple state，然后在 bounded degree 上对
 
 在一版临时 additive-tile binary 上，RTX 5070 Ti、regular/random CSR、FP32 diffusion 得到：
 
-- quick `N=8192, degree=16`：GraphForge 约 0.026 ms，快于当次手写 Triton CSR；
+- quick `N=8192, degree=16`：Tiga 约 0.026 ms，快于当次手写 Triton CSR；
 - `N=131072` degree scan：degree 32/64 达到或超过当次最快 peer；
 - degree 2–16 明显落后，说明 one-row-per-program 在小 degree 下 occupancy 不足，需要 multi-row
   tile；
@@ -1085,7 +1085,7 @@ zero-identity、逐分量 additive tuple state，然后在 bounded degree 上对
 
 实验期间共享工作区被另一个长期运行进程同时改写，出现 binary 含优化而 source 中对应 emitter
 缺失的 source-of-truth 不一致。稳定源码随后只保留 generic serial path。因此该测量只能作为
-调度方向证据，不能作为当前 GraphForge capability 或正式 benchmark artifact。
+调度方向证据，不能作为当前 Tiga capability 或正式 benchmark artifact。
 
 **结论：实验，未合入**
 
@@ -1128,7 +1128,7 @@ Orthogonal planning:
 
 核心边界：
 
-- GraphForge 是 compiler-centered execution system，不是算法/kernel library；
+- Tiga 是 compiler-centered execution system，不是算法/kernel library；
 - Graph/relation 是主领域语义，但不是唯一底层计算 primitive；
 - Reducer 是可继承、可编译 algebra kernel；
 - Torch 是可选 adapter；
@@ -1247,7 +1247,7 @@ state 与 `max_iterations` 本来就是必须显式的资源/调度契约，不�
 
 **决策**
 
-- 新增 `@gf.jit` / `@gf.jit(max_iterations=k)`（`python/graphforge/jit.py`）：capture 期
+- 新增 `@gf.jit` / `@gf.jit(max_iterations=k)`（`python/tiga/jit.py`）：capture 期
   AST 重写，`for i in range(k)` → `gf_control.repeat`，裸 `while cond:` →
   `gf_control.while`（上界取装饰器参数），`for` body 首句 `if cond: break` → 提前退出
   的 bounded while（上界取 range 长度）。循环变量 `i` 被读取时 desugar 为额外 carried
@@ -1270,5 +1270,44 @@ state 与 `max_iterations` 本来就是必须显式的资源/调度契约，不�
   `test_solvers.py` 12 项断言（含 `num_carried=4`、`scf.while`、`arith.cmpf ogt`、
   VJP 数值）一字未改全部通过——transform 不改变 IR；
 - 全量 Python suite 通过；ruff 与 mkdocs strict 通过。
+
+**结论：已落地**
+
+## T38：2026-08-17——公开文档单一属主化、全英文化与 distributed 测试闭环
+
+**动因**
+
+文档站要对外公开。审计发现三类系统性问题：同一事实多页重复（benchmark 数字在
+results/BENCHMARKS/dynamic-graphs 三处近乎逐字重复；provider 状态矩阵在四处重复；
+policy 在五处重复）；六个页面全中文（BENCHMARKS/IR_DESIGN/RELATED_WORK/
+SCHEDULING_ABSTRACTIONS/GPU_GRAPH_OPTIMIZATION/COMPILER_BOOTSTRAP）与英文公开站不一致；
+免责声明密度超过正文。同时 distributed 只有手工 benchmark，没有可持续的测试闭环。
+
+**决策**
+
+- 单一属主：benchmark 数字只属于 `benchmark-results.md`；方法/协议合并为
+  `performance.md`（"Methodology and protocol"）；provider/status 矩阵只属于
+  `roadmap.md`；贡献政策集中于 `development.md`。`BENCHMARKS.md`（中文工作日志）
+  删除，协议内容并入 `performance.md`；`COMPILER_BOOTSTRAP.md` 删除，独有内容
+  （LLVM 22.1.8 pin 政策、`gf-translate` 进程边界理由、wheel 内容清单）并入
+  `development.md`。
+- 全英文化：`IR_DESIGN.md` 逐节翻译（内容不动）；`RELATED_WORK.md` /
+  `SCHEDULING_ABSTRACTIONS.md` / `GPU_GRAPH_OPTIMIZATION.md` 翻译并删内部 onboarding
+  材料；`memory-and-distributed.md` 残留中文句子译出。
+- Examples/Benchmark 提升为顶部 tab；Examples 扩为总览 + 6 个主题页，22 个示例全部
+  进文档；新增 `benchmark-suite.md` 导览。
+- distributed 测试：新增 `test_distributed_partitions.py`（非均匀分区对称性、拓扑校验、
+  pack/unpack round-trip，纯 stdlib）、`test_distributed_benchmark_smoke.py`（halo/MPI/NCCL
+  loopback benchmark 冒烟 + 单 GPU 拒绝双 GPU gate 的负向测试 + env 门禁的 overlap 冒烟）；
+  `test_distributed_runtime.py` 增加不规则图两进程 vs 单进程 reference 精确对照；两个
+  torch-free 文件接入 CI torch-free job。
+- `PROJECT.md` §0.1 重写为"实现状态总览"：已实现（带证据）/ 部分实现（fail-closed
+  边界）/ 未实现 TODO / 距工业级的 14 项工程差距。
+
+**验证**
+
+- `mkdocs build --strict` 零警告；部署到公开站点后本机 Caddy 抽查各页 tab/链接一致。
+- Python suite 252 passed、1 skipped（env 门禁）、10 subtests；新增 distributed 测试在本机
+  零 skip 全过（mpiexec 两进程与 NCCL loopback 真实执行）。
 
 **结论：已落地**

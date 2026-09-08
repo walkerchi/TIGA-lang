@@ -1,8 +1,8 @@
-"""Benchmark-only Triton oracles for sparse GraphForge workloads.
+"""Benchmark-only Triton oracles for sparse Tiga workloads.
 
 These pre-written ``@triton.jit`` traversal skeletons establish performance
 gates for compiler-generated code.  They deliberately live outside the
-``graphforge`` package and must never be imported by its runtime.
+``tiga`` package and must never be imported by its runtime.
 """
 
 from __future__ import annotations
@@ -320,48 +320,6 @@ if triton is not None:
                 )
         tl.store(out + row, accumulator)
 
-    @triton.jit
-    def fixed_csr_diffusion_kernel(
-        col_idx, weight, x, out,
-        n_rows: tl.constexpr,
-        degree: tl.constexpr,
-        BLOCK_M: tl.constexpr,
-        BLOCK_D: tl.constexpr,
-    ):
-        rows = tl.program_id(0) * BLOCK_M + tl.arange(0, BLOCK_M)
-        row_mask = rows < n_rows
-        neighbors = tl.arange(0, BLOCK_D)
-        edge = rows[:, None] * degree + neighbors[None, :]
-        edge_mask = row_mask[:, None] & (neighbors[None, :] < degree)
-        source = tl.load(col_idx + edge, mask=edge_mask, other=0)
-        edge_weight = tl.load(weight + edge, mask=edge_mask, other=0.0)
-        center = tl.load(x + rows, mask=row_mask, other=0.0)
-        source_value = tl.load(x + source, mask=edge_mask, other=0.0)
-        result = tl.sum(
-            edge_weight * (source_value - center[:, None]), axis=1)
-        tl.store(out + rows, result, mask=row_mask)
-
-    @triton.jit
-    def ragged_csr_diffusion_kernel(
-        row_ptr, col_idx, weight, x, out,
-        n_rows: tl.constexpr,
-        BLOCK_M: tl.constexpr,
-        BLOCK_D: tl.constexpr,
-    ):
-        rows = tl.program_id(0) * BLOCK_M + tl.arange(0, BLOCK_M)
-        row_mask = rows < n_rows
-        starts = tl.load(row_ptr + rows, mask=row_mask, other=0)
-        ends = tl.load(row_ptr + rows + 1, mask=row_mask, other=0)
-        neighbors = tl.arange(0, BLOCK_D)
-        edge = starts[:, None] + neighbors[None, :]
-        edge_mask = row_mask[:, None] & (edge < ends[:, None])
-        source = tl.load(col_idx + edge, mask=edge_mask, other=0)
-        edge_weight = tl.load(weight + edge, mask=edge_mask, other=0.0)
-        center = tl.load(x + rows, mask=row_mask, other=0.0)
-        source_value = tl.load(x + source, mask=edge_mask, other=0.0)
-        result = tl.sum(
-            edge_weight * (source_value - center[:, None]), axis=1)
-        tl.store(out + rows, result, mask=row_mask)
 
 @dataclass(frozen=True)
 class LaunchResult:
@@ -673,47 +631,6 @@ class RaggedWeightedSumPlan:
 
 
 @dataclass
-class DiffusionPlan:
-    row_ptr: torch.Tensor | None
-    col_idx: torch.Tensor
-    num_rows: int
-    degree: int | None
-    max_degree: int
-    block_m: int
-    num_warps: int
-    compiled: object | None = None
-    output: torch.Tensor | None = None
-
-    def _acquire_output(self, x: torch.Tensor) -> torch.Tensor:
-        if self.output is None or sys.getrefcount(self.output) > 2:
-            self.output = torch.empty(self.num_rows, device=x.device, dtype=x.dtype)
-        return self.output
-
-    def run(self, x: torch.Tensor, weight: torch.Tensor) -> torch.Tensor:
-        output = self._acquire_output(x)
-        block_d = triton.next_power_of_2(self.max_degree)
-        grid = (triton.cdiv(self.num_rows, self.block_m),)
-        if self.degree is not None:
-            self.compiled = fixed_csr_diffusion_kernel[grid](
-                self.col_idx, weight, x, output,
-                n_rows=self.num_rows,
-                degree=self.degree,
-                BLOCK_M=self.block_m,
-                BLOCK_D=block_d,
-                num_warps=self.num_warps,
-            )
-        else:
-            self.compiled = ragged_csr_diffusion_kernel[grid](
-                self.row_ptr, self.col_idx, weight, x, output,
-                n_rows=self.num_rows,
-                BLOCK_M=self.block_m,
-                BLOCK_D=block_d,
-                num_warps=self.num_warps,
-            )
-        return output
-
-
-@dataclass
 class RadiusDistancePlan:
     row_ptr: torch.Tensor
     col_idx: torch.Tensor
@@ -804,23 +721,6 @@ def _ragged_config(features: int, max_degree: int):
     return _config(features)
 
 
-def launch_fixed_weighted_sum(
-    col_idx: torch.Tensor,
-    weight: torch.Tensor,
-    x: torch.Tensor,
-    *,
-    num_rows: int,
-    degree: int,
-) -> LaunchResult | None:
-    plan = prepare_fixed_weighted_sum(
-        col_idx, weight, x, num_rows=num_rows, degree=degree)
-    if plan is None:
-        return None
-    output = plan.run(x, weight)
-    return LaunchResult(
-        output, plan.compiled, plan.block_m, plan.block_f, plan.num_warps, plan)
-
-
 def prepare_fixed_weighted_sum(
     col_idx: torch.Tensor,
     weight: torch.Tensor,
@@ -857,65 +757,6 @@ def prepare_fixed_weighted_sum(
             triton.cdiv(features, block_f),
         ),
     )
-
-
-def launch_ragged_weighted_sum(
-    row_ptr: torch.Tensor,
-    col_idx: torch.Tensor,
-    weight: torch.Tensor,
-    x: torch.Tensor,
-    *,
-    num_rows: int,
-    max_degree: int,
-) -> LaunchResult | None:
-    plan = prepare_ragged_weighted_sum(
-        row_ptr, col_idx, weight, x,
-        num_rows=num_rows, max_degree=max_degree)
-    if plan is None:
-        return None
-    output = plan.run(x, weight)
-    return LaunchResult(
-        output, plan.compiled, plan.block_m, plan.block_f,
-        plan.num_warps, plan)
-
-
-def launch_diffusion(
-    row_ptr: torch.Tensor,
-    col_idx: torch.Tensor,
-    weight: torch.Tensor,
-    x: torch.Tensor,
-    *,
-    num_rows: int,
-    degree: int | None,
-    max_degree: int,
-) -> LaunchResult | None:
-    if not available() or x.device.type != "cuda" or x.dtype != torch.float32:
-        return None
-    if x.ndim != 1 or weight.dtype != x.dtype or weight.device != x.device:
-        return None
-    if weight.ndim not in (1, 2) or (
-        weight.ndim == 2 and weight.shape[1:] != (1,)
-    ):
-        return None
-    if max_degree <= 0 or max_degree > 64:
-        return None
-    if degree is not None:
-        block_m, num_warps = 16, 1
-    elif max_degree > 32:
-        block_m, num_warps = 32, 1
-    else:
-        block_m, num_warps = 16, 4
-    plan = DiffusionPlan(
-        row_ptr=None if degree is not None else row_ptr,
-        col_idx=col_idx,
-        num_rows=num_rows,
-        degree=degree,
-        max_degree=max_degree,
-        block_m=block_m,
-        num_warps=num_warps,
-    )
-    output = plan.run(x, weight)
-    return LaunchResult(output, plan.compiled, block_m, 1, num_warps, plan)
 
 
 def launch_radius_distance_sum(

@@ -924,10 +924,10 @@ public:
           repeat.emitError("CPU lowering requires gf_control.yield");
           return signalPassFailure();
         }
-        target->setAttr("graphforge.cpu.serial_control", builder.getUnitAttr());
+        target->setAttr("tiga.cpu.serial_control", builder.getUnitAttr());
         int64_t carried = repeat.getNumCarried();
         Block &semanticBody = repeat.getBody().front();
-        target->setAttr("graphforge.cpu.loop_buffers",
+        target->setAttr("tiga.cpu.loop_buffers",
                         builder.getI64IntegerAttr(2 * carried));
         SmallVector<RankedTensorType> carriedTypes;
         SmallVector<Value> firstBuffers;
@@ -975,9 +975,9 @@ public:
             temporaries.push_back({result, storage, type, heapAllocated});
           }
         }
-        target->setAttr("graphforge.cpu.loop_scalar_temporaries",
+        target->setAttr("tiga.cpu.loop_scalar_temporaries",
                         builder.getI64IntegerAttr(scalarTemporaryCount));
-        target->setAttr("graphforge.cpu.loop_tensor_temporaries",
+        target->setAttr("tiga.cpu.loop_tensor_temporaries",
                         builder.getI64IntegerAttr(tensorTemporaryCount));
 
         auto coordinatesFor = [&](Value linear, RankedTensorType type) {
@@ -1131,15 +1131,15 @@ public:
           bounded.emitError("CPU lowering requires control terminators");
           return signalPassFailure();
         }
-        target->setAttr("graphforge.cpu.serial_control", builder.getUnitAttr());
-        target->setAttr("graphforge.cpu.bounded_while", builder.getUnitAttr());
+        target->setAttr("tiga.cpu.serial_control", builder.getUnitAttr());
+        target->setAttr("tiga.cpu.bounded_while", builder.getUnitAttr());
         target->setAttr(
-            "graphforge.cpu.max_iterations",
+            "tiga.cpu.max_iterations",
             builder.getI64IntegerAttr(bounded.getMaxIterations()));
         int64_t carried = bounded.getNumCarried();
         Block &semanticCondition = bounded.getCondition().front();
         Block &semanticBody = bounded.getBody().front();
-        target->setAttr("graphforge.cpu.loop_buffers",
+        target->setAttr("tiga.cpu.loop_buffers",
                         builder.getI64IntegerAttr(2 * carried));
         SmallVector<RankedTensorType> carriedTypes;
         SmallVector<Value> firstBuffers;
@@ -1184,10 +1184,10 @@ public:
           }
         }
         target->setAttr(
-            "graphforge.cpu.loop_scalar_temporaries",
+            "tiga.cpu.loop_scalar_temporaries",
             builder.getI64IntegerAttr(scalarTemporaryCount));
         target->setAttr(
-            "graphforge.cpu.loop_tensor_temporaries",
+            "tiga.cpu.loop_tensor_temporaries",
             builder.getI64IntegerAttr(tensorTemporaryCount));
 
         auto coordinatesFor = [&](OpBuilder &nested, Value linear,
@@ -1453,7 +1453,7 @@ public:
             target.getArgument(outputArgument),
             ValueRange{loop.getInductionVar()});
         builder.setInsertionPointAfter(loop);
-        target->setAttr("graphforge.cpu.vector_width",
+        target->setAttr("tiga.cpu.vector_width",
                         builder.getI64IntegerAttr(vectorWidth));
       }
       if (failed(emitScalarRange(vectorEnd, rangeEnd)))

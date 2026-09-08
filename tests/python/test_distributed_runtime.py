@@ -3,7 +3,6 @@ from __future__ import annotations
 import multiprocessing
 import os
 import json
-import shutil
 import struct
 import subprocess
 import tempfile
@@ -12,8 +11,10 @@ import unittest
 from unittest import mock
 from pathlib import Path
 
-import graphforge as gf
-from graphforge.distributed import (
+from _distributed_gates import mpi_launcher
+
+import tiga as gf
+from tiga.distributed import (
     DeviceBufferSlice, DistributedRuntime, DistributedTaskResolver,
     MPITransportProvider, NCCLTransportProvider, PipeTransport, ShardedField,
     TransportCapabilities, create_transport, nccl_unique_id, owned_range,
@@ -127,7 +128,7 @@ def _sharded_gpu_message_worker(rank, endpoint, row_ptr, col_idx, queue):
     local_x = gf.tensor(
         [float(entity) for entity in range(begin, end)], device=device)
     transport = PipeTransport(rank, 2, {1 - rank: endpoint})
-    os.environ["GRAPHFORGE_TENSOR_BACKEND"] = "native"
+    os.environ["TIGA_TENSOR_BACKEND"] = "native"
     with DistributedRuntime(transport):
         output = ShardedNeighborSum()(
             graph=graph, src={"x": local_x}, dst={})
@@ -149,7 +150,7 @@ def _sharded_gpu_vjp_worker(rank, endpoint, row_ptr, col_idx, queue):
         [float(entity) for entity in range(begin, end)], device=device,
         requires_grad=True)
     transport = PipeTransport(rank, 2, {1 - rank: endpoint})
-    os.environ["GRAPHFORGE_TENSOR_BACKEND"] = "native"
+    os.environ["TIGA_TENSOR_BACKEND"] = "native"
     with DistributedRuntime(transport):
         output = ShardedNeighborSum()(
             graph=graph, src={"x": local_x}, dst={})
@@ -161,7 +162,7 @@ def _sharded_gpu_vjp_worker(rank, endpoint, row_ptr, col_idx, queue):
 
 class DistributedRuntimeTest(unittest.TestCase):
     _HALO_BUNDLE = r'''{
-      "schema":"graphforge.executable-bundle-plan.v1",
+      "schema":"tiga.executable-bundle-plan.v1",
       "resources":[
         {"name":"halo-send:0","memory_space":"remote","device":"mesh",
          "layout":"packed","capacity_bytes":64,"snapshot_version":0,"external":false},
@@ -353,7 +354,7 @@ class DistributedRuntimeTest(unittest.TestCase):
         try:
             with (
                 mock.patch.dict(
-                    os.environ, {"GRAPHFORGE_TENSOR_BACKEND": "native"}),
+                    os.environ, {"TIGA_TENSOR_BACKEND": "native"}),
                 mock.patch.object(gf.Tensor, "realize", observe_interior),
                 mock.patch.object(
                     gf.runtime.Stream, "synchronize",
@@ -393,18 +394,9 @@ class DistributedRuntimeTest(unittest.TestCase):
             transport.remote.close()
 
     def test_real_mpi_two_rank_paged_forward_and_vjp(self):
-        mpiexec = shutil.which("mpiexec")
-        try:
-            from mpi4py import MPI  # noqa: F401
-        except (ImportError, RuntimeError):
-            self.skipTest("mpi4py with an MPI runtime is unavailable")
+        mpiexec = mpi_launcher()
         if mpiexec is None:
-            # Wheels may install the launcher next to the active interpreter
-            # without activating that directory in PATH.
-            candidate = Path(os.path.dirname(os.sys.executable)) / "mpiexec"
-            mpiexec = str(candidate) if candidate.exists() else None
-        if mpiexec is None:
-            self.skipTest("mpiexec is unavailable")
+            self.skipTest("mpiexec/mpi4py with an MPI runtime is unavailable")
         entities = 8
         rows = [3 * row for row in range(entities + 1)]
         columns = [
@@ -632,6 +624,45 @@ class DistributedRuntimeTest(unittest.TestCase):
         ]
         self.assertEqual(results[0], expected[:4])
         self.assertEqual(results[1], expected[4:])
+
+    def test_sharded_matches_single_process_reference_irregular_graph(self):
+        entities = 12
+        row_ptr = [0]
+        col_idx = []
+        for destination in range(entities):
+            # Variable degree 0-5; destination 0 is an isolated node.
+            for neighbor in range(destination % 6):
+                col_idx.append((destination * 5 + neighbor * 7 + 1) % entities)
+            if destination == 3:
+                col_idx.append(3)  # explicit self-loop
+            row_ptr.append(len(col_idx))
+        graph = gf.Graph.from_csr(
+            gf.tensor(row_ptr, dtype=gf.int64),
+            gf.tensor(col_idx, dtype=gf.int64),
+            num_src=entities, validate="full",
+        )
+        x = gf.tensor([float(entity) for entity in range(entities)])
+        reference = ShardedNeighborSum()(graph=graph, src={"x": x}, dst={})
+        reference_values = reference.tolist()
+
+        context = multiprocessing.get_context("spawn")
+        first, second = context.Pipe(duplex=True)
+        queue = context.Queue()
+        processes = (
+            context.Process(
+                target=_sharded_message_worker,
+                args=(0, first, row_ptr, col_idx, queue)),
+            context.Process(
+                target=_sharded_message_worker,
+                args=(1, second, row_ptr, col_idx, queue)),
+        )
+        for process in processes:
+            process.start()
+        results = dict(queue.get(timeout=20) for _ in processes)
+        for process in processes:
+            process.join(timeout=20)
+            self.assertEqual(process.exitcode, 0)
+        self.assertEqual(results[0] + results[1], reference_values)
 
     def test_cpu_automatic_executor_realizes_interior_before_halo_completion(self):
         """The runtime schedule overlaps execution, not only Task IR nodes."""

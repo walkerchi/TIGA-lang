@@ -10,5 +10,5 @@ target_link_libraries(gf-translate PRIVATE
 
 install(
   TARGETS gf-translate
-  RUNTIME DESTINATION graphforge/bin
-  COMPONENT GraphForgeWheel)
+  RUNTIME DESTINATION tiga/bin
+  COMPONENT TigaWheel)

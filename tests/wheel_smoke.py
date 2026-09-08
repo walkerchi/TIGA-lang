@@ -1,4 +1,4 @@
-"""Post-install smoke test for a GraphForge binary wheel.
+"""Post-install smoke test for a Tiga binary wheel.
 
 Run this with the Python interpreter from a clean environment containing only
 the wheel.  It deliberately avoids Torch and the source-tree build directory.
@@ -9,8 +9,8 @@ from __future__ import annotations
 from pathlib import Path
 import subprocess
 
-import graphforge as gf
-from graphforge.compiler.tensor_mlir import tensor_mlir
+import tiga as gf
+from tiga.compiler.tensor_mlir import tensor_mlir
 
 
 def main() -> None:
@@ -31,7 +31,7 @@ def main() -> None:
             capture_output=True,
         )
         assert completed.stdout.strip(), f"{tool} produced no version output"
-    print(f"GraphForge wheel smoke passed: {package}")
+    print(f"Tiga wheel smoke passed: {package}")
 
 
 if __name__ == "__main__":

@@ -1,16 +1,16 @@
 # Dynamic graph acceleration
 
 A dynamic graph is not one storage format. It is a logical relation whose
-neighbor set depends on changing data. GraphForge keeps that relation semantic
+neighbor set depends on changing data. Tiga keeps that relation semantic
 in IR long enough to choose whether edges should be generated, cached,
 incrementally repaired, partitioned, or paged. Materializing CSR is one legal
 realization, not the default meaning of `Graph.radius` or `Graph.knn`.
 
 <figure class="gf-figure">
-  <object type="image/svg+xml" data="../assets/dynamic-relation-strategies.svg" aria-label="Dynamic relation realization strategies">
-    <img src="../assets/dynamic-relation-strategies.svg" alt="Dynamic relation realization strategies">
+  <object type="image/svg+xml" data="/assets/dynamic-relation-strategies.svg" aria-label="Dynamic relation realization strategies">
+    <img src="/assets/dynamic-relation-strategies.svg" alt="Dynamic relation realization strategies">
   </object>
-  <figcaption><a href="../assets/dynamic-relation-strategies.svg">Open the full-size SVG</a>. The realization is a compiler choice; it is not a different user Graph type.</figcaption>
+  <figcaption><a href="/assets/dynamic-relation-strategies.svg">Open the full-size SVG</a>. The realization is a compiler choice; it is not a different user Graph type.</figcaption>
 </figure>
 
 ## The realization matrix
@@ -39,13 +39,12 @@ not be handwritten `cache(..., space="shared")` hints in every user kernel.
 
 For a default Euclidean radius graph, the compiler may lower
 
-```text
-destination particle
-  → its cell coordinate
-  → adjacent occupied cells
-  → candidate source particles
-  → exact metric/select predicate
-  → message + reducer
+```mermaid
+%%{init: {'theme':'base', 'themeVariables': {'primaryColor':'#eef2ff','primaryBorderColor':'#4f46e5','primaryTextColor':'#312e81','lineColor':'#64748b','fontFamily':'Arial'}}}%%
+flowchart LR
+    A[destination particle] --> B[cell coordinate] --> C[adjacent occupied cells]
+    C --> D[candidate source particles] --> E[exact metric / select predicate]
+    E --> F[message + reducer]
 ```
 
 The directory is `O(N + cells)` and edges are never required to exist in global
@@ -55,23 +54,20 @@ registered 4.425× fresh-pipeline result comes from; merely replacing one CSR
 consumer with another cannot produce that algorithmic saving.
 
 Custom metrics need a proven broad-phase bound before they may use this path.
-Without one, GraphForge retains exact semantics and selects a general fallback.
+Without one, Tiga retains exact semantics and selects a general fallback.
 A `select` UDF may remove candidates but cannot bypass the radius predicate.
 
 ## Exact kNN needs hierarchical selection
 
-Exact kNN is now an executable ranked-relation lowering rather than a library
-dispatch. N8192/D3/k32 is 2.9498 ms versus 3.9155 ms for the matched exhaustive
-cdist/top-k/gather pipeline (1.327×, CI low 1.326); N4096/D5/k16 is 0.6589 ms
-versus 1.0713 ms (1.626×, CI low 1.619); non-power-of-two N4096/D5/k13 is
-0.6625 ms versus 1.0744 ms (1.622×, CI low 1.617). The compiler path is:
+Exact kNN is an executable ranked-relation lowering rather than a library
+dispatch; the measured gates are reported in [benchmark
+results](benchmark-results.md). The compiler path is:
 
-```text
-query tile × candidate tile
-  → metric UDF
-  → local k selections
-  → hierarchical merge
-  → selected-edge message/reducer
+```mermaid
+%%{init: {'theme':'base', 'themeVariables': {'primaryColor':'#eef2ff','primaryBorderColor':'#4f46e5','primaryTextColor':'#312e81','lineColor':'#64748b','fontFamily':'Arial'}}}%%
+flowchart LR
+    A[query tile × candidate tile] --> B[metric UDF] --> C[local k selections]
+    C --> D[hierarchical merge] --> E[selected-edge message / reducer]
 ```
 
 These steps are represented by provider-neutral Domain/Iter/Kernel IR and the
@@ -85,7 +81,20 @@ contract and must report recall as well as speed.
 ## Load balance for power-law graphs
 
 One thread block per row wastes most lanes on short rows and stalls on hubs.
-GraphForge records the degree distribution and selects a mixed schedule:
+Tiga records the degree distribution and selects a mixed schedule:
+
+![Rows sorted by degree fan out into two schedules — short and medium rows become worklist row tiles, the hub row splits into fixed-size edge chunks — then all partials merge deterministically into disjoint per-destination outputs](/assets/power-law-schedule.svg)
+
+For a row $i$ of degree $d_i$ with chunk size $C$ and degree threshold
+$\tau$, the schedule and the merge it preserves are:
+
+$$
+d_i \le \tau \;\Rightarrow\; \text{one worklist tile},
+\qquad
+d_i > \tau \;\Rightarrow\;
+\text{out}_i = \mathrm{finalize}\!\Big(
+\bigoplus_{c=1}^{\lceil d_i / C \rceil} \mathrm{partial}_{i,c} \Big)
+$$
 
 1. short and medium rows enter degree-CDF worklists with row-specific tiles;
 2. high-degree rows split into fixed-size edge chunks;
@@ -107,14 +116,35 @@ motion, a future Verlet plan will track maximum displacement and rebuild when
 the skin is exhausted. For temporal graphs, a base CSR plus delta segments can
 serve the same role, with compaction scheduled outside the critical path.
 
+The two reuse contracts, written out — the Verlet certificate on the left
+(particles may drift less than the skin), the temporal base-plus-delta form
+on the right (base CSR $B$, edge insertions $\Delta^{+}$, tombstones
+$\Delta^{-}$):
+
+$$
+\text{reuse}(s \!\to\! t) \iff \max_i \lVert p_i(t) - p_i(s) \rVert < r_{\mathrm{skin}},
+\qquad
+R(t) \;=\; B \;\cup\; \Delta^{+} \;\setminus\; \Delta^{-}
+$$
+
+```mermaid
+%%{init: {'theme':'base', 'themeVariables': {'primaryColor':'#eef2ff','primaryBorderColor':'#4f46e5','primaryTextColor':'#312e81','lineColor':'#64748b','fontFamily':'Arial'}}}%%
+flowchart LR
+    S[snapshot + certificate] -->|certificate holds| U[reuse, no rebuild]
+    U -->|certificate violated| R[rebuild relation]
+    R --> S
+```
+
 For large graphs, `Graph.open(...)` preserves the same MessagePassing call. The
 physical planner partitions by destination, reads only the required pages,
 constructs a ghost map, and emits this dependency graph:
 
-```text
-page prefetch ─┬─> interior compute ───────────────┐
-halo pack → exchange → unpack → boundary compute ─┼─> merge
-SSD refill ────────────────────────────────────────┘
+```mermaid
+%%{init: {'theme':'base', 'themeVariables': {'primaryColor':'#eef2ff','primaryBorderColor':'#4f46e5','primaryTextColor':'#312e81','lineColor':'#64748b','fontFamily':'Arial'}}}%%
+flowchart LR
+    P[page prefetch] --> I[interior compute] --> M[merge]
+    H[halo pack] --> X[exchange] --> U[unpack] --> B[boundary compute] --> M
+    S[SSD refill] --> M
 ```
 
 The user does not invoke communication primitives manually. Placement and halo
@@ -124,15 +154,8 @@ multi-GPU NCCL/RCCL throughput remains an explicit open gate.
 
 ## Performance boundaries
 
-Every dynamic benchmark must say which boundary it measures:
-
-| Boundary | Required timed work |
-|---|---|
-| build-only | directory/broad phase, filtering, selection and relation output |
-| consume-only | traversal of one fixed, already-valid snapshot |
-| build + consume | positions or updates to final user output |
-| certified reuse | validity check plus consume; never mislabeled as rebuild |
-
-Cache reuse, approximate search and a different metric are not hidden inside a
-headline speedup. See [benchmark results](benchmark-results.md) for the measured
-cases and [benchmark protocol](BENCHMARKS.md) for acceptance rules.
+Every dynamic benchmark states which boundary it measures; [benchmark
+results](benchmark-results.md) defines the build-only, consume-only,
+build + consume and certified-reuse boundaries and reports the measured cases,
+and the [performance methodology](performance.md) defines the acceptance
+rules.

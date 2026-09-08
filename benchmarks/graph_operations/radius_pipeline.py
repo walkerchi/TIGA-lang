@@ -24,8 +24,8 @@ from pathlib import Path
 
 import torch
 
-import graphforge as gf
-from graphforge.interop.torch.graph import from_native
+import tiga as gf
+from tiga.interop.torch.graph import from_native
 from benchmarks.common.output_layout import artifact_path
 from benchmarks.common.perf_protocol import evaluate_sota_gates
 from benchmarks.graph_operations.radius_build import unit_ball_volume
@@ -145,7 +145,12 @@ def main() -> None:
     parser.add_argument("--max-num-neighbors", type=int, default=128)
     parser.add_argument("--json", type=Path)
     parser.add_argument("--fail-on-gate", action="store_true")
+    parser.add_argument(
+        "--quick", action="store_true",
+        help="reduced particle/repeat count for smoke runs")
     args = parser.parse_args()
+    if args.quick:
+        args.particles, args.repeat = 1 << 13, 10
     if args.device == "auto":
         args.device = "cuda" if torch.cuda.is_available() else "cpu"
     if args.particles <= 0 or args.repeat <= 1 or args.target_degree <= 0:
@@ -321,44 +326,44 @@ def main() -> None:
     index_dtype = str(col_idx.dtype).replace("torch.", "")
     results = [
         make_result(
-            "graphforge.materialized_radius_build", "build-only", build_samples,
+            "tiga.materialized_radius_build", "build-only", build_samples,
             nodes=args.particles, edges=edges, index_dtype=index_dtype),
         make_result(
-            "graphforge.auto", "consume-only", consume_gf_samples,
+            "tiga.auto", "consume-only", consume_gf_samples,
             nodes=args.particles, edges=edges, index_dtype=index_dtype),
         make_result(
             "torch.sparse.mm", "consume-only", consume_torch_samples,
             nodes=args.particles, edges=edges, index_dtype=index_dtype),
         make_result(
-            "graphforge.dynamic.auto", "relation-reuse", reuse_gf_samples,
+            "tiga.dynamic.auto", "relation-reuse", reuse_gf_samples,
             nodes=args.particles, edges=edges, index_dtype=index_dtype),
         make_result(
             "torch.sparse.precomputed_distance", "relation-reuse",
             reuse_torch_samples, nodes=args.particles, edges=edges,
             index_dtype=index_dtype),
         make_result(
-            "graphforge.dynamic.auto", "logical-rebind", rebind_gf_samples,
+            "tiga.dynamic.auto", "logical-rebind", rebind_gf_samples,
             nodes=args.particles, edges=edges, index_dtype=index_dtype),
         make_result(
-            "graphforge.builder+torch.sparse.mm", "logical-rebind",
+            "tiga.builder+torch.sparse.mm", "logical-rebind",
             rebind_torch_samples, nodes=args.particles, edges=edges,
             index_dtype=index_dtype),
         make_result(
-            "graphforge.dynamic.auto", "topology-rebuild+consume",
+            "tiga.dynamic.auto", "topology-rebuild+consume",
             rebuild_gf_samples, nodes=args.particles, edges=edges,
             index_dtype=index_dtype),
         make_result(
-            "graphforge.builder+torch.sparse.mm", "topology-rebuild+consume",
+            "tiga.builder+torch.sparse.mm", "topology-rebuild+consume",
             rebuild_torch_samples, nodes=args.particles, edges=edges,
             index_dtype=index_dtype),
     ]
     if directory_build_samples is not None:
         results.insert(1, make_result(
-            "graphforge.cell_directory_build", "directory-build-only",
+            "tiga.cell_directory_build", "directory-build-only",
             directory_build_samples, nodes=args.particles, edges=edges,
             index_dtype=index_dtype))
     skipped = []
-    gate_candidates = {"graphforge.auto", "graphforge.dynamic.auto"}
+    gate_candidates = {"tiga.auto", "tiga.dynamic.auto"}
     if periodic is not None:
         skipped.append({
             "provider": "torch_cluster.radius_graph",
@@ -380,7 +385,7 @@ def main() -> None:
     else:
         from torch_cluster import radius_graph
 
-        # GraphForge's cutoff is converted to the positions' FP32 dtype and
+        # Tiga's cutoff is converted to the positions' FP32 dtype and
         # uses <=. torch-cluster uses a strict boundary test; one representable
         # FP32 step makes the two predicates identical for this registered
         # dataset. The complete edge set is checked before any timing claim.
@@ -409,7 +414,7 @@ def main() -> None:
                 "provider": "torch_cluster.radius_graph",
                 "reason": (
                     "edge-set differential failed after FP32 boundary normalization: "
-                    f"GraphForge={expected_keys.numel()}, "
+                    f"Tiga={expected_keys.numel()}, "
                     f"torch-cluster={cluster_keys.numel()}"
                 ),
             })
@@ -454,16 +459,16 @@ def main() -> None:
                     cluster_e2e_samples, nodes=args.particles, edges=edges,
                     index_dtype=index_dtype),
             ))
-            gate_candidates.add("graphforge.materialized_radius_build")
+            gate_candidates.add("tiga.materialized_radius_build")
 
     gates = evaluate_sota_gates(
         results,
         gate_candidates,
         ignored_providers=(
-            {"graphforge.materialized_radius_build",
-             "graphforge.cell_directory_build"}
-            if "graphforge.materialized_radius_build" not in gate_candidates
-            else {"graphforge.cell_directory_build"}),
+            {"tiga.materialized_radius_build",
+             "tiga.cell_directory_build"}
+            if "tiga.materialized_radius_build" not in gate_candidates
+            else {"tiga.cell_directory_build"}),
         threshold=SOTA_MATCH_THRESHOLD,
     )
     payload = {
@@ -503,8 +508,8 @@ def main() -> None:
             "versioned snapshot. Every topology-rebuild sample increments the "
             "position version before resolving the relation. torch-cluster is an "
             "independently implemented radius "
-            "builder. The fastest measured end-to-end peer reuses GraphForge's "
-            "builder only in the explicitly named GraphForge-builder peer; "
+            "builder. The fastest measured end-to-end peer reuses Tiga's "
+            "builder only in the explicitly named Tiga-builder peer; "
             "consumer-only and relation-reuse are separate gate buckets."
         ),
     }

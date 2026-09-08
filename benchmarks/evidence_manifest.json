@@ -18,7 +18,7 @@
       "operation": "weighted_aggregation",
       "case": "irregular_random_cuda_i32_n131072_degree16_f16_64",
       "filters": {"features": 16, "cache": "hot"},
-      "providers": ["graphforge.prepared_auto", "torch.sparse.mm", "triton.csr"],
+      "providers": ["tiga.prepared_auto", "torch.sparse.mm", "torch.compile.index_add", "pyg.message_passing", "triton.csr"],
       "baseline": "torch.sparse.mm"
     },
     {
@@ -27,17 +27,18 @@
       "operation": "weighted_aggregation",
       "case": "powerlaw_random_cuda_i32_n131072_degree16_f1",
       "filters": {"features": 1, "cache": "hot"},
-      "providers": ["graphforge.compiler_chunked_tail", "graphforge.prepared_auto", "torch.sparse.mm"],
+      "providers": ["tiga.compiler_chunked_tail", "tiga.prepared_auto", "torch.sparse.mm"],
       "baseline": "torch.sparse.mm"
     },
     {
-      "title": "Radius build + consume",
-      "detail": "N=32768 · D=3 · degree≈32",
-      "operation": "radius_distance_aggregation",
-      "case": "cuda_n32768_d3_degree32",
-      "filters": {"features": 1, "cache": "fresh-build+consume"},
-      "providers": ["graphforge.generated_build_consume", "graphforge.materialized_build_consume"],
-      "baseline": "graphforge.materialized_build_consume"
+      "title": "Radius edge-MLP",
+      "detail": "N=262144 · degree≈31 · MLP 11→16→8",
+      "operation": "radius_edge_mlp",
+      "case": "n262144",
+      "artifact": "results.json",
+      "filters": {"features": 8, "cache": "hot"},
+      "providers": ["tiga-compiled-tile", "warp-fused", "torch-eager"],
+      "baseline": "warp-fused"
     },
     {
       "title": "Generated relation VJP",
@@ -45,7 +46,7 @@
       "operation": "message_passing_backward",
       "case": "radius_fixed_snapshot_cuda_n32768_d3_degree32",
       "filters": {"features": 4, "cache": "hot"},
-      "providers": ["graphforge.generated_vjp", "handwritten.triton", "torch.autograd"],
+      "providers": ["tiga.generated_vjp", "handwritten.triton", "torch.autograd"],
       "baseline": "handwritten.triton"
     },
     {
@@ -54,7 +55,7 @@
       "operation": "pagerank",
       "case": "cuda_fp32_iter20",
       "filters": {"nodes": 262144, "edges": 4194304, "cache": "hot"},
-      "providers": ["graphforge.control", "torch.sparse.mm"],
+      "providers": ["tiga.control", "torch.sparse.mm"],
       "baseline": "torch.sparse.mm"
     },
     {
@@ -63,7 +64,7 @@
       "operation": "sparse_attention",
       "case": "b1_h16_n4096_d64_fp16",
       "filters": {"features": 64, "cache": "hot"},
-      "providers": ["graphforge.compiler_tile_pruned", "flash_sparse_attn.official"],
+      "providers": ["tiga.compiler_tile_pruned", "flash_sparse_attn.official"],
       "baseline": "flash_sparse_attn.official"
     }
   ],
@@ -74,7 +75,7 @@
       "operation": "weighted_aggregation",
       "case": "irregular_random_cuda_i32_n131072_degree16_f16_64",
       "filters": {"features": 16, "cache": "hot"},
-      "providers": ["graphforge.prepared_auto", "torch.sparse.mm", "triton.csr"],
+      "providers": ["tiga.prepared_auto", "torch.sparse.mm", "torch.compile.index_add", "pyg.message_passing", "triton.csr"],
       "baseline": "torch.sparse.mm"
     },
     {
@@ -83,7 +84,7 @@
       "operation": "weighted_aggregation",
       "case": "lognormal_random_cuda_i32_n131072_degree16_f1",
       "filters": {"features": 1, "cache": "hot"},
-      "providers": ["graphforge.compiler_chunked_tail", "graphforge.prepared_auto", "torch.sparse.mm", "triton.csr"],
+      "providers": ["tiga.compiler_chunked_tail", "tiga.prepared_auto", "torch.sparse.mm", "triton.csr"],
       "baseline": "torch.sparse.mm"
     },
     {
@@ -92,7 +93,7 @@
       "operation": "diffusion",
       "case": "regular_local_cuda_i64_n131072_degree16",
       "filters": {"features": 1, "cache": "hot"},
-      "providers": ["graphforge.auto", "torch.sparse_laplacian", "triton.csr"],
+      "providers": ["tiga.auto", "torch.sparse_laplacian", "triton.csr"],
       "baseline": "torch.sparse_laplacian"
     },
     {
@@ -101,7 +102,7 @@
       "operation": "online_softmax",
       "case": "cuda_n131072_degree32_f1",
       "filters": {"features": 1, "cache": "hot"},
-      "providers": ["graphforge.compiler_ttir", "triton.handwritten_fused", "torch.explicit"],
+      "providers": ["tiga.compiler_ttir", "triton.handwritten_fused", "torch.explicit"],
       "baseline": "triton.handwritten_fused"
     },
     {
@@ -110,7 +111,7 @@
       "operation": "message_passing_backward",
       "case": "radius_fixed_snapshot_cuda_n32768_d3_degree32",
       "filters": {"features": 4, "cache": "hot"},
-      "providers": ["graphforge.generated_vjp", "handwritten.triton", "torch.autograd"],
+      "providers": ["tiga.generated_vjp", "handwritten.triton", "torch.autograd"],
       "baseline": "handwritten.triton"
     },
     {
@@ -119,7 +120,7 @@
       "operation": "pagerank",
       "case": "cuda_fp32_iter20",
       "filters": {"nodes": 262144, "edges": 4194304, "cache": "hot"},
-      "providers": ["graphforge.control", "torch.sparse.mm"],
+      "providers": ["tiga.control", "torch.sparse.mm"],
       "baseline": "torch.sparse.mm"
     },
     {
@@ -128,7 +129,7 @@
       "operation": "dense_attention",
       "case": "b1_h16_n4096_d64_fp16",
       "filters": {"features": 64, "cache": "consumer-only"},
-      "providers": ["graphforge.direct_ttir", "torch.sdpa.flash", "triton.streaming_oracle"],
+      "providers": ["tiga.direct_ttir", "torch.sdpa.flash", "triton.streaming_oracle"],
       "baseline": "torch.sdpa.flash"
     },
     {
@@ -137,7 +138,7 @@
       "operation": "sparse_attention",
       "case": "b1_h16_n4096_d64_fp16",
       "filters": {"features": 64, "cache": "hot"},
-      "providers": ["graphforge.compiler_tile_pruned", "flash_sparse_attn.official"],
+      "providers": ["tiga.compiler_tile_pruned", "flash_sparse_attn.official"],
       "baseline": "flash_sparse_attn.official"
     },
     {
@@ -146,7 +147,7 @@
       "operation": "linear_attention",
       "case": "l64_t512_k16_v16_fp32",
       "filters": {"features": 256, "cache": "hot"},
-      "providers": ["graphforge.compiler_scan_contract", "fla.chunk", "fla.fused_recurrent"],
+      "providers": ["tiga.compiler_scan_contract", "fla.chunk", "fla.fused_recurrent"],
       "baseline": "fla.chunk"
     },
     {
@@ -155,7 +156,7 @@
       "operation": "knn_graph",
       "case": "cuda_n8192_d3_k32_consume",
       "filters": {"features": 3, "cache": "hot"},
-      "providers": ["graphforge.knn_build_consume_prepared_ttir", "torch.cdist_topk_gather_sum"],
+      "providers": ["tiga.knn_build_consume_prepared_ttir", "torch.cdist_topk_gather_sum"],
       "baseline": "torch.cdist_topk_gather_sum"
     },
     {
@@ -164,7 +165,7 @@
       "operation": "dense_matmul_calibration",
       "case": "m2048_n2048_k2048_fp16",
       "filters": {"features": 2048, "cache": "hot"},
-      "providers": ["graphforge.compiler_auto", "torch.mm.cublas"],
+      "providers": ["tiga.compiler_auto", "torch.mm.cublas"],
       "baseline": "torch.mm.cublas"
     },
     {
@@ -173,7 +174,7 @@
       "operation": "cpu_relation",
       "case": "regular_permuted_i32_n131072_degree16_t16",
       "filters": {"features": 1, "cache": "hot"},
-      "providers": ["graphforge.llvm.parallel_relation", "scipy.csr_matvec", "torch.sparse.mm"],
+      "providers": ["tiga.llvm.parallel_relation", "scipy.csr_matvec", "torch.sparse.mm"],
       "baseline": "scipy.csr_matvec"
     },
     {
@@ -182,7 +183,7 @@
       "operation": "visualization_heatmap",
       "case": "h2048_w2048_rgb_f32",
       "filters": {"features": 3, "cache": "consumer-only"},
-      "providers": ["graphforge.tensor_ttir", "torch.inductor.fused", "torch.eager"],
+      "providers": ["tiga.tensor_ttir", "torch.inductor.fused", "torch.eager"],
       "baseline": "torch.inductor.fused"
     }
   ],
@@ -201,6 +202,17 @@
       ],
       "note": "Fixed-degree and bounded-ragged (maximum degree <=64) F=1/F=16/F=64 CSR use compiler-emitted TTIR; unsupported high-degree vector shapes explicitly dispatch to torch.sparse.mm. The fixed random/i32/N=131072/degree16 gate reports F16 hot/cold at 4.322x/3.801x and F64 at 1.966x/1.302x. The irregular degree-0..32 gate reports F16 hot/cold at 4.213x/3.270x and F64 at 1.595x/1.283x, with all 95% CI lows above 1.0. Discrete social-like power-law covers local/random, i32/i64 and hot/cold: public prepared_auto passes all eight gates with CI lows 1.255-1.849. The CDF-planned, compiler-generated chunked-tail TTIR is separately gated for i32 and reaches 1.353-1.525x over torch.sparse.mm with CI lows 1.337-1.495. Continuous log-normal and exponential random/i32/F1 cases record full degree statistics; generated chunked-tail TTIR passes hot/cold at 1.196x/1.157x and 1.204x/1.439x, with CI lows 1.186/1.138 and 1.198/1.376. Auto retains and may select a faster reusable native CSR executable. Providers are sampled in rotating interleaved order to remove thermal/order drift.",
       "auxiliary": ["kernel_ttir/results.json", "kernel_ttir/runtime.png"]
+    },
+    "radius_edge_mlp": {
+      "status": "measured-generated-edge-udf-tile-kernel",
+      "cases": ["n262144"],
+      "artifact": "results.json",
+      "note": "N=262144 radius relation (measured degree ~31, 8.1M edges), edge MLP 11->16->8 FP32 captured with gf.nn.trace and compiled to a fused tile kernel: 1.0199 ms versus the handwritten Triton tile oracle at 1.0165 ms (1.003x), 8.50x over a handwritten NVIDIA Warp fused kernel (8.670 ms) and 11.83x over PyTorch eager (12.069 ms), with zero per-edge message-activation memory (eager materializes 1.135 GB). The case artifact is results.json; the provider panel is provider_latency.png."
+    },
+    "edge_nn_backward": {
+      "status": "measured-fused-recompute-vjp-training-step",
+      "cases": ["cuda_n131072_degree32"],
+      "note": "One forward+backward training step of the edge-local MLP (N=131072, 4.0M edges, FP32): the compiler-derived symbolic-VJP recompute tile runs 2.991 ms versus eager Torch autograd at 40.227 ms (13.45x) with 65.2 MiB versus 1198 MiB peak step memory (18.4x lower); per-edge activations are replayed inside the tile, so no [E, .] tensor exists in either direction."
     },
     "diffusion": {
       "status": "measured-generated-lowering",

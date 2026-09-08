@@ -11,8 +11,8 @@ import time
 
 from mpi4py import MPI
 
-import graphforge as gf
-from graphforge.distributed import (
+import tiga as gf
+from tiga.distributed import (
     create_transport, exchange_packed, pack_halo, unpack_halo,
 )
 
@@ -76,7 +76,7 @@ def main() -> None:
     medians = {phase: statistics.median(samples) for phase, samples in combined.items()}
     payload = sum(record["payload_bytes"] for record in records)
     result = {
-        "schema": "graphforge.distributed-halo.v1",
+        "schema": "tiga.distributed-halo.v1",
         "transport": "mpi4py/MPICH",
         "mpi_library": MPI.Get_library_version().splitlines()[0],
         "world_size": world, "entities": args.entities,

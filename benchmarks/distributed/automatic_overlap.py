@@ -16,8 +16,8 @@ from pathlib import Path
 import statistics
 import time
 
-import graphforge as gf
-from graphforge.distributed import DistributedRuntime, PipeTransport, owned_range
+import tiga as gf
+from tiga.distributed import DistributedRuntime, PipeTransport, owned_range
 
 
 class NeighborSum(gf.MessagePassing):
@@ -70,7 +70,7 @@ def _worker(
     rank, endpoint, entities, degree, features, boundary_fraction,
     warmup, repeats, transport_delay_ms, barrier, queue,
 ):
-    os.environ["GRAPHFORGE_TENSOR_BACKEND"] = "native"
+    os.environ["TIGA_TENSOR_BACKEND"] = "native"
     rows, columns = _topology(entities, degree, boundary_fraction)
     begin, end = owned_range(entities, 2, rank)
     graph = gf.Graph.from_csr(
@@ -83,18 +83,18 @@ def _worker(
     transport = DelayedPipeTransport(
         rank, 2, {1 - rank: endpoint}, delay_ms=transport_delay_ms)
     kernel = NeighborSum()
-    samples = {"graphforge.auto": [], "graphforge.serialized": []}
+    samples = {"tiga.auto": [], "tiga.serialized": []}
     last = {}
     with DistributedRuntime(transport) as runtime:
         for iteration in range(warmup + repeats):
             order = (
-                ("graphforge.auto", "graphforge.serialized")
+                ("tiga.auto", "tiga.serialized")
                 if iteration % 2 == 0
-                else ("graphforge.serialized", "graphforge.auto")
+                else ("tiga.serialized", "tiga.auto")
             )
             for method in order:
                 runtime._force_serialized = (
-                    True if method == "graphforge.serialized" else None)
+                    True if method == "tiga.serialized" else None)
                 barrier.wait()
                 started = time.perf_counter_ns()
                 output = kernel(graph=graph, src={"x": source}, dst={})
@@ -144,7 +144,7 @@ def _plot(result: dict[str, object], path: Path) -> None:
     records = result["ranks"]
     selected = []
     for record in records:
-        samples = record["samples"]["graphforge.auto"]
+        samples = record["samples"]["tiga.auto"]
         median = statistics.median(item["end_to_end_ms"] for item in samples)
         selected.append(min(samples, key=lambda item: abs(
             item["end_to_end_ms"] - median)))
@@ -155,7 +155,7 @@ def _plot(result: dict[str, object], path: Path) -> None:
         constrained_layout=True,
     )
     latency_axis = axes[0, 0]
-    methods = ("graphforge.auto", "graphforge.serialized")
+    methods = ("tiga.auto", "tiga.serialized")
     latencies = [result["median_end_to_end_ms"][method] for method in methods]
     bars = latency_axis.barh(
         range(len(methods)), latencies,
@@ -195,7 +195,7 @@ def _plot(result: dict[str, object], path: Path) -> None:
             f"Rank {rank}: measured overlap {overlap:.3f} ms · "
             f"end-to-end {sample['end_to_end_ms']:.3f} ms")
         axis.grid(axis="x", alpha=0.25)
-    fig.suptitle("GraphForge automatic interior ∥ halo → boundary execution")
+    fig.suptitle("Tiga automatic interior ∥ halo → boundary execution")
     fig.legend(
         handles=[Patch(color=colors[name], label=name)
                  for name in ("communication", "interior")],
@@ -266,7 +266,7 @@ def main() -> None:
     records.sort(key=lambda item: item["rank"])
     automatic_samples = [
         sample for record in records
-        for sample in record["samples"]["graphforge.auto"]
+        for sample in record["samples"]["tiga.auto"]
     ]
     overlaps = [sample["measured_overlap_ms"] for sample in automatic_samples]
     end_to_end = {
@@ -274,14 +274,14 @@ def main() -> None:
             sample["end_to_end_ms"]
             for record in records for sample in record["samples"][method]
         ]
-        for method in ("graphforge.auto", "graphforge.serialized")
+        for method in ("tiga.auto", "tiga.serialized")
     }
     median_end_to_end = {
         method: statistics.median(samples)
         for method, samples in end_to_end.items()
     }
     result = {
-        "schema": "graphforge.distributed-automatic-overlap.v1",
+        "schema": "tiga.distributed-automatic-overlap.v1",
         "transport": "multiprocessing.Connection",
         "world_size": 2,
         "entities": args.entities,
@@ -294,8 +294,8 @@ def main() -> None:
         "median_measured_overlap_ms": statistics.median(overlaps),
         "median_end_to_end_ms": median_end_to_end,
         "speedup_vs_serialized": (
-            median_end_to_end["graphforge.serialized"]
-            / median_end_to_end["graphforge.auto"]
+            median_end_to_end["tiga.serialized"]
+            / median_end_to_end["tiga.auto"]
         ),
         "ranks": records,
     }
@@ -316,8 +316,8 @@ def main() -> None:
         f"Median measured communication/interior overlap is "
         f"{result['median_measured_overlap_ms']:.4f} ms; median rank end-to-end "
         f"automatic latency is "
-        f"{result['median_end_to_end_ms']['graphforge.auto']:.4f} ms versus "
-        f"{result['median_end_to_end_ms']['graphforge.serialized']:.4f} ms "
+        f"{result['median_end_to_end_ms']['tiga.auto']:.4f} ms versus "
+        f"{result['median_end_to_end_ms']['tiga.serialized']:.4f} ms "
         f"serialized ({result['speedup_vs_serialized']:.3f}x). Gate: "
         f"**{result['gate']}**.\n\n"
         "This proves the automatic CPU runtime ordering over a real two-process "

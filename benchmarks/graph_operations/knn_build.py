@@ -10,7 +10,7 @@ import statistics
 
 import torch
 
-import graphforge as gf
+import tiga as gf
 from benchmarks.common.hardware_roofline import measure_roofs, samples_ms
 from benchmarks.common.output_layout import operation_dir
 from benchmarks.common.perf_protocol import evaluate_sota_gates
@@ -62,7 +62,7 @@ def main() -> None:
     row_ptr, col_idx = graphforge_run()
     expected_row_ptr, expected = torch_matched()
     if not torch.equal(row_ptr, expected_row_ptr):
-        raise RuntimeError("GraphForge kNN row pointer differs from matched peer")
+        raise RuntimeError("Tiga kNN row pointer differs from matched peer")
     # FP32 addmm and cdist can exchange neighbors whose distances are within
     # rounding error. Compare the selected distance multisets, not arbitrary
     # index tie-breaking, while still requiring exactly k exhaustive results.
@@ -77,7 +77,7 @@ def main() -> None:
     torch.testing.assert_close(
         candidate_distance, expected_distance, rtol=2e-5, atol=2e-6)
     if row_ptr[-1].item() != args.nodes * args.k:
-        raise RuntimeError("GraphForge kNN row pointer is malformed")
+        raise RuntimeError("Tiga kNN row pointer is malformed")
 
     roof = measure_roofs(device, args.quick, args.repeat)
     candidates = args.nodes * args.nodes
@@ -88,7 +88,7 @@ def main() -> None:
         + edges * 8 + (args.nodes + 1) * 8)
     intensity = useful_flops / common_bytes
     providers = (
-        ("graphforge.procedural_knn", graphforge_run),
+        ("tiga.procedural_knn", graphforge_run),
         ("torch.cdist_topk", torch_matched),
     )
     results = []
@@ -109,7 +109,7 @@ def main() -> None:
             "memory_roof": "DRAM", "samples_ms": raw,
         })
     gate = evaluate_sota_gates(
-        results, {"graphforge.procedural_knn"},
+        results, {"tiga.procedural_knn"},
         baselines={"torch.cdist_topk"}, threshold=1.0)[0]
     case = f"cuda_n{args.nodes}_d{args.dimensions}_k{args.k}"
     output_dir = args.output_dir or operation_dir("knn_graph", case)
@@ -141,7 +141,7 @@ def main() -> None:
         "explicit materialization case selects an exhaustive squared-distance "
         "dense-library contraction plus top-k (sqrt is order-preserving); no "
         "workload-named kernel is embedded in compiler core.\n\n"
-        f"GraphForge: {candidate['milliseconds']:.4f} ms; matched Torch library "
+        f"Tiga: {candidate['milliseconds']:.4f} ms; matched Torch library "
         f"decomposition: {baseline['milliseconds']:.4f} ms. Strict gate: "
         f"{'PASS' if gate.passed else 'FAIL'}, speedup "
         f"{gate.speedup_vs_sota:.3f}x, 95% CI "

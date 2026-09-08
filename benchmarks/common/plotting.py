@@ -24,7 +24,7 @@ PALETTE = (
 )
 
 PROVIDER_FAMILY_HUES = {
-    "graphforge": 0.60,
+    "tiga": 0.60,
     "torch": 0.01,
     "triton": 0.76,
     "handwritten": 0.82,
@@ -37,9 +37,9 @@ PROVIDER_FAMILY_HUES = {
 }
 
 PROVIDER_COLORS = {
-    "graphforge.auto": "#2563eb",
-    "graphforge.prepared_auto": "#059669",
-    "graphforge.reference": "#64748b",
+    "tiga.auto": "#2563eb",
+    "tiga.prepared_auto": "#059669",
+    "tiga.reference": "#64748b",
     "torch.sparse.mm": "#dc2626",
     "triton.csr": "#7c3aed",
 }
@@ -239,7 +239,7 @@ def plot_roofline(payload: dict, output: Path):
     ax.set_xlabel("Arithmetic intensity (FLOP / ideal-cache byte)")
     ax.set_ylabel("Achieved performance (GFLOP/s)")
     workload = payload.get("workload", "weighted aggregation").replace("_", " ")
-    title_prefix = payload.get("title_prefix", "GraphForge")
+    title_prefix = payload.get("title_prefix", "Tiga")
     ax.set_title(f"{title_prefix} {workload} hierarchical roofline")
     ax.text(
         0.01, 0.99,
@@ -322,7 +322,7 @@ def plot_knn_roofline(payload: dict, output: Path):
     )
     workload = payload.get("workload", "exact k-nearest-neighbor build")
     fig.suptitle(
-        f"GraphForge {workload}\n{detail}", fontsize=14, fontweight="bold")
+        f"Tiga {workload}\n{detail}", fontsize=14, fontweight="bold")
     _save(fig, output / "roofline")
 
 
@@ -468,7 +468,7 @@ def plot_dense_attention_roofline(payload: dict, output: Path):
 
 
 def _short_provider(name: str) -> str:
-    return (name.replace("graphforge.", "gf.")
+    return (name.replace("tiga.", "gf.")
             .replace("precomputed_distance", "precomputed")
             .replace("generated_", "gen."))
 
@@ -645,7 +645,7 @@ def plot_latency(
     Each cache/feature bucket is one kernel panel. Provider identity is the
     hue and is stable across the whole benchmark corpus. Bars report matched
     throughput speedup over torch.sparse.mm when available, otherwise over the
-    fastest measured non-GraphForge provider. Absolute latency remains on each
+    fastest measured non-Tiga provider. Absolute latency remains on each
     bar so the normalized view cannot hide the timing scale.
     """
     results = payload["results"]
@@ -676,7 +676,7 @@ def plot_latency(
         if baseline is None:
             peers = [
                 item for item in selected
-                if not item["provider"].startswith("graphforge.")
+                if not item["provider"].startswith("tiga.")
             ]
             baseline = min(
                 peers or selected,
@@ -686,7 +686,7 @@ def plot_latency(
         ordered = sorted(
             selected,
             key=lambda item: (
-                not item["provider"].startswith("graphforge."),
+                not item["provider"].startswith("tiga."),
                 item["provider"],
             ),
         )
@@ -794,7 +794,7 @@ def plot_jit(payload: dict, output: Path):
 
 def plot_radius_build(payload: dict, output: Path):
     results = payload["results"]
-    labels = [item["provider"].replace("graphforge.", "gf.") for item in results]
+    labels = [item["provider"].replace("tiga.", "gf.") for item in results]
     colors = [PALETTE[index % len(PALETTE)] for index in range(len(results))]
     fig, axes = plt.subplots(1, 2, figsize=(11.5, 5.2), constrained_layout=True)
 
@@ -849,29 +849,29 @@ def plot_radius_pipeline(payload: dict, output: Path):
     peer_values = []
     candidate_labels = []
     peer_labels = []
-    candidate_providers = {"graphforge.auto", "graphforge.dynamic.auto"}
+    candidate_providers = {"tiga.auto", "tiga.dynamic.auto"}
     for phase in phases:
         items = grouped[phase]
-        graphforge = next(
+        tiga = next(
             (item for item in items if item["provider"] in candidate_providers),
             None,
         )
         if phase == "build-only":
-            graphforge = next(iter(items), None)
-        peers = [item for item in items if item is not graphforge]
+            tiga = next(iter(items), None)
+        peers = [item for item in items if item is not tiga]
         peer = min(
             peers, key=lambda item: float(item["milliseconds"]), default=None)
         # build-only has no external peer yet; retain the measured GF bar.
         candidate_values.append(
-            float(graphforge["milliseconds"]) if graphforge is not None else np.nan)
+            float(tiga["milliseconds"]) if tiga is not None else np.nan)
         peer_values.append(
             float(peer["milliseconds"]) if peer is not None else np.nan)
-        candidate_labels.append(graphforge["provider"] if graphforge else "")
+        candidate_labels.append(tiga["provider"] if tiga else "")
         peer_labels.append(peer["provider"] if peer else "")
 
     axes[0].bar(
         x - width / 2, candidate_values, width,
-        label="GraphForge", color="#2563eb", edgecolor="white")
+        label="Tiga", color="#2563eb", edgecolor="white")
     axes[0].bar(
         x + width / 2, peer_values, width,
         label="fastest matched peer", color="#dc2626", edgecolor="white")
@@ -930,7 +930,7 @@ def _save(fig, stem: Path):
     svg = stem.with_suffix(".svg")
     # Stable element IDs and omitted wall-clock metadata keep tracked SVG
     # assets byte-for-byte reproducible across equivalent benchmark renders.
-    with matplotlib.rc_context({"svg.hashsalt": "graphforge"}):
+    with matplotlib.rc_context({"svg.hashsalt": "tiga"}):
         fig.savefig(svg, bbox_inches="tight", metadata={"Date": None})
     # Matplotlib emits trailing spaces in multiline SVG path data.  Normalize
     # generated assets so publication updates remain reviewable and pass the
@@ -950,7 +950,7 @@ def write_report(
     output: Path,
 ):
     lines = [
-        "# GraphForge benchmark visualization",
+        "# Tiga benchmark visualization",
         "",
         "Generated from machine-readable benchmark JSON.",
         "",

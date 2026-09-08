@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="280" viewBox="0 0 760 280" role="img" aria-labelledby="title desc">
+  <title id="title">Radius relation and shifted graph Laplacian</title>
+  <desc id="desc">Points in the plane; any two points closer than the cutoff radius r become neighbors. The operator applied at point i is m times its own value plus the sum over neighbors of the difference between its value and each neighbor's value.</desc>
+  <defs>
+    <style>
+      text{font-family:Arial,sans-serif}
+      .nodeLbl{font-size:13px;font-weight:700;fill:#312e81;text-anchor:middle}
+      .sub{font-size:12px;fill:#64748b;text-anchor:middle}
+      .rLbl{font-size:15px;font-weight:700;fill:#4f46e5;text-anchor:middle}
+      .edge{fill:none;stroke:#94a3b8;stroke-width:1.6}
+      .edgeHi{fill:none;stroke:#4f46e5;stroke-width:2.6}
+      .radius{fill:none;stroke:#4f46e5;stroke-width:1.6;stroke-dasharray:6 5}
+      .tick{fill:none;stroke:#4f46e5;stroke-width:1.6}
+      .node{fill:#ffffff;stroke:#64748b;stroke-width:2}
+      .query{fill:#4f46e5;stroke:#4f46e5;stroke-width:2}
+    </style>
+  </defs>
+
+  <!-- cutoff around p_i -->
+  <circle cx="380" cy="140" r="118" class="radius" />
+  <path d="M380 140 L448 43" class="tick" />
+  <text x="430" y="86" class="rLbl">r</text>
+
+  <!-- chain of points; edges exist only inside r -->
+  <path d="M160 142 L270 108" class="edge" />
+  <path d="M270 108 L380 124" class="edgeHi" />
+  <path d="M380 124 L490 106" class="edgeHi" />
+  <path d="M490 106 L600 140" class="edge" />
+
+  <circle cx="160" cy="142" r="7" class="node" />
+  <circle cx="270" cy="108" r="7" class="node" />
+  <circle cx="380" cy="124" r="9" class="query" />
+  <circle cx="490" cy="106" r="7" class="node" />
+  <circle cx="600" cy="140" r="7" class="node" />
+
+  <text x="380" y="154" class="nodeLbl">pᵢ</text>
+  <text x="270" y="138" class="sub">pⱼ</text>
+  <text x="490" y="136" class="sub">pⱼ</text>
+
+  <text x="380" y="270" class="sub">j ~ i when ‖pᵢ − pⱼ‖ &lt; r — the operator at i sums uᵢ − uⱼ over those neighbors</text>
+</svg>

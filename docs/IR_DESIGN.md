@@ -1,36 +1,42 @@
-# GraphForge IR implementation notes
+# Tiga IR implementation notes
 
-> 非规范实现笔记。唯一规范性设计是仓库根目录 `PROJECT.md`；冲突时以其为准。
+!!! note "Non-normative implementation notes"
+    The only normative design document is `PROJECT.md` at the repository root; it takes precedence in case of any conflict.
 
-状态：architecture draft  
-日期：2026-08-14
+Status: architecture draft  
+Date: 2026-08-14
 
-本文定义 GraphForge 从 lazy Python/Torch program 到 CPU/GPU/distributed executable 的
-IR 边界。目标不是立刻实现所有 op，而是让 M0 的最小 dialect 不锁死 generated relation、
-auto-fusion、hierarchical storage 和 distributed MessagePassing。
-
----
-
-## 1. 设计原则
-
-1. **Graph schema 与 graph data 分开。** IR 保存 Entity/Relation schema、provenance、
-   lifecycle 和性质；实际 CSR indices、positions、Field values 是 runtime operands。
-2. **GraphProgram 使用 SSA value semantics。** `edge()` 读取 invocation-input snapshot，
-   `node()` 产生新 Field version；物理 in-place 是后期 bufferization 结果。
-3. **Assembly 是 generalized MessagePassing。** HyperRelation 的局部 contribution 通过 typed
-   destination map 归约；不存在绕开 relation semantics 的 public `gf.assemble()`。
-4. **Distribution 不改变数学语义。** 单设备 reduction 可拆成 rank-local partial reducers，
-   最终由 destination owner combine，`node()` 只执行一次。
-5. **Materialized/Paged/Generated 是 plan，不是 Graph 类型。** 同一个 logical relation 可有
-   多种 ResolvedRelation。
-6. **不为每条 edge 创建 IR op。** IR 描述 relation schema 和 iteration domain；runtime
-   graph size 不线性膨胀 compiler IR。
-7. **快速路径优先。** Canonical semantic IR、template traversal、分层 cache 和 bounded
-   specialization 防止 JIT 退化为全程序 autotune。
+This document defines the IR boundary of Tiga from a lazy Python/Torch program to a
+CPU/GPU/distributed executable. The goal is not to implement every op immediately, but to keep
+the M0 minimal dialect from locking out generated relations, auto-fusion, hierarchical storage,
+and distributed MessagePassing.
 
 ---
 
-## 2. 总体层级
+## 1. Design principles
+
+1. **Graph schema and graph data are separate.** The IR stores Entity/Relation schema,
+   provenance, lifecycle, and properties; the actual CSR indices, positions, and Field values
+   are runtime operands.
+2. **GraphProgram uses SSA value semantics.** `edge()` reads the invocation-input snapshot and
+   `node()` produces a new Field version; physical in-place behavior is a result of later
+   bufferization.
+3. **Assembly is generalized MessagePassing.** Local contributions of a HyperRelation are
+   reduced through a typed destination map; there is no public `gf.assemble()` that bypasses
+   relation semantics.
+4. **Distribution does not change mathematical semantics.** A single-device reduction can be
+   split into rank-local partial reducers, with the destination owner performing the final
+   combine; `node()` executes exactly once.
+5. **Materialized/Paged/Generated are plans, not Graph types.** The same logical relation can
+   have multiple ResolvedRelations.
+6. **No IR op is created per edge.** The IR describes relation schema and iteration domains;
+   runtime graph size does not linearly inflate compiler IR.
+7. **Fast path first.** Canonical semantic IR, template traversal, layered caches, and bounded
+   specialization prevent the JIT from degenerating into whole-program autotuning.
+
+---
+
+## 2. Overall hierarchy
 
 ```text
 Python lazy FieldValue DAG / torch.compile region
@@ -53,17 +59,18 @@ upstream MLIR
 PTX/cubin, HIP/hsaco, PPU binary, CPU object
 ```
 
-不是每个 target 都必须物理经过所有 dialect。M0 reference evaluator 可直接解释
-`gf.domain`；简单 CPU stencil 可从 `gf.domain` 直接进入 `affine/scf/vector`；但各层的语义
-边界必须一致，inspection 也使用这些稳定 stage 名。
+Not every target must physically pass through all dialects. The M0 reference evaluator can
+interpret `gf.domain` directly; a simple CPU stencil can go straight from `gf.domain` into
+`affine/scf/vector`; but the semantic boundaries of each layer must be consistent, and
+inspection uses these stable stage names.
 
 ---
 
-## 3. `gf.domain`：语义 IR
+## 3. `gf.domain`: the semantic IR
 
-### 3.1 核心类型
+### 3.1 Core types
 
-以下语法是 schematic MLIR，不是最终 parser spelling：
+The following syntax is schematic MLIR, not the final parser spelling:
 
 ```mlir
 !gf.entity_set<"node", id = i64, coord = [index, index]>
@@ -87,10 +94,11 @@ PTX/cubin, HIP/hsaco, PPU binary, CPU object
 !gf.event
 ```
 
-`Field` 是 schema；`FieldValue` 是某个 invocation/version 的 SSA value。高层 IR 不允许通过
-同一个 FieldValue handle 原地改变可见值。
+`Field` is the schema; `FieldValue` is the SSA value of a specific invocation/version. The
+high-level IR does not permit changing the visible value in place through the same FieldValue
+handle.
 
-### 3.2 Entity 与 Field schema
+### 3.2 Entity and Field schema
 
 ```mlir
 gf.entity_set @nodes {
@@ -105,13 +113,13 @@ gf.field @u on @nodes : f32 {
 }
 ```
 
-Runtime binding 将 `%u : !gf.field_value<@nodes, f32>` 绑定到 Torch Tensor、GraphForge
-Region 或 distributed local shard。Global cardinality 和 runtime Tensor address 不进入
-symbol identity。
+Runtime binding binds `%u : !gf.field_value<@nodes, f32>` to a Torch Tensor, a Tiga
+Region, or a distributed local shard. Global cardinality and runtime Tensor addresses do not
+enter symbol identity.
 
-### 3.3 Relation origin、lifecycle 与 realization
+### 3.3 Relation origin, lifecycle, and realization
 
-三个维度必须独立：
+The three dimensions must be independent:
 
 ```text
 origin:      External | Procedural
@@ -119,7 +127,7 @@ lifecycle:   Frozen | Rebuildable
 realization: Materialized | Paged | Generated
 ```
 
-External CSR：
+External CSR:
 
 ```mlir
 gf.relation @adj (%row_ptr, %col_idx) : ... {
@@ -129,7 +137,7 @@ gf.relation @adj (%row_ptr, %col_idx) : ... {
 }
 ```
 
-Affine stencil：
+Affine stencil:
 
 ```mlir
 gf.relation @dx : ... {
@@ -144,11 +152,13 @@ gf.relation @dx : ... {
 }
 ```
 
-Port 保存 topology/orientation facts；特定 derivative 的 numerical coefficient 属于 edge/node
-operator。非 Cartesian lattice 通过 `physical_displacement = basis * integer_offset` 生成
-derived edge value，因此 axial hex ports 仍是固定 affine domain。
+Ports hold topology/orientation facts; the numerical coefficient of a particular derivative
+belongs to the edge/node operator. Non-Cartesian lattices generate derived edge values through
+`physical_displacement = basis * integer_offset`, so axial hex ports are still a fixed affine
+domain.
 
-规则平铺不能表示成 Cartesian/hex 等 case enum。`gf.domain` 的通用 schema 是：
+Regular tilings cannot be represented as a Cartesian/hex-style case enum. The general schema
+in `gf.domain` is:
 
 ```mlir
 gf.index_domain @cells {
@@ -175,7 +185,7 @@ gf.relation @nearest on @complex {
 }
 ```
 
-Formal core：
+Formal core:
 
 ```text
 IndexDomain D ⊂ Z^d
@@ -185,14 +195,15 @@ Embedding: x(i, site) = B i + c_site, or runtime coordinate Field
 BoundaryAction: quotient/map/ghost/mask
 ```
 
-Cartesian、triangular、honeycomb、Kagome、FCC/BCC、staggered/MAC grids 都只是不同的
-domain/sites/maps/embedding。有限 polygonal patch 可用 Presburger pieces；一般 aperiodic
-generator 使用 `GeneratedTileProducer`；unstructured mesh 使用 explicit cell-complex incidence。
-Pass 通过 interfaces 查询 endpoint map 是否 affine、port domain 是否 finite、embedding 是否
-constant，而不是 `switch (tiling_kind)`。
+Cartesian, triangular, honeycomb, Kagome, FCC/BCC, and staggered/MAC grids are just different
+domain/sites/maps/embeddings. A finite polygonal patch can use Presburger pieces; a general
+aperiodic generator uses `GeneratedTileProducer`; an unstructured mesh uses explicit
+cell-complex incidence. Passes query through interfaces whether an endpoint map is affine,
+whether a port domain is finite, and whether an embedding is constant, instead of
+`switch (tiling_kind)`.
 
-Unstructured `Mesh` 不是另一种 kernel input，而是若干 EntitySets/Relations/Fields 的 Python
-handle。Domain IR 保存 typed oriented incidence：
+An unstructured `Mesh` is not another kind of kernel input; it is a Python handle over several
+EntitySets/Relations/Fields. The Domain IR stores typed oriented incidence:
 
 ```mlir
 gf.entity_set @vertices {dimension = 0}
@@ -208,19 +219,20 @@ gf.field @normal   on @faces    : tensor<3xf64>
 gf.field @volume   on @cells    : f64
 ```
 
-Incidence 可 fixed-arity、type-bucketed 或 ragged。`cell adjacency through faces` 是 relation
-composition：
+Incidence can be fixed-arity, type-bucketed, or ragged. `cell adjacency through faces` is
+relation composition:
 
 ```text
 cell_dst ← incidence → face ← incidence → cell_src
 ```
 
-Planner 可 materialize CSR，也可遍历 incidence composition 而不写出 cell-cell adjacency。
-Orientation 是 relation item property，确保同一个 face 对左右 cells 产生相反 normal/sign。
-Curvilinear mesh 只把 embedding/Jacobian/metric 改为 runtime Fields；AMR 增加 level、parent/
-child 与 coarse-fine interface Relations。它们都 lower 到同一个 `gf.apply`。
+The planner may materialize CSR, or traverse the incidence composition without writing out the
+cell-cell adjacency. Orientation is a relation item property, ensuring that the same face
+produces opposite normal/sign for the cells on its left and right. A curvilinear mesh only
+turns the embedding/Jacobian/metric into runtime Fields; AMR adds level, parent/child, and
+coarse-fine interface Relations. All of them lower to the same `gf.apply`.
 
-Radius relation：
+Radius relation:
 
 ```mlir
 gf.relation @radius (%positions, %cutoff, %box) : ... {
@@ -231,8 +243,9 @@ gf.relation @radius (%positions, %cutoff, %box) : ... {
 }
 ```
 
-编译后的函数接收 graph/relation handle 或 underlying buffers；relation actual contents 和
-logical version 不进入 code cache key。Version 使 materialization/statistics/plan 失效。
+The compiled function receives a graph/relation handle or the underlying buffers; the relation's
+actual contents and logical version do not enter the code cache key. A version change
+invalidates materialization/statistics/plans.
 
 ### 3.4 Snapshot resolve
 
@@ -242,7 +255,7 @@ logical version 不进入 code cache key。Version 使 materialization/statistic
   : !gf.relation<...> -> (!gf.snapshot<...>, !gf.event)
 ```
 
-`gf.resolve` 的结果在 whole-program planning 后具体化为：
+The result of `gf.resolve` is concretized after whole-program planning into one of:
 
 ```text
 MaterializedInstance
@@ -250,12 +263,13 @@ PagedTileStream
 GeneratedTileProducer
 ```
 
-Domain IR 中 resolve 表示 snapshot/version correctness barrier，不承诺独立 builder kernel 或
-完整 adjacency allocation。
+In the Domain IR, resolve represents a snapshot/version correctness barrier; it does not
+promise an independent builder kernel or a complete adjacency allocation.
 
 ### 3.5 Reducer definition
 
-Reducer 是 symbol op，regions 可内联、专门化或映射到 backend primitive：
+A Reducer is a symbol op whose regions can be inlined, specialized, or mapped to backend
+primitives:
 
 ```mlir
 gf.reducer @sum_f32 : f32 -> f32 -> f32 {
@@ -271,19 +285,21 @@ gf.reducer @sum_f32 : f32 -> f32 -> f32 {
 }
 ```
 
-Online softmax 的 state 是 `(m, l, o)`；`combine` 使用稳定 rescale 公式。PortGather 的 state
-是 compile-time port-indexed tuple/vector + validity mask，并声明 `unique_by_port` 或重复项
-行为。Verifier 不尝试证明任意 user reducer 的结合律；builtin reducer 由系统保证，custom
-reducer 的 algebra property 是显式契约并进入 determinism diagnostics。
+The state of online softmax is `(m, l, o)`; `combine` uses the stable rescale formula. The
+state of PortGather is a compile-time port-indexed tuple/vector plus a validity mask, and it
+declares `unique_by_port` or the behavior for duplicates. The verifier does not attempt to
+prove the associativity of an arbitrary user reducer; builtin reducers are guaranteed by the
+system, and the algebra properties of a custom reducer are an explicit contract that enters
+determinism diagnostics.
 
-Public `NeighborhoodKernel.compute(center, nbr, ...)` 是 fixed finite port domain 的 ergonomic
-frontend；capture 时规范化为 `PortGather + local region`，与 MessagePassing 共用 `gf.apply`、
-iteration/storage/distributed lowering。它不是可用于任意 ragged/dynamic neighbor stream 的
-随机访问容器。
+The public `NeighborhoodKernel.compute(center, nbr, ...)` is an ergonomic frontend for a fixed
+finite port domain; at capture time it is normalized into `PortGather + local region`, sharing
+`gf.apply` and the iteration/storage/distributed lowering with MessagePassing. It is not a
+random-access container usable with arbitrary ragged/dynamic neighbor streams.
 
 ### 3.6 Unified MessagePassing op
 
-Public `edge()/node()` capture 为一个 `gf.apply`：
+The public `edge()/node()` captures into a single `gf.apply`:
 
 ```mlir
 %u_next = gf.apply %snapshot
@@ -311,7 +327,7 @@ Public `edge()/node()` capture 为一个 `gf.apply`：
 }
 ```
 
-语义：
+Semantics:
 
 ```text
 contribution[e] = edge(input snapshot)
@@ -319,20 +335,23 @@ aggregate[d]    = reducer(contribution[e] where destination(e)=d)
 output[d]       = node(destination input snapshot, aggregate[d])
 ```
 
-`node` region 可省略，此时 output 是 reducer finalized result。不存在单独 `old` 参数；node
-通过 destination snapshot 读旧值。Bufferization 只有证明无 read-after-overwrite 后才能令
-output 与 input storage alias。
+The `node` region can be omitted, in which case the output is the reducer's finalized result.
+There is no separate `old` parameter; the node reads the old value through the destination
+snapshot. Bufferization may alias output storage with input storage only after proving the
+absence of read-after-overwrite.
 
-### 3.7 HyperRelation 与 assembly
+### 3.7 HyperRelation and assembly
 
-Binary MessagePassing 是 `gf.apply` 的特例。HyperRelation item 可有固定或 ragged endpoints：
+Binary MessagePassing is a special case of `gf.apply`. A HyperRelation item can have fixed or
+ragged endpoints:
 
 ```text
 item = element
 endpoints(item) = [node_0, ..., node_{P-1}]
 ```
 
-Element region 产生 port-indexed local contributions；IR 使用 typed route terminator：
+The element region produces port-indexed local contributions; the IR uses a typed route
+terminator:
 
 ```mlir
 ^edge(%element, %endpoints, %item):
@@ -342,17 +361,17 @@ Element region 产生 port-indexed local contributions；IR 使用 typed route t
                  reducer @sum_f32
 ```
 
-`route_yield` 是 `gf.apply` 内部 terminator，不是 public `gf.assemble()`。它声明 local result
-axis 如何映射到 destination EntitySet。Lowering 可选择：
+`route_yield` is a terminator inside `gf.apply`, not a public `gf.assemble()`. It declares how
+the local result axis maps to the destination EntitySet. Lowering can choose among:
 
-- matrix-free element tile：compute once → scatter residual；
-- coloring/atomics/segmented reduction；
-- assemble sparse matrix：destination 改为 typed `(row_dof, col_dof)` EntitySet；
-- distributed partial route：按 destination owner combine。
+- matrix-free element tile: compute once → scatter residual;
+- coloring/atomics/segmented reduction;
+- assemble a sparse matrix: the destination becomes a typed `(row_dof, col_dof)` EntitySet;
+- distributed partial route: combine by destination owner.
 
-### 3.8 GraphProgram SSA 与 auto-fusion
+### 3.8 GraphProgram SSA and auto-fusion
 
-普通 Python function 中连续 leaf calls 形成一个 `func.func`/GraphProgram：
+Consecutive leaf calls in an ordinary Python function form one `func.func`/GraphProgram:
 
 ```mlir
 func.func @euler_rhs(%mesh, %q, %geometry) -> !gf.field_value<...>
@@ -365,11 +384,14 @@ func.func @euler_rhs(%mesh, %q, %geometry) -> !gf.field_value<...>
 }
 ```
 
-GraphForge-native `FieldValue` 默认 lazy：leaf call 返回 deferred SSA handle；首次 external
-observation、unsupported escape、mutation/barrier、memory-pressure flush 或显式 materialize
-触发 planning/JIT。`@gf.program` 只作为可选 capture/AOT/export/debug boundary。
+A Tiga-native `FieldValue` is lazy by default: a leaf call returns a deferred SSA handle;
+the first external observation, unsupported escape, mutation/barrier, memory-pressure flush, or
+explicit materialization triggers planning/JIT. `@gf.jit` is the single user entry point — loop
+capture plus automatic composition; `@gf.program` remains only as a compatibility
+capture/AOT/export/debug boundary.
 
-Auto-fusion pass 从 SSA def-use 和 Effect 推导候选，不以 decorator 作为 fusion hint：
+The auto-fusion pass derives candidates from SSA def-use chains and Effects; it does not use
+decorators as fusion hints:
 
 ```text
 legal if:
@@ -385,29 +407,31 @@ profitable if:
   occupancy and parallelism stay acceptable
 ```
 
-典型 rewrite：
+Typical rewrites:
 
-- local map → edge/node inline；
-- same-relation multi-consumer traversal fusion；
-- generated relation builder → consumer fusion；
-- reconstruction → face flux tile chaining；
-- face flux → cell divergence partial routing；
-- pointwise time update → node region fusion。
+- local map → edge/node inline;
+- same-relation multi-consumer traversal fusion;
+- generated relation builder → consumer fusion;
+- reconstruction → face flux tile chaining;
+- face flux → cell divergence partial routing;
+- pointwise time update → node region fusion.
 
-通信、global reduction、unsupported op、external Tensor observation、alias barrier 或过高 resource
-cost 会形成 fusion boundary。`explain()` 必须给出每条未融合 SSA edge 的原因。
+Communication, global reductions, unsupported ops, external Tensor observation, alias barriers,
+or excessive resource cost form fusion boundaries. `explain()` must give the reason for every
+unfused SSA edge.
 
 ---
 
-## 4. `gf.task`：storage/distributed execution graph
+## 4. `gf.task`: the storage/distributed execution graph
 
-### 4.1 为什么在 `gf.iter` 之前
+### 4.1 Why it comes before `gf.iter`
 
-Distributed/out-of-core planning 先把一个 logical apply 拆成 local compute、transfer、halo 和
-combine tasks；每个 compute task 再 lower 自己的 relation iteration。单设备 in-memory
-程序可使用 trivial task graph，不必显式打印这一层。
+Distributed/out-of-core planning first splits one logical apply into local compute, transfer,
+halo, and combine tasks; each compute task then lowers its own relation iteration. A
+single-device in-memory program may use a trivial task graph and does not have to print this
+layer explicitly.
 
-### 4.2 Region、instance 与 event
+### 4.2 Region, instance, and event
 
 ```mlir
 %owned = gf.region.subset %u [#gf.partition_owned]
@@ -418,18 +442,20 @@ combine tasks；每个 compute task 再 lower 自己的 relation iteration。单
 gf.storage.release %tile after(%event)
 ```
 
-`Region` 是 logical Field subset + version；`PhysicalInstance` 是某 memory space 的 layout/
-compression copy。Register/shared placement 不使用这些 long-lived ops，而在 `gf.kernel` 中表示。
+A `Region` is a logical Field subset + version; a `PhysicalInstance` is a layout/compression
+copy in some memory space. Register/shared placement does not use these long-lived ops; it is
+expressed in `gf.kernel`.
 
-### 4.3 Distributed MessagePassing 的不变语义
+### 4.3 Invariant semantics of distributed MessagePassing
 
-全局定义不变：
+The global definition is unchanged:
 
 ```text
 aggregate[d] = reduce(contribution[e] for e where destination(e)=d)
 ```
 
-Partition 后要求每个 destination 有唯一 logical owner。Planner 可选择：
+After partitioning, every destination must have a unique logical owner. The planner can choose
+among:
 
 #### Owner-compute / pull
 
@@ -440,7 +466,7 @@ owner computes all contributions
 owner runs node() once
 ```
 
-适合 destination-partitioned CSR、stencil 和 spatial radius。
+Suitable for destination-partitioned CSR, stencils, and spatial radius.
 
 #### Edge-compute / push
 
@@ -452,20 +478,23 @@ owner combines received states
 owner runs node() once
 ```
 
-适合 edge/element geometry 很大、已按 element 分区或 source feature 搬移代价较高的情况。
+Suitable when the edge/element geometry is large, when the graph is already partitioned by
+element, or when moving source features is expensive.
 
 #### Hybrid/2D
 
-Source feature、edge 和 destination axes 分到 device mesh，不同维度分别 broadcast/reduce。
-Dense all-pairs、超长程 interaction 和极高 degree graph 可选择此计划。
+The source feature, edge, and destination axes are distributed across a device mesh, with
+different dimensions broadcast/reduced separately. Dense all-pairs, very long-range
+interactions, and extremely high-degree graphs may select this plan.
 
-Reducer 必须提供跨 rank 合法的 `combine`。若 reducer 不可 combine，只有将全部 messages 按
-规定顺序送到 owner 才能保语义；planner 应拒绝不可承受的 distributed plan，而不是静默
-改变结果。
+The reducer must provide a `combine` that is legal across ranks. If a reducer cannot be
+combined, semantics can only be preserved by delivering all messages to the owner in the
+prescribed order; the planner must reject an unaffordable distributed plan rather than silently
+change the result.
 
 ### 4.4 Overlap task graph
 
-Owner-compute stencil/radius 的典型 task IR：
+A typical task IR for owner-compute stencil/radius:
 
 ```text
 halo_pack(local boundary fields)
@@ -473,7 +502,8 @@ halo_pack(local boundary fields)
 interior_apply ──────────────────→ merge/finalize → node/output version
 ```
 
-Interior 和 exchange 无依赖，可并行；boundary 等待 halo event。对于 push plan：
+Interior and exchange have no dependency and can run in parallel; the boundary waits on the
+halo event. For a push plan:
 
 ```text
 local edge compute
@@ -484,13 +514,14 @@ local edge compute
   → node
 ```
 
-Snapshot version、halo version 和 output version 必须匹配；verifier 禁止混合不同 timestep 的
-ghost data。
+Snapshot version, halo version, and output version must match; the verifier forbids mixing
+ghost data from different timesteps.
 
 ### 4.5 Public distributed binding
 
-用户不写通信 loop，但必须提供不可推导的语义 metadata：global entity ID、local shard 与
-global EntitySet 的映射、或者 partition manifest。示意：
+Users do not write communication loops, but they must supply the semantic metadata that cannot
+be inferred: global entity IDs, a mapping between local shards and the global EntitySet, or a
+partition manifest. Schematic:
 
 ```python
 mesh = gf.DeviceMesh("cuda", (2, 4), names=("rack", "gpu"))
@@ -504,19 +535,22 @@ u = gf.Field.from_local(local_u, entities=graph.nodes)
 u_next = Diffusion()(graph=graph, src={"u": u}, dst={"u": u})
 ```
 
-`Graph.halo()` 是 declarative logical transformation，仍返回普通 `gf.Graph`，不会立即通信。
-Process group/device mesh 可绑定 deployment config、Torch DeviceMesh、`torchrun`/MPI/vendor
-launcher。Partition 算法、halo packing、transport、overlap 和 kernels 是 planner/runtime 决策；
-ownership/global ID 不能凭空自动推断。
+`Graph.halo()` is a declarative logical transformation that still returns an ordinary
+`gf.Graph` and does not communicate immediately. The process group/device mesh can bind a
+deployment config, a Torch DeviceMesh, or a `torchrun`/MPI/vendor launcher. Partition
+algorithms, halo packing, transport, overlap, and kernels are planner/runtime decisions;
+ownership and global IDs cannot be inferred out of thin air.
 
 ---
 
-## 5. `gf.iter`：target-independent iteration IR
+## 5. `gf.iter`: target-independent iteration IR
 
-当前最小实现的独立 dialect spelling 是 `gf_iter.traverse/yield`。它已能表达
-`compressed-row` 与 `generated-neighborhood`、`destination-major` ordering，并完整保留
-edge/optional-node regions 和 reducer/effect metadata。下面的 Axis ops 是后续渐进展开，不应
-在尚无优化需求时一次性预建。
+The standalone dialect spelling of the current minimal implementation is
+`gf_iter.traverse/yield`. It can already express `compressed-row` and
+`generated-neighborhood`, `destination-major` ordering, and fully preserves the
+edge/optional-node regions and reducer/effect metadata. The Axis ops below are a later,
+incremental expansion and should not all be built in advance before any optimization need
+arises.
 
 ### 5.1 Axis model
 
@@ -529,8 +563,8 @@ FeatureAxis:  dense payload axis
 CellAxis:     geometric bin/neighborhood
 ```
 
-Axis 可以 dependent/ragged；不要为了使用普通 tensor loop 把 neighbor extent padding 成全局
-最大 degree。
+Axes can be dependent/ragged; do not pad neighbor extents to the global maximum degree just to
+use an ordinary tensor loop.
 
 ### 5.2 CSR lowering
 
@@ -543,8 +577,8 @@ forall dst in D:
   out[dst] = node(dst, reducer.finalize(state))
 ```
 
-`gf.iter` 保留 `dst → segment → neighbor` 依赖关系，后续才能选择 row-per-thread、warp-per-row、
-split-row、edge-atomic 或 degree bucket。
+`gf.iter` preserves the `dst → segment → neighbor` dependency, so that later stages can choose
+row-per-thread, warp-per-row, split-row, edge-atomic, or degree buckets.
 
 ### 5.3 Affine stencil lowering
 
@@ -555,7 +589,8 @@ forall (i, j) in owned grid:
     state = combine(state, edge((si, sj), (i, j), port))
 ```
 
-Affine map 和 boundary region 尽量 lower 到 upstream `affine`/`vector`，不生成 CSR。
+The affine map and boundary region should lower to upstream `affine`/`vector` wherever
+possible, without generating CSR.
 
 ### 5.4 Generated radius lowering
 
@@ -568,8 +603,9 @@ forall owned destination_cell:
           reduce edge(src, dst, derived_geometry)
 ```
 
-Materialized plan 将中间层替换为 COO/CSR segment；generated-fused plan 直接消费 predicate
-结果；paged plan 在 SegmentAxis 外增加 tile acquire/release。
+The materialized plan replaces the intermediate layers with COO/CSR segments; the
+generated-fused plan consumes the predicate result directly; the paged plan adds tile
+acquire/release outside the SegmentAxis.
 
 ### 5.5 HyperRelation route lowering
 
@@ -581,19 +617,21 @@ forall element:
     route local[port] to endpoints[port] using reducer
 ```
 
-Route 可 lower 成 atomics、coloring、sort/segment、owner partial state 或 destination-tile
-accumulator。
+The route can lower to atomics, coloring, sort/segment, owner partial state, or a
+destination-tile accumulator.
 
 ---
 
-## 6. `gf.kernel`：target-aware physical IR
+## 6. `gf.kernel`: target-aware physical IR
 
-当前最小实现的独立 dialect spelling 是 `gf_kernel.launch/yield`，包含
-`csr-row/generated-tile` skeleton、degree worklist/split-row planning 和类型化 storage/task
-边界。Domain→Iter→Kernel→TTIR 已可运行并在 CUDA Driver runtime 中执行；下面更一般的
-WorkTile/Promotion/Pipeline 仍是设计，不应把 schematic 当作已实现 op。
+The standalone dialect spelling of the current minimal implementation is
+`gf_kernel.launch/yield`, containing the `csr-row/generated-tile` skeleton, degree
+worklist/split-row planning, and typed storage/task boundaries. Domain→Iter→Kernel→TTIR
+already runs and executes in the CUDA Driver runtime; the more general
+WorkTile/Promotion/Pipeline below is still a design — do not mistake the schematic for
+implemented ops.
 
-这一层才引入硬件 mapping 和 kernel-local memory：
+This is the layer that introduces hardware mapping and kernel-local memory:
 
 ```text
 WorkTile
@@ -609,7 +647,7 @@ Pipeline
   stages/buffers/events
 ```
 
-Schematic：
+Schematic:
 
 ```mlir
 gf.kernel.launch @radius_tile mapping(#gf.workgroup) {
@@ -622,19 +660,21 @@ gf.kernel.launch @radius_tile mapping(#gf.workgroup) {
 }
 ```
 
-这些 op 由 compiler/autotuner 生成，不进入 coarse public API。CPU lowering 可删除 GPU
-mapping，将 WorkTile 变为 cache-blocked/vectorized loops。
+These ops are generated by the compiler/autotuner and do not enter the coarse public API. CPU
+lowering may drop the GPU mapping and turn the WorkTile into cache-blocked/vectorized loops.
 
-### 6.1 `gf_tensor` 与 `gf_control`：可微数据流和有界迭代
+### 6.1 `gf_tensor` and `gf_control`: differentiable data flow and bounded iteration
 
-`gf_tensor` 是 runtime Tensor DAG、自动 VJP 与 provider codegen 共用的 typed SSA 层；它不
-是用 Python 字符串拼接出来的第二套 IR。静态 CSR 的 relation lowering 保留
-`gather → edge algebra → csr_segment_sum → node algebra`，其中
-`csr_segment_sum` 携带由 Graph analysis 证明的 `degree_min/degree_max`。这些属性只决定后期
-schedule；数值语义仍然是 CSR 行归约。未知度数使用 `(0, 0)` 并进入任意长行的 tiled-loop
-fallback，绝不根据 `E/N` 猜测 uniform relation。
+`gf_tensor` is the typed SSA layer shared by the runtime Tensor DAG, automatic VJP, and
+provider codegen; it is not a second IR stitched together from Python strings. The relation
+lowering of static CSR preserves
+`gather → edge algebra → csr_segment_sum → node algebra`, where
+`csr_segment_sum` carries `degree_min/degree_max` proven by Graph analysis. These attributes
+only influence the later schedule; the numerical semantics remain a CSR row reduction. Unknown
+degrees use `(0, 0)` and fall back to a tiled loop over arbitrarily long rows; the compiler
+never guesses a uniform relation from `E/N`.
 
-`gf_control.repeat` 表达固定次数的 loop-carried Tensor state：
+`gf_control.repeat` expresses a fixed-count loop-carried Tensor state:
 
 ```mlir
 %rank1 = "gf_control.repeat"(%rank0, %row_ptr, %col_idx, %weight) <{
@@ -647,27 +687,32 @@ fallback，绝不根据 `E/N` 猜测 uniform relation。
 }) : (...) -> tensor<Nxf32>
 ```
 
-`num_carried` 允许前缀中的多个不同 shape/type Tensor 同时成为 SSA result；其余 operands 是
-显式 immutable captures。循环体只 capture 一次，iteration count 不增加 compiler IR 节点。
-CPU lowering 产生 `scf.for`，并为每个 carried value 复用两个 ping-pong MemRef；单状态 CUDA
-runtime 复用两个 device buffer 和 prepared executable，多状态 CUDA loop plan 尚待实现。
-CPU pass 还会将 body 内 rank-0 reduction 及其 scalar algebra 提升为每迭代一次的临时值，
-避免 CG 的 dot product 因被多个 vector update 引用而退化成 `O(N^2)`；多次 use
-的 vector SSA（例如 `A(p)` 和 next residual）也按 block SSA 顺序每迭代只物化一次，
-单 use vector 仍融合到 consumer。当前
-fixed-degree weighted CSR + 逐节点 epilogue 会结构匹配到二维 row×neighbor TTIR tile，每次
-迭代一次 launch；未知/长尾 CSR 使用一行一 program、任意长度分块循环。这里没有
-PageRank-named op 或 codegen case。`gf_control.while` 使用 rank-0
-`gf_tensor.compare` condition 和强制 `max_iterations`；CPU 降到 `scf.while`，
-收敛后不再执行 body，也不把 scalar 转回 Python。GPU command-graph/cooperative
-persistent plan 及 distributed collective condition 仍未实现，因此 PageRank 仍只能作为
-`G0` 的 partial evidence。
+`num_carried` allows multiple Tensors of different shapes/types in the operand prefix to
+simultaneously become SSA results; the remaining operands are explicit immutable captures. The
+loop body is captured only once, and the iteration count does not add compiler IR nodes. CPU
+lowering produces an `scf.for` and reuses two ping-pong MemRefs per carried value; the
+single-state CUDA runtime reuses two device buffers and a prepared executable, while the
+multi-state CUDA loop plan is not yet implemented. The CPU pass also hoists rank-0 reductions
+and their scalar algebra inside the body into once-per-iteration temporaries, so that the CG
+dot product does not degenerate into `O(N^2)` from being referenced by multiple vector updates;
+multi-use vector SSAs (for example `A(p)` and the next residual) are likewise materialized only
+once per iteration in block SSA order, while single-use vectors remain fused into their
+consumers. Currently, fixed-degree weighted CSR plus a per-node epilogue structurally matches a
+two-dimensional row×neighbor TTIR tile with one launch per iteration; unknown/long-tail CSR
+uses one program per row with an arbitrarily long blocked loop. There is no PageRank-named op
+or codegen case here. `gf_control.while` uses a rank-0
+`gf_tensor.compare` condition and a mandatory `max_iterations`; CPU lowers to `scf.while`, the
+body is no longer executed after convergence, and the scalar is never converted back to Python.
+The GPU command-graph/cooperative persistent plan and the distributed collective condition are
+still unimplemented, so PageRank remains only partial evidence for `G0`.
 
-Reverse mode 对 fixed repeat 已有自动 correctness fallback：autograd transform 将 body 按
-iteration 特化，并直接复用已有 pointwise、CSR relation 和 reducer VJP，用户不写 backward。
-这条路径的反向 IR/compile work 为 O(iterations)，还不是反向 `gf_control.repeat`；因此只作为
-语义覆盖，不登记性能。后续 control-autodiff pass 需要依据 save/recompute budget 生成反向循环
-和 state tape，再与 checkpoint/hierarchy planner 合并。
+Reverse mode already has an automatic correctness fallback for fixed repeat: the autograd
+transform specializes the body per iteration and directly reuses the existing pointwise, CSR
+relation, and reducer VJPs, so users do not write a backward pass. The reverse IR/compile work
+on this path is O(iterations); it is not yet a reversed `gf_control.repeat`, so it counts only
+as semantic coverage, not as registered performance. A later control-autodiff pass must
+generate the reverse loop and state tape according to a save/recompute budget, then merge with
+the checkpoint/hierarchy planner.
 
 ---
 
@@ -717,8 +762,8 @@ gf-iter-to-kernel
 gf-kernel-to-triton / gpu / vector / LLVM / source provider
 ```
 
-每项复杂 pass 都必须有 naive fallback。M0/M1 只实现其中最小子集，但未实现 op 必须产生
-明确 diagnostic，不能 silent miscompile。
+Every complex pass must have a naive fallback. M0/M1 implement only a minimal subset of these,
+but any unimplemented op must produce an explicit diagnostic — no silent miscompiles.
 
 ---
 
@@ -726,37 +771,37 @@ gf-kernel-to-triton / gpu / vector / LLVM / source provider
 
 ### 8.1 Domain verifier
 
-- Field 的 EntitySet 与 relation endpoint type 匹配；
-- edge/node 只访问声明/推导出的 Field 和参数；
-- output Field version 不在同一 apply 中被当成 input snapshot 读取；
-- relation port、boundary、sortedness、uniqueness property 使用合法；
-- reducer message/state/result type 匹配；
-- HyperRelation route 的 destination map 和 local tensor axis 匹配；
-- persistent edge state 不能绑定到不稳定 generated edge ID；
-- runtime parameter 与 specialization constant 明确区分。
+- The Field's EntitySet matches the relation endpoint types;
+- edge/node access only the declared/inferred Fields and parameters;
+- the output Field version is not read as an input snapshot within the same apply;
+- relation port, boundary, sortedness, and uniqueness properties are used legally;
+- reducer message/state/result types match;
+- the destination map and local tensor axis of a HyperRelation route match;
+- persistent edge state must not bind to unstable generated edge IDs;
+- runtime parameters and specialization constants are clearly distinguished.
 
 ### 8.2 Task/distributed verifier
 
-- 每个 destination 有唯一 logical owner；
-- node region 在 final combine 后且只执行一次；
-- halo/partial state version 与 snapshot version 相同；
-- transfer/launch/release Event 无 use-before-ready；
-- cross-device reducer 具有合法 combine；
-- deterministic mode 的 ordering/algorithm 满足声明。
+- Every destination has a unique logical owner;
+- the node region runs after the final combine, exactly once;
+- halo/partial state versions match the snapshot version;
+- transfer/launch/release Events have no use-before-ready;
+- cross-device reducers have a legal combine;
+- the ordering/algorithm in deterministic mode satisfies the declaration.
 
 ### 8.3 Kernel verifier
 
-- register/shared/LDS allocation 不超过 target capability；
-- barrier 对所有参与线程可达且 memory scope 正确；
-- promoted tile 生命周期覆盖全部 use；
-- masked/padded work 不越界；
-- atomic dtype/op 被 backend 支持。
+- register/shared/LDS allocation does not exceed target capability;
+- barriers are reachable by all participating threads with the correct memory scope;
+- a promoted tile's lifetime covers all uses;
+- masked/padded work stays in bounds;
+- atomic dtype/op is supported by the backend.
 
 ---
 
-## 9. Cache 与快速编译
+## 9. Caching and fast compilation
 
-### 9.1 不进入 code cache key
+### 9.1 Not in the code cache key
 
 ```text
 actual CSR/COO contents
@@ -766,7 +811,7 @@ runtime pointer/address
 exact rank-local partition contents
 ```
 
-### 9.2 进入 semantic/planning key
+### 9.2 In the semantic/planning key
 
 ```text
 canonical GraphProgram/gf.domain hash
@@ -779,7 +824,7 @@ target capabilities and compiler/provider versions
 determinism/effect/compile options
 ```
 
-### 9.3 分层 cache
+### 9.3 Layered caches
 
 ```text
 semantic cache: canonical gf.domain and per-region hashes
@@ -789,16 +834,18 @@ provider cache: Triton/LLVM/source artifact
 runtime cache:  loaded module, launch metadata, communication plan
 ```
 
-### 9.4 JIT latency策略
+### 9.4 JIT latency policy
 
-- small builtin reducer/edge/node regions canonicalize and hash independently；
-- traversal 使用少量 pre-verified skeleton，不为每个公式复制 planner；
-- first-call 使用 heuristic quick plan，不阻塞完整 autotune；
-- autotune winner 后台/离线持久化，guarded replacement 不改变 semantic key；
-- graph size 使用 bounded buckets，避免每个 N/degree 重新编译；
-- 不展开 runtime entities/edges；只展开很小的 static PortAxis；
-- distributed rank 共用 binary，rank ID/partition metadata 是 runtime operands；
-- inspection artifact 从 cache 读取，不触发无关 target compilation。
+- small builtin reducer/edge/node regions are canonicalized and hashed independently;
+- traversal uses a small number of pre-verified skeletons instead of duplicating the planner
+  for every formula;
+- the first call uses a heuristic quick plan and does not block on full autotuning;
+- autotune winners are persisted in the background/offline, and guarded replacement does not
+  change the semantic key;
+- graph sizes use bounded buckets to avoid recompiling for every N/degree;
+- runtime entities/edges are never unrolled; only very small static PortAxes are unrolled;
+- distributed ranks share binaries; rank IDs/partition metadata are runtime operands;
+- inspection artifacts are read from caches and do not trigger unrelated target compilation.
 
 ---
 
@@ -808,21 +855,21 @@ runtime cache:  loaded module, launch metadata, communication plan
 kernel = Diffusion()
 u_next = kernel(graph=graph, src={"u": u}, dst={"u": u}, dt=dt)
 
-print(kernel.ir("domain"))
-print(kernel.ir("task"))
-print(kernel.ir("iteration"))
-print(kernel.ir("kernel"))
+kernel.ir("domain")       # -> IR text at each stage
+kernel.ir("task")
+kernel.ir("iteration")
+kernel.ir("kernel")
 
 variant = kernel.inspect()
-print(variant.explain())
-print(variant.fusion_groups())
-print(variant.relation_plan())
-print(variant.distribution_plan())
-print(variant.memory_plan())
-print(variant.artifacts())
+variant.explain()             # -> schedule summary text
+variant.fusion_groups()
+variant.relation_plan()
+variant.distribution_plan()
+variant.memory_plan()
+variant.artifacts()
 ```
 
-`explain()` 至少报告：
+`explain()` reports at least:
 
 ```text
 selected snapshot/realization
@@ -836,41 +883,50 @@ fallbacks, guards and rejected candidates
 
 ---
 
-## 11. M0 最小实现切片
+## 11. M0 minimal implementation slice
 
-M0 不实现完整 task/iter/kernel dialect，但 Domain IR 必须能 round-trip 以下内容：
+M0 does not implement the full task/iter/kernel dialects, but the Domain IR must round-trip the
+following:
 
-1. EntitySet、Field schema/value；
-2. External+Frozen CSR Relation；
-3. Procedural+Rebuildable Radius schema；
-4. origin/lifecycle/realization interface；
-5. binary `gf.apply` 的 edge/optional node regions；
-6. builtin sum Reducer；
-7. read/write/reduce Effects 与 snapshot version；
-8. ResolvedRelation interface；
-9. straight-line GraphProgram SSA；
-10. target-independent canonical hash 和 source location。
+1. EntitySets, Field schema/value;
+2. External+Frozen CSR Relations;
+3. Procedural+Rebuildable Radius schema;
+4. the origin/lifecycle/realization interface;
+5. edge/optional node regions of binary `gf.apply`;
+6. the builtin sum Reducer;
+7. read/write/reduce Effects and snapshot versions;
+8. the ResolvedRelation interface;
+9. straight-line GraphProgram SSA;
+10. target-independent canonical hashes and source locations.
 
-M1 增加 CSR/radius baseline lowering；M4 增加 IndexDomain/IndexedComplex/EndpointMap、
-AffineRelation、PortGather、HyperRelation route 和 auto-fusion；M6/M7 实现
-PagedTileStream/storage task 与 distributed task lowering。
+M1 adds CSR/radius baseline lowering; M4 adds IndexDomain/IndexedComplex/EndpointMap,
+AffineRelation, PortGather, HyperRelation routes, and auto-fusion; M6/M7 implement
+PagedTileStream/storage tasks and distributed task lowering.
 
 ---
 
-## 12. 历史原型问题及当前决议
+## 12. Historical prototype issues and current resolutions
 
-1. `gf.apply` 使用多 region op，还是 reducer/node 作为 symbol call 更利于 region hashing；
-2. HyperRelation fixed/ragged endpoints 是否统一为一个 type，还是分开以简化 verifier；
-3. GraphForge lazy Field 与 Torch Tensor-subclass bridge 的可维护性和 graph-break 行为；
-4. Domain-level fusion 与 target-level tile fusion 的 cost model 如何分工；
-5. distributed ownership/partition attr 哪些进入 IR，哪些只属于 deployment plan；
-6. custom reducer algebra property 的 trust/verification/debug contract；
-7. upstream `sparse_tensor` coordinate hierarchy 能复用到什么程度，何时保留专用 relation op；
-8. codegen skeleton + generated region 在 Triton/LLVM provider 中的最小链接边界。
+1. whether `gf.apply` should use a multi-region op, or whether reducer/node as symbol calls
+   would be better for region hashing;
+2. whether HyperRelation fixed/ragged endpoints should be unified into one type or kept
+   separate to simplify the verifier;
+3. the maintainability and graph-break behavior of the Tiga lazy Field and Torch
+   Tensor-subclass bridge;
+4. how the cost models of Domain-level fusion and target-level tile fusion divide their work;
+5. which distributed ownership/partition attributes enter the IR and which belong only to the
+   deployment plan;
+6. the trust/verification/debug contract for custom reducer algebra properties;
+7. how much of the upstream `sparse_tensor` coordinate hierarchy can be reused, and when to
+   keep dedicated relation ops;
+8. the minimal linking boundary of codegen skeleton + generated region in Triton/LLVM
+   providers.
 
-这些问题已由 M0 round-trip、vertical slice 和 composition prototype 收口：apply/reducer
-保留 region 以支持结构分析与 hashing；fixed/ragged endpoint 共享 relation contract、物理
-instance 分开；Torch 仅是可选 adapter；Domain fusion 与 tile fusion 分属语义/物理层；
-ownership 进入 IR、transport placement 留在 deployment plan；reducer 属性必须由结构证明或
-fail-closed；通用 sparse hierarchy 可复用但不抹平 generated relation；TTIR 是 vendor provider
-边界。Python API 不暴露 target-specific schedule。
+These issues have been settled by the M0 round-trip, the vertical slice, and the composition
+prototype: apply/reducer keep regions to support structural analysis and hashing; fixed/ragged
+endpoints share the relation contract while their physical instances are separate; Torch is
+only an optional adapter; Domain fusion and tile fusion belong to the semantic/physical layers
+respectively; ownership enters the IR while transport placement stays in the deployment plan;
+reducer properties must be structurally proven or fail-closed; the generic sparse hierarchy can
+be reused without flattening generated relations; TTIR is the vendor provider boundary. The
+Python API does not expose target-specific schedules.

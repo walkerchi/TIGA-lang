@@ -24,5 +24,5 @@ target_link_libraries(gf-opt PRIVATE
 
 install(
   TARGETS gf-opt
-  RUNTIME DESTINATION graphforge/bin
-  COMPONENT GraphForgeWheel)
+  RUNTIME DESTINATION tiga/bin
+  COMPONENT TigaWheel)

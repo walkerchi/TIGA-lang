@@ -1,107 +1,76 @@
 # Examples
 
-Run the Python examples from the repository root:
+Runnable user programs, grouped by category — none calls a Tiga
+algorithm operator. The rendered documentation with full embedded source lives
+under the **Examples** tab of the docs site (`mkdocs serve`, or
+https://tiga-docs.app.walkerchi.com/examples/).
+
+Run any example from the repository root:
 
 ```bash
 export PYTHONPATH="$PWD/python"
-python3 examples/tensor_autograd.py
-python3 examples/tensor_matmul.py
-python3 examples/linear_recurrence.py
-python3 examples/tile_pruned_attention.py
-python3 examples/causal_dense_relation.py
-python3 examples/complex_autograd.py
-python3 examples/message_passing_autograd.py
-python3 examples/radius_autograd.py
-python3 examples/graph_program.py
-python3 examples/diffusion.py
-python3 examples/fem_poisson.py
-python3 examples/meshfree_linear_solve.py
-python3 examples/gcn.py
-python3 examples/custom_reducer.py
-python3 examples/torch_interop.py
-python3 examples/torch_library.py
-python3 examples/hierarchical_memory.py
-python3 examples/joint_autograd.py
-python3 examples/distributed_halo.py
-python3 examples/knn_message_passing.py
-python3 examples/gpu_heatmap.py --device cuda
-python3 examples/compiler_probes/pagerank.py
+python examples/message_passing_autograd.py   # any example runs the same way
 ```
 
-- `tensor_autograd.py`: Torch-independent native CPU storage, canonical
-  `gf_tensor` IR and the native reverse-mode VJP pass;
-- `tensor_matmul.py`: first-class `gf_tensor.matmul`, native CPU/GPU lowering
-  and compiler-derived gradients for both matrix operands;
-- `linear_recurrence.py`: an ordinary Tensor map/cumsum/contract expression
-  structurally fused into one recurrent CUDA kernel, without a core
-  linear-attention operator;
-- `tile_pruned_attention.py`: a benchmark-style DenseGraph UDF whose
-  online-softmax reducer carries a semantic block threshold into dynamic TTIR
-  tile admission, without a core sparse-attention operator;
-- `causal_dense_relation.py`: `Graph.triangular()` carries lower-inclusive
-  topology through Domain/Iter/Kernel and an ordinary online reducer lowers to
-  causal streaming TTIR; Torch is only external CUDA storage and the oracle;
-- `complex_autograd.py`: complex64 storage, strided views and explicit
-  conjugate-Wirtinger cotangents;
-- `message_passing_autograd.py`: native static-CSR edge/node UDF, sum reducer,
-  LLVM forward execution and compiler-generated relation VJP; the user writes
-  no backward function. It also shows explicit save/recompute checkpoint IR;
-- `radius_autograd.py`: Torch-free dynamic Euclidean radius relation,
-  differentiable `edge.distance`, periodic-capable minimum-image geometry and
-  automatically generated position/source VJP on one fixed topology snapshot;
-- `graph_program.py`: optional `@gf.program` straight-line SSA capture,
-  automatic horizontal fusion, observation-triggered JIT, and Kernel IR/PTX
-  inspection without an explicit compile call; it uses the optional Torch
-  adapter for CUDA storage in this first executable provider example;
-- `diffusion.py`: native directional neighbor difference with both source and
-  destination fields, node update and automatic field/edge gradients;
-- `fem_poisson.py`: matrix-free one-dimensional P1 stiffness application; the
-  MessagePassing kernel itself is the linear operator passed to `solvers.cg`.
-  Four-state fixed CG is captured inside one multi-result `gf_control.repeat`,
-  and an algorithmic load VJP is generated without a user backward. The same
-  example runs residual-driven CG as one `gf_control.while` with mandatory
-  `max_iterations`; it is a compiler probe, not a CG performance claim;
-- `meshfree_linear_solve.py`: a generated radius relation feeds an ordinary
-  shifted-Laplacian MessagePassing kernel used directly as the operator;
-  tolerance CG keeps its four states and residual predicate inside one bounded
-  device control region;
-- `solvers.py`: grammar-sugar stationary solvers (`dot`, `vector_norm`,
-  `richardson`, `cg`) composed from `gf_control` primitives, with the loops
-  written as natural Python `for`/`while` under `@gf.jit`; a MessagePassing
-  kernel bound to a Graph is the operator, no wrapper object. Shared by the
-  solver examples; deliberately not part of the core package;
-- `gcn.py`: native multi-feature aggregation with edge broadcasting and
-  automatic gradients, matching the SpMM/GCN tensor shape;
-- `custom_reducer.py`: Torch-free execution of a user-defined tuple-state mean
-  algebra plus compiler-generated VJP; selection is based on a structural
-  component-wise additive proof rather than the reducer class name;
-- `torch_interop.py`: the isolated optional adapter example: Torch tensors call
-  a GraphForge UDF, a `gf.Tensor` shares Torch storage zero-copy, and the lazy
-  JIT object exposes the verified provider-neutral machine schedule selected by
-  `gf.kernel`.
-- `torch_library.py`: dynamically registers a UDF specialization with an exact
-  functional dispatcher schema, FakeTensor/meta kernel, automatic autograd,
-  `opcheck` and a full-graph Inductor-compiled forward/backward. CSR topology
-  is part of the dispatcher ABI even though the wrapper binds it automatically.
-- `hierarchical_memory.py`: capacity/version-accounted RAM↔NVMe physical
-  instances and transfer completions consumed by compiler bundle plans;
-- `joint_autograd.py`: compiler-generated VJP in one executable and inspectable
-  forward/backward dependency DAG;
-- `distributed_halo.py`: saves one versioned `.gfg`, reopens the same ordinary
-  `Graph` on two processes, reads only each rank's destination/edge pages, and
-  runs rank-local `Graph.halo()` MessagePassing plus automatic VJP;
-  compiler/runtime derives forward owner→ghost exchange and reverse
-  ghost-cotangent→owner accumulation below the unchanged user kernel.
-- `gpu_heatmap.py`: composes ordinary Tensor broadcast/arithmetic into one
-  scalar-to-RGB kernel, exposes the generated MLIR/provider artifact, and keeps
-  optional PNG encoding outside compiler core.
-- `knn_message_passing.py`: keeps exact kNN procedural, rebuilds the current
-  position snapshot lazily, and rebinds its fixed-k CSR ABI to one generated
-  MessagePassing TTIR consumer.
-- `compiler_probes/pagerank.py`: expresses fixed-iteration PageRank, including
-  dangling-node mass, with ordinary Tensor and MessagePassing operations. It
-  captures the body once in `gf_control.repeat` and prints the canonical loop
-  count; it is not a workload-specific core operator or a performance claim.
+## Tensor and GPU kernels
+
+| Example | What it demonstrates |
+|---|---|
+| `tensor_matmul.py` | first-class `gf_tensor.matmul`, CPU LLVM / FP16 GPU `tt.dot`, compiler-derived gradients for both operands |
+| `complex_autograd.py` | complex64 storage, strided views, explicit conjugate-Wirtinger cotangents |
+| `linear_recurrence.py` | ordinary map/cumsum/contract fused into one recurrent CUDA kernel — no core linear-attention operator |
+| `gpu_heatmap.py` | scalar-to-RGB kernel from Tensor broadcast/arithmetic; generated MLIR artifact exposed for inspection |
+
+## Attention and dense relations
+
+| Example | What it demonstrates |
+|---|---|
+| `full_attention.py` | exact mask-free attention as a dense relation + online-softmax reducer, checked against SDPA |
+| `causal_dense_relation.py` | `Graph.triangular()` topology through Domain → Iter → Kernel, causal streaming TTIR |
+| `varlen_causal_attention.py` | packed sequences with per-sequence causal masks: `cu_seqlens` as a block-diagonal CSR graph |
+| `tile_pruned_attention.py` | online-softmax reducer carrying a semantic block threshold into dynamic TTIR tile admission |
+
+## Message passing and graph algorithms
+
+| Example | What it demonstrates |
+|---|---|
+| `message_passing_autograd.py` | static CSR edge/node UDF, sum reducer VJP, explicit save/recompute checkpoint IR |
+| `gcn.py` | multi-feature aggregation with edge broadcasting and automatic gradients (SpMM/GCN shape) |
+| `diffusion.py` | directional neighbor difference, node update, automatic field/edge gradients |
+| `custom_reducer.py` | user-defined tuple-state mean algebra with compiler-generated VJP |
+| `compiler_probes/pagerank.py` | fixed-iteration PageRank in one `gf_control.repeat`; a compiler probe, not a performance claim |
+
+## Dynamic and generated relations
+
+| Example | What it demonstrates |
+|---|---|
+| `radius_autograd.py` | Torch-free dynamic Euclidean radius relation, differentiable `edge.distance`, position/source VJP |
+| `knn_message_passing.py` | exact kNN kept procedural; fixed-k CSR ABI rebound to a generated MessagePassing consumer |
+
+## Linear solvers and control flow
+
+| Example | What it demonstrates |
+|---|---|
+| `fem_poisson.py` | matrix-free P1 stiffness as a MessagePassing operator inside fixed `repeat` and residual-driven `while` CG |
+| `meshfree_linear_solve.py` | generated radius graph feeding a shifted-Laplacian operator, tolerance CG in one bounded device region |
+| `solvers.py` | shared solver sugar: `linear_solve(operator, rhs, method="cg"|"bicgstab"|"richardson")` as natural Python loops under `@gf.jit`; not part of the core package |
+
+## Programs, autograd and Torch interop
+
+| Example | What it demonstrates |
+|---|---|
+| `graph_program.py` | optional `@gf.program` SSA capture, horizontal fusion, observation-triggered JIT |
+| `joint_autograd.py` | compiler-generated VJP in one executable, inspectable forward/backward dependency DAG |
+| `torch_interop.py` | optional Torch adapter: zero-copy storage sharing and provider-neutral schedule inspection |
+| `torch_library.py` | `torch.library` registration with dispatcher schema, FakeTensor kernel, `opcheck`, Inductor forward/backward |
+| `edge_nn_message_passing.py` | `gf.nn.trace` captures an edge-local `torch.nn` MLP; compiled fused tile kernel vs exact eager oracle, grad-mode fallback |
+
+## Distributed and memory hierarchy
+
+| Example | What it demonstrates |
+|---|---|
+| `distributed_halo.py` | one versioned `.gfg` reopened on two processes, rank-local halo MessagePassing plus automatic VJP |
+| `hierarchical_memory.py` | chainable `.disk()` / `.cpu()` tensor spill with gf-managed lifecycle; named spills via `gf.from_disk` |
 
 ## Current native example boundary
 
@@ -114,7 +83,7 @@ the native runtime and optional CUDA adapter; exact kNN has an executable
 compiler path. Published performance claims remain limited to the registered
 benchmark matrix.
 
-GraphForge is a compiler, not the source of these algorithms. Recognized
+Tiga is a compiler, not the source of these algorithms. Recognized
 programs lower through Domain → Iter → Kernel → provider IR; a proven library
 dispatch or semantic evaluator handles shapes that do not yet have generated
 code. Handwritten performance oracles exist only under `benchmarks/kernels/`.

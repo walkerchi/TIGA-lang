@@ -25,6 +25,9 @@ OPERATIONS = {
     "cpu_relation": "CPU fused CSR relation traversal and reduction",
     "visualization_heatmap": "Fused Tensor-to-RGB heatmap raster preparation",
     "pagerank": "Fixed-iteration PageRank with fused CSR and node epilogue",
+    "radius_edge_mlp": "Radius relation with edge-local MLP message",
+    "edge_nn_backward": "Edge-local MLP training step with fused recompute VJP",
+    "gat_attention": "GAT edge attention with fused online-softmax kernels",
 }
 
 

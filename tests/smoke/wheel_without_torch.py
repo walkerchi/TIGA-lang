@@ -8,19 +8,19 @@ from pathlib import Path
 import subprocess
 import sys
 
-import graphforge as gf
+import tiga as gf
 
 
 assert importlib.util.find_spec("torch") is None
 assert "torch" not in sys.modules
 
-distribution = metadata("graphforge-compiler")
-assert distribution["Name"] == "graphforge-compiler"
-assert version("graphforge-compiler") == gf.__version__
+distribution = metadata("tiga-lang")
+assert distribution["Name"] == "tiga-lang"
+assert version("tiga-lang") == gf.__version__
 assert distribution["Maintainer"] == "walkerchi"
 project_urls = set(distribution.get_all("Project-URL") or ())
-assert "Repository, https://github.com/walkerchi/graphforge.git" in project_urls
-assert "Issues, https://github.com/walkerchi/graphforge/issues" in project_urls
+assert "Repository, https://github.com/walkerchi/TIGA-lang.git" in project_urls
+assert "Issues, https://github.com/walkerchi/TIGA-lang/issues" in project_urls
 
 x = gf.tensor([1.0, 2.0, 3.0], dtype=gf.float32)
 y = ((x + 2.0) * x).sum()

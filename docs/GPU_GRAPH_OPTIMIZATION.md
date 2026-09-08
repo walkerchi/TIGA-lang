@@ -1,18 +1,20 @@
-# GraphForge GPU Graph 硬件优化调研与实验路线
+# Tiga GPU Graph Hardware Optimization Survey and Experiment Plan
 
-> 非规范调研与实验候选。实现和发布门槛以仓库根目录 `PROJECT.md` 为准。
+> Non-normative research and experiment candidates. Implementation and release
+> gates are defined by `PROJECT.md` at the repository root.
 
-状态：M1/M2 设计输入  
-日期：2026-08-06
+Date: 2026-08-06
 
-## 1. 结论
+## 1. Conclusion
 
-GraphForge 不应在第一版设计细粒度用户语言。第一阶段只提供粗粒度
-`MessagePassing`，覆盖 `StaticGraph` 与 `DynamicGraph`，建立语义正确、复杂度合理的
-naive CPU/GPU lowering。然后依据 profile 实现一个收益明显的硬件优化，最后才从真实
-优化中归纳细粒度语言需要暴露的稳定概念。
+Tiga should not design a fine-grained user language in its first version.
+Phase one provides only coarse-grained `MessagePassing` covering `StaticGraph`
+and `DynamicGraph`, with semantically correct, complexity-sound naive CPU/GPU
+lowering. Then, driven by profiling, implement one hardware optimization with
+clear payoff. Only after that should the stable concepts a fine-grained
+language must expose be distilled from real optimizations.
 
-建议路线：
+Recommended route:
 
 ```text
 coarse MessagePassing semantics
@@ -23,13 +25,15 @@ coarse MessagePassing semantics
   → design fine-grained graph language from evidence
 ```
 
-## 2. “一个 subgraph 放到一个 SM”应如何准确表达
+## 2. How to State "One Subgraph on One SM" Precisely
 
-普通 CUDA/HIP kernel 不能把某个 thread block 永久指定给某个物理 SM。Block 由硬件
-scheduler 动态放置，而且不同 block 之间不能依赖固定执行顺序。可依赖的局部协作边界
-是 CTA/thread block/workgroup：同一 block 的线程共享 shared memory/LDS 和 barrier。
+An ordinary CUDA/HIP kernel cannot permanently pin a thread block to a physical
+SM. Blocks are placed dynamically by the hardware scheduler, and blocks cannot
+depend on a fixed execution order. The cooperative boundary that can be relied
+on is the CTA/thread block/workgroup: threads in the same block share shared
+memory/LDS and barriers.
 
-因此 portable compiler IR 应表达：
+A portable compiler IR should therefore express:
 
 ```text
 Graph/Relation in HBM
@@ -41,79 +45,94 @@ CTA/workgroup
 shared/LDS + registers
 ```
 
-硬件 scheduler 再把 CTA 放到 SM/CU。只有需要 device-side dynamic work queue、跨轮次
-locality或极端负载不均衡时，才考虑 persistent CTA workers；这不是 naive baseline。
+The hardware scheduler then places CTAs onto SMs/CUs. Persistent CTA workers
+are worth considering only when a device-side dynamic work queue, cross-round
+locality, or extreme load imbalance demands them; they are not the naive
+baseline.
 
-“把 subgraph 放进 shared memory”也通常不是复制完整子图。Shared/LDS 容量有限，真正
-适合 staging 的对象可能是：
+"Putting a subgraph into shared memory" usually does not mean copying the whole
+subgraph either. Shared/LDS capacity is limited; the objects actually worth
+staging are things like:
 
-- compact local vertex IDs、row offsets 或 edge tile；
-- 被多个 edge 重用的 source/destination feature tile；
-- particle cell 中的位置、类型和短 feature；
-- per-row/per-node partial reducer state；
-- layout conversion 或 cooperative-copy buffer。
+- compact local vertex IDs, row offsets, or edge tiles;
+- source/destination feature tiles reused by many edges;
+- positions, types, and short features of particle cells;
+- per-row/per-node partial reducer state;
+- layout conversion or cooperative-copy buffers.
 
-全图 topology 和 field home instance 通常仍在 HBM。
+The full graph topology and the home instances of fields usually stay in HBM.
 
-## 3. 相关工作的直接启发
+## 3. Direct Lessons from Related Work
 
 ### 3.1 CUDA execution model
 
-[CUDA Programming Guide](https://docs.nvidia.com/cuda/cuda-programming-guide/01-introduction/programming-model.html)
-明确指出 block 调度顺序没有保证；block 内线程共享 shared memory/L1/register-file
-资源。因此 GraphForge 高层使用 target-neutral `workgroup/subgroup`，不提供
-`subgraph.bind(sm_id)` 语义。
+The [CUDA Programming Guide](https://docs.nvidia.com/cuda/cuda-programming-guide/01-introduction/programming-model.html)
+states explicitly that block scheduling order is not guaranteed, and that
+threads within a block share shared memory/L1/register-file resources.
+Tiga therefore uses target-neutral `workgroup/subgroup` at the high level
+and offers no `subgraph.bind(sm_id)` semantics.
 
-### 3.2 Gunrock：分层 load balancing
+### 3.2 Gunrock: hierarchical load balancing
 
-[Gunrock](https://arxiv.org/abs/1701.01170) 的重要启发是图 workload 需要根据规模和
-degree 在 thread、warp、block 和全局层级之间切换，而不是固定“一行一个 warp”或
-“一边一个 thread”。首批 schedule family 应至少有 edge、row、split-row 和 bucket。
+[Gunrock](https://arxiv.org/abs/1701.01170) (surveyed in
+[`RELATED_WORK.md`](RELATED_WORK.md) §3.2) shows that a graph workload must
+switch between thread, warp, block, and global granularity according to size
+and degree, rather than fixing "one warp per row" or "one thread per edge". The
+first schedule families should include at least edge, row, split-row, and
+bucket.
 
-### 3.3 GNNAdvisor：neighbor × feature 二维 workload
+### 3.3 GNNAdvisor: the neighbor × feature 2D workload
 
-[GNNAdvisor](https://www.usenix.org/system/files/osdi21-wang-yuke.pdf) 根据 graph 与 model
-特征驱动二维 workload management，并使用 coarse-grained neighbor partitioning。
-这说明 MessagePassing 的性能空间不只有 graph axis；feature width 决定第二个并行轴、
-reduction 组织和 shared/register footprint。
+[GNNAdvisor](https://www.usenix.org/system/files/osdi21-wang-yuke.pdf) drives
+two-dimensional workload management from graph and model characteristics, using
+coarse-grained neighbor partitioning. This shows that the performance space of
+MessagePassing is not only the graph axis; feature width determines the second
+parallel axis, the reduction organization, and the shared/register footprint.
 
-### 3.4 FeatGraph：粗粒度 sparse template + 细粒度 payload
+### 3.4 FeatGraph: coarse sparse template + fine-grained payload
 
-[FeatGraph](https://arxiv.org/abs/2008.11359) 联合优化 graph traversal 与 feature
-dimension computation。对 GraphForge 的启发是：第一版 coarse MessagePassing 足以
-捕获 sparse traversal template，同时 message region 提供 tensor payload；不必先公开
-任意细粒度 graph language。
+[FeatGraph](https://arxiv.org/abs/2008.11359) jointly optimizes graph traversal
+and feature-dimension computation. The lesson for Tiga: first-version
+coarse MessagePassing is enough to capture the sparse traversal template while
+the message region supplies the tensor payload; there is no need to expose an
+arbitrary fine-grained graph language first.
 
-### 3.5 GraphCage：cache-aware subgraph blocking
+### 3.5 GraphCage: cache-aware subgraph blocking
 
-[GraphCage](https://arxiv.org/abs/1904.02241) 表明普通 dense cache blocking 不能直接
-搬到图上；必须把 blocking overhead、subgraph sparsity 和 load balancing 一起考虑。
-论文报告 cache-centric blocking 相比已有优化实现可获得明显收益，但适用性依赖图和
-迭代阶段。GraphForge 必须允许 cost model 拒绝 subgraph tiling。
+[GraphCage](https://arxiv.org/abs/1904.02241) shows that ordinary dense cache
+blocking cannot be ported to graphs directly; blocking overhead, subgraph
+sparsity, and load balancing must be considered together. The paper reports
+clear gains from cache-centric blocking over prior optimized implementations,
+but applicability depends on the graph and the iteration phase. Tiga's
+cost model must be allowed to reject subgraph tiling.
 
-### 3.6 TC-GNN：稀疏块到规则 Tensor Core tile
+### 3.6 TC-GNN: sparse blocks to regular Tensor Core tiles
 
-[TC-GNN](https://arxiv.org/abs/2112.02052) 使用 graph translation 把部分稀疏 GNN
-计算转成 Tensor Core 可处理的规则块。它验证了“sparse topology + dense tile payload”
-路线，但 conversion、padding 和 sparsity pattern 都是成本；不应作为第一版通用
-lowering。
+[TC-GNN](https://arxiv.org/abs/2112.02052) uses graph translation to turn parts
+of sparse GNN computation into regular blocks that Tensor Cores can process. It
+validates the "sparse topology + dense tile payload" route, but conversion,
+padding, and sparsity patterns all cost something; it should not be the
+first-version general lowering.
 
-### 3.7 Dynamic radius graph：cell list 与 reuse
+### 3.7 Dynamic radius graph: cell lists and reuse
 
-[LAMMPS neighbor-list internals](https://docs.lammps.org/Developer_par_neigh.html) 使用
-spatial bin、neighbor stencil 和 Verlet skin；neighbor list 构建后复用多个 timestep。
-这说明 DynamicGraph 的首个正确优化不是任意动态图增量算法，而是让 builder、reuse
-condition 和 MessagePassing consumer 在同一 cost model 中。
+[LAMMPS neighbor-list internals](https://docs.lammps.org/Developer_par_neigh.html)
+(surveyed in [`RELATED_WORK.md`](RELATED_WORK.md) §7.1) use spatial bins,
+neighbor stencils, and a Verlet skin, reusing a built neighbor list across
+several timesteps. The local conclusion: the first correct optimization for
+DynamicGraph is not an arbitrary dynamic-graph incremental algorithm, but
+putting the builder, the reuse condition, and the MessagePassing consumer into
+the same cost model.
 
-## 4. 第一版 Naive 实现
+## 4. First-Version Naive Implementation
 
-“Naive”必须指优化简单，而不是复杂度错误。
+"Naive" must mean simple optimization, not wrong complexity.
 
 ### 4.1 StaticGraph
 
-输入：COO/CSR、node/edge Field、粗粒度 Message/Reducer/Update。
+Input: COO/CSR, node/edge Fields, coarse-grained Message/Reducer/Update.
 
-CPU baseline：
+CPU baseline:
 
 ```text
 for dst:
@@ -123,15 +142,18 @@ for dst:
     out[dst] = finalize(state)
 ```
 
-GPU baseline：
+GPU baseline:
 
-1. edge-centric：一批 edge/thread，atomic reduce；
-2. row-centric：一个 program/warp 处理一个或若干 CSR row，局部 reduce；
-3. 只做简单安全 dispatch，不做 graph reorder、subgraph packing 或 persistent kernel。
+1. edge-centric: a batch of edges per thread, atomic reduce;
+2. row-centric: one program/warp handles one or several CSR rows with a local
+   reduce;
+3. only simple, safe dispatch — no graph reordering, subgraph packing, or
+   persistent kernels.
 
 ### 4.2 DynamicGraph
 
-首个 DynamicGraph 定义为 geometric radius graph，而不是支持任意 edge mutation：
+The first DynamicGraph is defined as a geometric radius graph, not arbitrary
+edge mutation:
 
 ```python
 graph = gf.RadiusGraph(
@@ -141,8 +163,8 @@ graph = gf.RadiusGraph(
 )
 ```
 
-Reference 可以对小输入使用 all-pairs 以定义语义；performance baseline 必须使用复杂度
-合理的 uniform cell list：
+The reference may use all-pairs on small inputs to define the semantics; the
+performance baseline must use a uniform cell list with reasonable complexity:
 
 ```text
 bin particles
@@ -152,10 +174,11 @@ bin particles
   → reuse StaticGraph MessagePassing kernels
 ```
 
-第一版不做 generate-consume fusion、Verlet reuse、cell tile shared staging 或动态排序。
-这样能独立测量 build 与 consume 成本。
+The first version does no generate-consume fusion, Verlet reuse, cell-tile
+shared staging, or dynamic reordering, so that build and consume costs can be
+measured independently.
 
-## 5. 第一轮硬件优化候选
+## 5. First-Round Hardware Optimization Candidates
 
 ### 5.1 Degree-aware hierarchical mapping
 
@@ -165,19 +188,16 @@ medium row  → subgroup/warp
 large row   → CTA or split-row + second reduction
 ```
 
-优点：实现风险低，几乎所有不均匀图都需要。缺点：主要解决 load balance，不一定改善
-随机 feature traffic。
+Pros: low implementation risk; almost every non-uniform graph needs it. Cons:
+it mainly fixes load balance and does not necessarily improve random feature
+traffic.
 
-2026-08-15 implementation note：compiler 已能从精确 degree CDF 选择 short-row bound，生成
-packed degree worklist、typed additive bucket TTIR 与 register-resident high-degree tail。正式
-social-like power-law 矩阵覆盖 local/random、i32/i64、hot/cold；public auto 八项通过，i32
-generated TTIR 四项也独立通过。log-normal/exponential 不按 case 名特调，使用相同
-`degree_max > 64` planning 路径并通过 hot/cold gate。edge-balanced/merge-path/persistent queue
-仍是未登记分布的候选 schedule，不属于当前支持声明。
+Current degree-bucketing benchmark numbers are tracked in
+[`benchmark-results.md`](benchmark-results.md).
 
 ### 5.2 Static subgraph/work-tile blocking
 
-将一段 destination rows 与其 source frontier 形成 tile：
+Form a tile from a range of destination rows and their source frontier:
 
 ```text
 row range
@@ -187,55 +207,65 @@ row range
   → reduce/store destination tile
 ```
 
-收益来自 source feature reuse 和更规则的 feature-axis computation；成本包括 partition、
-compact metadata、boundary duplication、shared capacity、barrier 和 occupancy。StaticGraph
-可跨多次 MessagePassing amortize preprocessing，因此是 subgraph optimization 的首选。
+The gains come from source feature reuse and more regular feature-axis
+computation; the costs include partitioning, compact metadata, boundary
+duplication, shared capacity, barriers, and occupancy. StaticGraph can amortize
+preprocessing across many MessagePassing runs, so it is the first choice for
+subgraph optimization.
 
 ### 5.3 Neighbor × feature 2D tiling
 
-对 feature width 16–256 的 workload，同时 tile neighbor 和 feature：
+For workloads with feature widths of 16–256, tile neighbor and feature
+simultaneously:
 
 ```text
 CTA.x → destination/neighbor partition
 CTA.y or subgroup/lane → feature tile
 ```
 
-它通常比“完整 subgraph 放进 shared”更容易先实现，也能直接控制 coalescing、reducer
-register pressure 和 occupancy。
+This is usually easier to implement first than "put the whole subgraph in
+shared", and it directly controls coalescing, reducer register pressure, and
+occupancy.
 
 ### 5.4 Dynamic cell-tile staging/fusion
 
-一个 CTA 处理一个或多个 spatial cells，把本 cell/neighbor cell 的 position/short
-feature tile 分批搬入 shared，然后计算 pair message。后续可选择：
+One CTA handles one or more spatial cells, staging the position/short-feature
+tiles of the local and neighbor cells into shared memory in batches, then
+computes pairwise messages. Later options:
 
-- materialize neighbor list；
-- generate-consume fused，不写 edge list；
-- 使用 skin/rebuild condition 跨 timestep 复用。
+- materialize the neighbor list;
+- generate-consume fused, without writing an edge list;
+- reuse across timesteps via a skin/rebuild condition.
 
-该方案适合 feature 很短的粒子仿真；与 StaticGraph subgraph packing 的成本结构不同。
+This scheme suits particle simulations with very short features; its cost
+structure differs from StaticGraph subgraph packing.
 
 ### 5.5 Persistent CTA queue
 
-固定数量 CTA 从 device queue 获取 degree bucket、row chunk 或 cell tile，可以改善极端
-skew 和动态图负载均衡，也可复用部分 worker state。代价是 queue atomic、退出协议、
-occupancy 限制和更复杂的跨 backend lowering。只在普通 overdecomposition 仍有明显
-tail 时实现。
+A fixed number of CTAs pull degree buckets, row chunks, or cell tiles from a
+device queue. This can improve load balancing under extreme skew and dynamic
+graphs, and can reuse some worker state. The costs are queue atomics, exit
+protocols, occupancy limits, and more complex cross-backend lowering. Implement
+it only when ordinary overdecomposition still shows a significant tail.
 
 ### 5.6 Sparse-to-MMA translation
 
-只针对高 feature width、适合 semiring/linear message、局部密度足够的 tile。必须把
-translation、padding 和 preprocessing amortization 纳入 end-to-end 时间。它属于第二
-轮优化，不作为 MessagePassing 通用保证。
+Only for tiles with high feature width, semiring/linear messages, and
+sufficient local density. Translation, padding, and preprocessing amortization
+must all be counted in end-to-end time. This is a second-round optimization,
+not a general guarantee of MessagePassing.
 
-## 6. 建议选择的“明显效果”优化实验
+## 6. The "Clearly Effective" Optimization Experiment to Pick
 
-先保留两个候选，由 naive profile 决定只实现其中一个完整 vertical slice：
+Keep two candidates and let the naive profile decide which single one gets a
+complete vertical slice:
 
-### 候选 A：StaticGraph feature aggregation
+### Candidate A: StaticGraph feature aggregation
 
-Workload：`sum(weight * x[src])`，feature width `16/32/64/128`，同一 topology 重用多次。
+Workload: `sum(weight * x[src])`, feature width `16/32/64/128`, same topology
+reused many times.
 
-比较：
+Compare:
 
 ```text
 edge atomic
@@ -245,13 +275,14 @@ neighbor × feature 2D tile
 subgraph tile + compact source-feature cache
 ```
 
-这个候选最直接验证 subgraph/CTA、dense payload tile 和 preprocessing amortization。
+This candidate most directly validates subgraph/CTA mapping, dense payload
+tiling, and preprocessing amortization.
 
-### 候选 B：Dynamic radius interaction
+### Candidate B: Dynamic radius interaction
 
-Workload：3D positions、短 feature、cutoff interaction，多 timestep。
+Workload: 3D positions, short features, cutoff interaction, multiple timesteps.
 
-比较：
+Compare:
 
 ```text
 cell-list build + materialized CSR + consume
@@ -260,21 +291,27 @@ generate-consume fusion
 Verlet skin + rebuild/reuse
 ```
 
-这个候选最直接验证 DynamicGraph，以及 builder 与 consumer 的联合优化。
+This candidate most directly validates DynamicGraph and the joint optimization
+of builder and consumer.
 
-选择标准不是单 kernel 峰值，而是：
+Selection criteria are not single-kernel peaks, but:
 
-- naive profile 中该瓶颈至少占 end-to-end 时间的 30%；
-- 优化在至少两类输入分布上达到 `>=1.5x` end-to-end speedup；
-- preprocessing/build/copy/padding 全部计时；
-- 不适用输入能自动 fallback，回退不超过 10%；
-- CPU、GPU reference correctness 与空/极端 degree case 全部通过。
+- the bottleneck accounts for at least 30% of end-to-end time in the naive
+  profile;
+- the optimization reaches `>=1.5x` end-to-end speedup on at least two input
+  distributions;
+- preprocessing/build/copy/padding are all timed;
+- inapplicable inputs fall back automatically, with no more than 10%
+  regression;
+- CPU and GPU reference correctness and empty/extreme-degree cases all pass.
 
-`1.5x` 是初始工程门槛，可在获得本机数据后调整。
+`1.5x` is an initial engineering gate and can be adjusted once local data
+exists.
 
-## 7. 从优化反推细粒度语言
+## 7. Deriving the Fine-Grained Language from Optimizations
 
-只有实现并验证上述优化后，才决定细粒度语言是否需要暴露：
+Once the optimizations above are implemented and validated, the validated needs
+determine whether the fine-grained language must expose:
 
 ```text
 neighbor/feature dependent axes
@@ -285,6 +322,7 @@ reuse/rebuild condition
 cooperative staging intent
 ```
 
-即使需要，也优先暴露语义和合法性信息，不暴露 `SM id`、具体 shared-memory 字节布局
-或 CUDA-only primitive。没有被两个以上真实优化共同需要的概念，先保留为内部 IR，
-不进入 public API。
+Even then, prefer exposing semantics and legality information over `SM id`s,
+concrete shared-memory byte layouts, or CUDA-only primitives. A concept not
+jointly needed by two or more real optimizations stays in the internal IR and
+does not enter the public API.

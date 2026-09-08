@@ -65,11 +65,17 @@ def main() -> None:
         if not is_formal_operation(record):
             continue
         for case in record["cases"]:
+            # An operation-level "artifact" replaces the default
+            # roofline.json as the case's canonical measured JSON (e.g.
+            # radius_edge_mlp publishes results.json instead).
+            artifact = record.get("artifact", "roofline.json")
             for filename in required:
+                if filename == "roofline.json":
+                    filename = artifact
                 path = root / operation / case / filename
                 if not path.is_file():
                     missing.append(str(path))
-            json_path = root / operation / case / "roofline.json"
+            json_path = root / operation / case / artifact
             if json_path.is_file():
                 registered_json.add(json_path.resolve())
                 payload = json.loads(json_path.read_text())

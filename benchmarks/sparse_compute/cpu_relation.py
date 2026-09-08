@@ -17,8 +17,8 @@ from scipy.sparse import csr_matrix
 from scipy.sparse._sparsetools import csr_matvec
 import torch
 
-import graphforge as gf
-from graphforge.compiler.cpu_tensor import compile_tensor
+import tiga as gf
+from tiga.compiler.cpu_tensor import compile_tensor
 from benchmarks.common.output_layout import operation_dir
 from benchmarks.common.perf_protocol import evaluate_sota_gates
 from benchmarks.common.plotting import plot_latency, plot_roofline
@@ -47,8 +47,8 @@ def main() -> None:
     if min(args.nodes, args.degree, args.threads, args.repeat) <= 0:
         parser.error("nodes, degree, threads and repeat must be positive")
 
-    os.environ["GRAPHFORGE_TENSOR_BACKEND"] = "native"
-    os.environ["GRAPHFORGE_CPU_THREADS"] = str(args.threads)
+    os.environ["TIGA_TENSOR_BACKEND"] = "native"
+    os.environ["TIGA_CPU_THREADS"] = str(args.threads)
     torch.set_num_threads(args.threads)
     nodes, degree = args.nodes, args.degree
     edges = nodes * degree
@@ -107,7 +107,7 @@ def main() -> None:
             "=f", output._buffer.read(offset=index * 4, bytes=4)
         )[0]
         if abs(found - expected) > 1e-5:
-            raise RuntimeError(f"GraphForge CSR result mismatch at row {index}")
+            raise RuntimeError(f"Tiga CSR result mismatch at row {index}")
     if not np.allclose(scipy_run()[[0, nodes // 2, nodes - 1]], expected):
         raise RuntimeError("SciPy CSR result mismatch")
     if not torch.allclose(
@@ -122,7 +122,7 @@ def main() -> None:
         raise RuntimeError("MessagePassing did not use the native compiler path")
 
     providers = (
-        ("graphforge.llvm.parallel_relation", lambda: executable.launch(output)),
+        ("tiga.llvm.parallel_relation", lambda: executable.launch(output)),
         ("scipy.csr_matvec", scipy_run),
         ("torch.sparse.mm", torch_run),
     )
@@ -148,7 +148,7 @@ def main() -> None:
             "memory_roof": "L2", "samples_ms": raw,
         })
     gate = evaluate_sota_gates(
-        results, {"graphforge.llvm.parallel_relation"},
+        results, {"tiga.llvm.parallel_relation"},
         baselines={"scipy.csr_matvec", "torch.sparse.mm"}, threshold=1.0,
     )[0]
     roof = measure_roof(args.repeat, args.quick)
@@ -157,7 +157,7 @@ def main() -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
     payload = {
         "operation": "cpu_relation", "workload": "weighted CSR SpMV",
-        "case": case, "title_prefix": "GraphForge CPU relation",
+        "case": case, "title_prefix": "Tiga CPU relation",
         "roof": asdict(roof), "results": results,
         "sota_gates": [gate.to_dict()],
         "config": {
@@ -180,7 +180,7 @@ def main() -> None:
         "The native MessagePassing DAG is lowered to fused nested LLVM loops; "
         "the persistent worker pool partitions independent destination ranges. "
         "CSR construction and framework conversion are outside warm timing.\n\n"
-        f"GraphForge: {candidate['milliseconds']:.4f} ms; fastest peer "
+        f"Tiga: {candidate['milliseconds']:.4f} ms; fastest peer "
         f"({peer['provider']}): {peer['milliseconds']:.4f} ms. Gate: "
         f"{'PASS' if gate.passed else 'FAIL'}, speedup "
         f"{gate.speedup_vs_sota:.3f}x, 95% CI "

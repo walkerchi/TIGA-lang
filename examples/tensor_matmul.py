@@ -1,19 +1,21 @@
-"""Native GraphForge Tensor matmul and compiler-derived reverse mode."""
+"""Native Tiga Tensor matmul and compiler-derived reverse mode."""
 
-import graphforge as gf
+import tiga as gf
 
 
+# --8<-- [start:core]
 lhs = gf.tensor(
-    [[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]], requires_grad=True)
+    [[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]], requires_grad=True)  # (M, K)
 rhs = gf.tensor(
-    [[2.0, 1.0], [0.0, 3.0], [4.0, -1.0]], requires_grad=True)
-cotangent = gf.tensor([[1.0, 2.0], [-1.0, 0.5]])
+    [[2.0, 1.0], [0.0, 3.0], [4.0, -1.0]], requires_grad=True)  # (K, N)
+cotangent = gf.tensor([[1.0, 2.0], [-1.0, 0.5]])  # (M, N)
 
-output = lhs @ rhs
+output = lhs @ rhs  # (M, N)
+
 dlhs, drhs = gf.autograd.grad(
     output, (lhs, rhs), grad_output=cotangent)
+# d loss / d lhs = cotangent @ rhsᵀ
+# d loss / d rhs = lhsᵀ @ cotangent
+# --8<-- [end:core]
 
-print("output:", output.tolist())
-print("d(lhs):", dlhs.tolist())
-print("d(rhs):", drhs.tolist())
-print("semantic IR:\n", output.mlir())
+# Inspect the semantic Tensor IR: output.mlir()

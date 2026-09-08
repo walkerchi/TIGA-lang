@@ -30,7 +30,7 @@ jobs:
         id: llvm-cache
         uses: actions/cache@v4
         with:
-          path: ${{ runner.tool_cache }}/graphforge-llvm-22.1.8
+          path: ${{ runner.tool_cache }}/tiga-llvm-22.1.8
           key: llvm-22.1.8-linux-x64-df0e1ecf
 
       - name: Fetch and verify pinned LLVM SDK
@@ -42,15 +42,15 @@ jobs:
           curl --fail --location --retry 5 --output "$archive" \
             "https://github.com/llvm/llvm-project/releases/download/llvmorg-${LLVM_VERSION}/LLVM-${LLVM_VERSION}-Linux-X64.tar.xz"
           echo "${LLVM_ARCHIVE_SHA256}  $archive" | sha256sum --check
-          mkdir -p "${RUNNER_TOOL_CACHE}/graphforge-llvm-${LLVM_VERSION}"
+          mkdir -p "${RUNNER_TOOL_CACHE}/tiga-llvm-${LLVM_VERSION}"
           tar -xJf "$archive" --strip-components=1 \
-            -C "${RUNNER_TOOL_CACHE}/graphforge-llvm-${LLVM_VERSION}"
+            -C "${RUNNER_TOOL_CACHE}/tiga-llvm-${LLVM_VERSION}"
 
       - name: Configure clean compiler build
         shell: bash
         run: |
           set -euxo pipefail
-          sdk="${RUNNER_TOOL_CACHE}/graphforge-llvm-${LLVM_VERSION}"
+          sdk="${RUNNER_TOOL_CACHE}/tiga-llvm-${LLVM_VERSION}"
           test_tools="$RUNNER_TEMP/llvm-test-tools"
           python3 tools/bootstrap_llvm_test_tools.py \
             --llvm-root "$sdk" --output "$test_tools"
@@ -59,13 +59,13 @@ jobs:
             -DMLIR_DIR="$sdk/lib/cmake/mlir" \
             -DLLVM_DIR="$sdk/lib/cmake/llvm" \
             -DLLVM_EXTERNAL_LIT="$test_tools/lit/lit.py" \
-            -DGRAPHFORGE_LLVM_TEST_TOOLS_DIR="$test_tools/bin" \
-            -DGRAPHFORGE_STRICT_LLVM_VERSION=ON \
-            -DGRAPHFORGE_BUNDLE_LLVM_RUNTIME=ON \
+            -DTIGA_LLVM_TEST_TOOLS_DIR="$test_tools/bin" \
+            -DTIGA_STRICT_LLVM_VERSION=ON \
+            -DTIGA_BUNDLE_LLVM_RUNTIME=ON \
             -DPython3_EXECUTABLE="$(command -v python3)"
 
       - name: Build and run MLIR regression suite
-        run: cmake --build build/ci --target check-graphforge --parallel 2
+        run: cmake --build build/ci --target check-tiga --parallel 2
 
       - name: Build wheel from the pinned SDK
         shell: bash
@@ -73,9 +73,9 @@ jobs:
           set -euxo pipefail
           python3 -m venv "$RUNNER_TEMP/build-venv"
           "$RUNNER_TEMP/build-venv/bin/pip" install --upgrade \
-            pip build twine auditwheel mkdocs-material
-          sdk="${RUNNER_TOOL_CACHE}/graphforge-llvm-${LLVM_VERSION}"
-          CMAKE_ARGS="-DMLIR_DIR=$sdk/lib/cmake/mlir -DLLVM_DIR=$sdk/lib/cmake/llvm -DGRAPHFORGE_STRICT_LLVM_VERSION=ON" \
+            pip build twine auditwheel mkdocs-material mkdocs-static-i18n
+          sdk="${RUNNER_TOOL_CACHE}/tiga-llvm-${LLVM_VERSION}"
+          CMAKE_ARGS="-DMLIR_DIR=$sdk/lib/cmake/mlir -DLLVM_DIR=$sdk/lib/cmake/llvm -DTIGA_STRICT_LLVM_VERSION=ON" \
             "$RUNNER_TEMP/build-venv/bin/python" -m build --wheel
           "$RUNNER_TEMP/build-venv/bin/python" -m twine check --strict dist/*.whl
           "$RUNNER_TEMP/build-venv/bin/python" -m auditwheel repair \
@@ -110,6 +110,8 @@ jobs:
           "$RUNNER_TEMP/test-venv/bin/pip" install --no-deps wheelhouse/*.whl
           cd "$GITHUB_WORKSPACE"
           "$RUNNER_TEMP/test-venv/bin/python" -m pytest -q \
+              "$GITHUB_WORKSPACE/tests/python/test_distributed_partitions.py" \
+              "$GITHUB_WORKSPACE/tests/python/test_distributed_runtime.py" \
               "$GITHUB_WORKSPACE/tests/python/test_large_graph_suite.py" \
               "$GITHUB_WORKSPACE/tests/python/test_output_layout.py" \
               "$GITHUB_WORKSPACE/tests/python/test_perf_protocol.py" \
@@ -120,7 +122,7 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: graphforge-linux-wheel
+          name: tiga-linux-wheel
           path: wheelhouse/*.whl
           if-no-files-found: error
 
@@ -136,7 +138,7 @@ jobs:
           python-version: "3.12"
       - uses: actions/download-artifact@v4
         with:
-          name: graphforge-linux-wheel
+          name: tiga-linux-wheel
           path: wheelhouse
       - name: Install wheel, tests, and optional CPU Torch adapter
         shell: bash

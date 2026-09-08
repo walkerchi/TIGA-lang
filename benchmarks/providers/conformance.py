@@ -6,7 +6,7 @@ import argparse
 import json
 from pathlib import Path
 
-from graphforge.codegen import discover_providers, get_provider, provider_conformance
+from tiga.codegen import discover_providers, get_provider, provider_conformance
 
 
 TARGETS = {
@@ -49,7 +49,7 @@ def main() -> None:
             ],
         }
     document = {
-        "schema": "graphforge.provider-conformance.v1",
+        "schema": "tiga.provider-conformance.v1",
         "abi_version": 1,
         "installed_providers": installed,
         "targets": results,

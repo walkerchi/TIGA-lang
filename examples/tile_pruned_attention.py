@@ -2,9 +2,17 @@
 
 import torch
 
-import graphforge as gf
+import tiga as gf
+
+torch.manual_seed(0)
+nodes, heads, width = 1024, 4, 64
+# the streaming kernel reads lane-major storage: build (H, N, D), view as (N, H, D)
+query = torch.randn(heads, nodes, width, device="cuda", dtype=torch.float16).permute(1, 0, 2)
+key = torch.randn(heads, nodes, width, device="cuda", dtype=torch.float16).permute(1, 0, 2)
+value = torch.randn(heads, nodes, width, device="cuda", dtype=torch.float16).permute(1, 0, 2)
 
 
+# --8<-- [start:core]
 class TilePrunedAttention(gf.MessagePassing):
     def __init__(self, threshold):
         super().__init__()
@@ -13,30 +21,19 @@ class TilePrunedAttention(gf.MessagePassing):
         )
 
     def edge(self, src, dst, edge, scale):
-        del edge
         score = (src.key * dst.query).sum(dim=-1) * scale
         return self.reducer(score, src.value)
 
 
-nodes, heads, width = 1024, 4, 64
-query_storage = torch.randn(
-    heads, nodes, width, device="cuda", dtype=torch.float16)
-key_storage = torch.randn_like(query_storage)
-value_storage = torch.randn_like(query_storage)
-query, key, value = (
-    item.permute(1, 0, 2)
-    for item in (query_storage, key_storage, value_storage)
-)
-
 program = TilePrunedAttention(width / nodes)
-output = program(
+output = program(  # (N, H, D)
     graph=gf.Graph.dense(nodes, device="cuda"),
     src={"key": key, "value": value},
     dst={"query": query},
     scale=width**-0.5,
 )
+# --8<-- [end:core]
 
-assert torch.isfinite(output).all()
-print(program.explain())
-print(program.ir("domain"))       # contains block_prune_threshold
-print(program.ir("kernel_ttir"))  # contains dynamic scf.if tile admission
+# Inspect: program.explain()           provider/lowering/cache summary
+#          program.ir("domain")        Domain IR (block_prune_threshold attr)
+#          program.ir("kernel_ttir")   TTIR (dynamic scf.if tile admission)

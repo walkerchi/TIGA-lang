@@ -17,7 +17,7 @@ from pathlib import Path
 
 import torch
 
-import graphforge as gf
+import tiga as gf
 from benchmarks.common.hardware_roofline import measure_roofs
 from benchmarks.common.output_layout import artifact_path
 from benchmarks.common.plotting import plot_latency, plot_roofline, write_report
@@ -189,13 +189,13 @@ def main() -> None:
             directory.strides, directory.neighbor_offsets))
     results = [
         result(
-            "graphforge.compact_cell_directory", directory_graph,
+            "tiga.compact_cell_directory", directory_graph,
             directory_samples, dimensions=args.dimensions,
             particles=args.particles, roof=roof,
             logical_info=logical_info, builder="uniform_cell_directory",
             implementation_bytes=directory_bytes, materialized=False),
         result(
-            "graphforge.materialized_cell_list_csr", cell_graph, cell_samples,
+            "tiga.materialized_cell_list_csr", cell_graph, cell_samples,
             dimensions=args.dimensions, particles=args.particles, roof=roof),
     ]
     skipped = []
@@ -213,11 +213,11 @@ def main() -> None:
         all_pair_samples = samples_ms(
             all_pairs_graph.resolve_csr, device, args.repeat)
         results.append(result(
-            "graphforge.all_pairs_reference", all_pairs_graph, all_pair_samples,
+            "tiga.all_pairs_reference", all_pairs_graph, all_pair_samples,
             dimensions=args.dimensions, particles=args.particles, roof=roof))
     else:
         skipped.append({
-            "provider": "graphforge.all_pairs_reference",
+            "provider": "tiga.all_pairs_reference",
             "reason": f"N={args.particles} exceeds --all-pairs-max={args.all_pairs_max}",
         })
 

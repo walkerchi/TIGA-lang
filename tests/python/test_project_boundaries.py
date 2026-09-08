@@ -7,7 +7,7 @@ import unittest
 
 
 ROOT = Path(__file__).resolve().parents[2]
-CORE = ROOT / "python" / "graphforge"
+CORE = ROOT / "python" / "tiga"
 
 
 class ProjectBoundaryTest(unittest.TestCase):
@@ -41,12 +41,20 @@ class ProjectBoundaryTest(unittest.TestCase):
         self.assertTrue((oracle_dir / "sparse_triton_oracles.py").is_file())
 
     def test_high_level_framework_packages_are_out_of_scope(self):
-        forbidden = ("optim", "optimizer", "nn", "dataset", "datasets")
+        # tiga/nn is the capture adapter (gf.nn.trace): it wraps user
+        # torch.nn modules into compiler-visible DAGs and owns no layers,
+        # losses, or training loops.  Framework surface stays forbidden.
+        forbidden = ("optim", "optimizer", "dataset", "datasets")
         violations = [
             name for name in forbidden
             if (CORE / name).exists() or (CORE / f"{name}.py").exists()
         ]
         self.assertEqual(violations, [])
+        nn_dir = CORE / "nn"
+        self.assertEqual(
+            sorted(path.name for path in nn_dir.iterdir()
+                   if path.suffix == ".py"),
+            ["__init__.py"])
 
     def test_torch_is_an_optional_adapter(self):
         project = tomllib.loads((ROOT / "pyproject.toml").read_text())
@@ -55,21 +63,21 @@ class ProjectBoundaryTest(unittest.TestCase):
 
     def test_release_metadata_names_the_real_repository_and_maintainer(self):
         project = tomllib.loads((ROOT / "pyproject.toml").read_text())["project"]
-        self.assertEqual(project["name"], "graphforge-compiler")
+        self.assertEqual(project["name"], "tiga-lang")
         self.assertEqual(project["authors"], [{"name": "walkerchi"}])
         self.assertEqual(project["maintainers"], [{"name": "walkerchi"}])
         self.assertEqual(
             project["urls"]["Repository"],
-            "https://github.com/walkerchi/graphforge.git",
+            "https://github.com/walkerchi/TIGA-lang.git",
         )
         self.assertEqual(
             project["urls"]["Issues"],
-            "https://github.com/walkerchi/graphforge/issues",
+            "https://github.com/walkerchi/TIGA-lang/issues",
         )
         getting_started = (ROOT / "docs" / "getting-started.md").read_text()
         self.assertNotIn("<repository-url>", getting_started)
         self.assertIn(
-            "git clone https://github.com/walkerchi/graphforge.git",
+            "git clone https://github.com/walkerchi/TIGA-lang.git",
             getting_started,
         )
 
@@ -86,7 +94,7 @@ class ProjectBoundaryTest(unittest.TestCase):
         cmake = (ROOT / "lib" / "Runtime" / "CMakeLists.txt").read_text()
         self.assertRegex(
             cmake,
-            r"LIBRARY DESTINATION graphforge/lib\s+COMPONENT GraphForgeWheel",
+            r"LIBRARY DESTINATION tiga/lib\s+COMPONENT TigaWheel",
         )
 
     def test_major_subsystems_are_packages_not_flat_modules(self):

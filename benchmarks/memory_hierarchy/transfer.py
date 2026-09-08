@@ -9,7 +9,7 @@ from pathlib import Path
 import statistics
 import time
 
-import graphforge as gf
+import tiga as gf
 
 
 def median_ms(operation, repeats: int) -> float:
@@ -26,10 +26,15 @@ def main() -> None:
     parser.add_argument("--bytes", type=int, default=64 << 20)
     parser.add_argument("--repeats", type=int, default=20)
     parser.add_argument(
+        "--quick", action="store_true",
+        help="reduced size/repeats for smoke runs")
+    parser.add_argument(
         "--output", type=Path,
         default=Path("output/memory_hierarchy/hbm_pinned_nvme/results.json"),
     )
     args = parser.parse_args()
+    if args.quick:
+        args.bytes, args.repeats = 4 << 20, 5
     runtime = gf.runtime.HierarchyRuntime()
     try:
         host = runtime.allocate(
@@ -68,7 +73,7 @@ def main() -> None:
             restored_ram.buffer.read(offset=0, bytes=4096) == bytes([0xA5]) * 4096
         )
         result = {
-            "schema": "graphforge.memory-hierarchy.v1",
+            "schema": "tiga.memory-hierarchy.v1",
             "bytes": args.bytes,
             "repeats": args.repeats,
             "correct": correctness,

@@ -13,15 +13,15 @@ import warnings
 
 import torch
 
-import graphforge as gf
-from graphforge.codegen import prepare_ttir_generated_radius
-from graphforge.interop.torch.compiler_bridge import (
+import tiga as gf
+from tiga.codegen import prepare_ttir_generated_radius
+from tiga.interop.torch.compiler_bridge import (
     lower_kernel_to_ttir_plan,
     lower_mlir_stages,
     message_passing_domain_mlir,
 )
-from graphforge.interop.torch.graph import from_native
-from graphforge.compiler.capture import WeightedSumPattern
+from tiga.interop.torch.graph import from_native
+from tiga.compiler.capture import WeightedSumPattern
 from benchmarks.common.hardware_roofline import measure_roofs
 from benchmarks.common.output_layout import operation_dir
 from benchmarks.common.plotting import plot_latency, plot_roofline, write_report
@@ -231,15 +231,15 @@ def main() -> None:
     semantic_bytes = tensor_bytes(positions, x) + x.numel() * x.element_size()
 
     providers = {
-        "graphforge.direct_ttir_generated": (
+        "tiga.direct_ttir_generated": (
             direct_consume, generated_bytes,
             candidate_pairs * (3 * args.dimensions + 1) + 2 * edges,
             "candidate distance tests plus accepted message/reduction"),
-        "graphforge.triton_generated_oracle": (
+        "tiga.triton_generated_oracle": (
             generated_consume, generated_bytes,
             candidate_pairs * (3 * args.dimensions + 1) + 2 * edges,
             "candidate distance tests plus accepted message/reduction"),
-        "graphforge.materialized_csr": (
+        "tiga.materialized_csr": (
             materialized_consume, csr_bytes, useful_flops,
             "accepted-edge distance plus message/reduction"),
         "torch.sparse.precomputed_distance": (
@@ -270,25 +270,25 @@ def main() -> None:
         consumer_results.append(item)
     lifecycle_results = [
         result(
-            "graphforge.dynamic_auto", "relation-reuse",
+            "tiga.dynamic_auto", "relation-reuse",
             wall_samples_ms(generated_reuse, args.repeat),
             nodes=args.particles, edges=edges, useful_flops=useful_flops,
             ideal_bytes=semantic_bytes, implementation_bytes=sparse_bytes,
             roof=roof),
         result(
-            "graphforge.materialized_reuse", "relation-reuse",
+            "tiga.materialized_reuse", "relation-reuse",
             wall_samples_ms(materialized_reuse, args.repeat),
             nodes=args.particles, edges=edges, useful_flops=useful_flops,
             ideal_bytes=semantic_bytes,
             implementation_bytes=csr_bytes, roof=roof),
         result(
-            "graphforge.generated_build_consume", "fresh-build+consume",
+            "tiga.generated_build_consume", "fresh-build+consume",
             wall_samples_ms(generated_build_consume, args.repeat),
             nodes=args.particles, edges=edges, useful_flops=useful_flops,
             ideal_bytes=semantic_bytes,
             implementation_bytes=generated_bytes, roof=roof),
         result(
-            "graphforge.materialized_build_consume", "fresh-build+consume",
+            "tiga.materialized_build_consume", "fresh-build+consume",
             wall_samples_ms(materialized_build_consume, args.repeat),
             nodes=args.particles, edges=edges, useful_flops=useful_flops,
             ideal_bytes=semantic_bytes,
@@ -296,8 +296,8 @@ def main() -> None:
     ]
     lifecycle_gate = evaluate_sota_gates(
         lifecycle_results,
-        {"graphforge.generated_build_consume"},
-        baselines={"graphforge.materialized_build_consume"},
+        {"tiga.generated_build_consume"},
+        baselines={"tiga.materialized_build_consume"},
         threshold=1.0,
     )[0]
     generated_peak_bytes = generated_bytes

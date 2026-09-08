@@ -9,7 +9,7 @@ import time
 import torch
 
 try:
-    import graphforge as gf
+    import tiga as gf
 except ImportError:
     gf = None
 
@@ -129,7 +129,7 @@ def run_cpu(n: int, degree: int, repeat: int):
             ),
             repeat=repeat,
         )
-        print(f"CPU GraphForge ref:  {graphforge_ms:8.3f} ms  "
+        print(f"CPU Tiga ref:  {graphforge_ms:8.3f} ms  "
               f"{edges / graphforge_ms / 1e6:7.3f} Gedge/s")
     return expected
 
@@ -182,7 +182,7 @@ def run_gpu(n: int, degree: int, repeat: int):
             repeat=repeat,
             cuda=True,
         )
-        print(f"GPU GraphForge ref: {graphforge_ms:8.3f} ms  "
+        print(f"GPU Tiga ref: {graphforge_ms:8.3f} ms  "
               f"{edges / graphforge_ms / 1e6:7.3f} Gedge/s")
 
 

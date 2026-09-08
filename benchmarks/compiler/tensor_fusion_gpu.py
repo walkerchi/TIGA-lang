@@ -9,8 +9,8 @@ import platform
 import statistics
 import time
 
-import graphforge as gf
-from graphforge.compiler.gpu_tensor import compile_tensor
+import tiga as gf
+from tiga.compiler.gpu_tensor import compile_tensor
 
 import torch
 
@@ -116,7 +116,7 @@ def main() -> None:
             "compute_capability": [properties.major, properties.minor],
             "torch": torch.__version__,
         },
-        "graphforge": {
+        "tiga": {
             "backend": first.execution["backend"],
             "cold_result_ready_ms": cold_result_ready_ms,
             "compile_ms": first.execution["compile_ms"],

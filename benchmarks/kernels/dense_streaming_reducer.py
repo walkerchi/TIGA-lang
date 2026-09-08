@@ -1,6 +1,6 @@
 """Benchmark-only oracle for a tiled Cartesian streaming reducer.
 
-This deliberately lives outside ``python/graphforge``. It provides a target
+This deliberately lives outside ``python/tiga``. It provides a target
 shape and provider-TTIR inspection oracle while the compiler's generic
 ``DenseLaunch + reducer regions`` lowering is developed.
 """

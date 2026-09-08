@@ -76,7 +76,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip build
           sdk="$RUNNER_TEMP/llvm"
-          CMAKE_ARGS="-DMLIR_DIR=$sdk/lib/cmake/mlir -DLLVM_DIR=$sdk/lib/cmake/llvm -DGRAPHFORGE_STRICT_LLVM_VERSION=ON" \
+          CMAKE_ARGS="-DMLIR_DIR=$sdk/lib/cmake/mlir -DLLVM_DIR=$sdk/lib/cmake/llvm -DTIGA_STRICT_LLVM_VERSION=ON" \
             python -m build --wheel --outdir raw-wheel
 
       - name: Repair Linux wheel

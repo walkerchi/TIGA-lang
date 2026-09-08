@@ -9,8 +9,8 @@ import sys
 import unittest
 from unittest.mock import patch
 
-import graphforge as gf
-from graphforge.compiler.toolchain import find_gf_translate
+import tiga as gf
+from tiga.compiler.toolchain import find_gf_translate
 
 
 def _cuda_available() -> bool:
@@ -23,7 +23,7 @@ def _cuda_available() -> bool:
 
 class TensorRuntimeTest(unittest.TestCase):
     def test_scatter_rows_native_forward_vjp_and_lowering(self):
-        with patch.dict(os.environ, {"GRAPHFORGE_TENSOR_BACKEND": "native"}):
+        with patch.dict(os.environ, {"TIGA_TENSOR_BACKEND": "native"}):
             value = gf.tensor(
                 [[1.0, 2.0], [3.0, 4.0]], requires_grad=True)
             destination = gf.tensor([1, 3], dtype=gf.int64)
@@ -51,7 +51,7 @@ class TensorRuntimeTest(unittest.TestCase):
 
     @unittest.skipUnless(_cuda_available(), "CUDA is unavailable")
     def test_cuda_scatter_rows_forward_vjp_uses_generated_ttir(self):
-        with patch.dict(os.environ, {"GRAPHFORGE_TENSOR_BACKEND": "native"}):
+        with patch.dict(os.environ, {"TIGA_TENSOR_BACKEND": "native"}):
             value = gf.tensor(
                 [[1.0, 2.0], [3.0, 4.0]], device="cuda:0",
                 requires_grad=True,
@@ -80,7 +80,7 @@ class TensorRuntimeTest(unittest.TestCase):
             self.assertEqual(gradient.execution["backend"], "cuda-ttir-triton")
 
     def test_native_execution_cuts_realized_operand_without_cutting_autograd(self):
-        with patch.dict(os.environ, {"GRAPHFORGE_TENSOR_BACKEND": "native"}):
+        with patch.dict(os.environ, {"TIGA_TENSOR_BACKEND": "native"}):
             value = gf.tensor([2.0] * 4096, requires_grad=True)
             materialized = (value * value).realize()
             output = materialized + 1.0
@@ -96,7 +96,7 @@ class TensorRuntimeTest(unittest.TestCase):
             self.assertEqual(gradient.tolist()[:2], [4.0, 4.0])
 
     def test_cuda_driver_launcher_binds_provider_scratch_buffers(self):
-        from graphforge.codegen.ttir import _CUDADriverLauncher
+        from tiga.codegen.ttir import _CUDADriverLauncher
 
         launcher = object.__new__(_CUDADriverLauncher)
         global_scratch = object()
@@ -332,7 +332,7 @@ DONE:
     def test_compiler_bundle_plan_binds_without_torch_or_schedule_guessing(self):
         runtime = gf.runtime
         serialized = """{
-          "schema": "graphforge.executable-bundle-plan.v1",
+          "schema": "tiga.executable-bundle-plan.v1",
           "resources": [{"name":"scratch","memory_space":"device",
             "layout":"packed","device":"provider:0","capacity_bytes":64,
             "snapshot_version":5,"external":false}],
@@ -407,7 +407,7 @@ DONE:
     def test_compiler_bundle_plan_rejects_terminal_or_version_forgery(self):
         runtime = gf.runtime
         base = {
-            "schema": "graphforge.executable-bundle-plan.v1",
+            "schema": "tiga.executable-bundle-plan.v1",
             "invocations": [{
                 "name": "x", "task_kind": "local",
                 "phase": "execute",
@@ -598,7 +598,7 @@ DONE:
 
     def test_bundle_transfer_consumes_hierarchy_instances(self):
         plan = gf.runtime.ExecutableBundlePlan.parse(r'''{
-          "schema":"graphforge.executable-bundle-plan.v1",
+          "schema":"tiga.executable-bundle-plan.v1",
           "resources":[],
           "invocations":[{
             "name":"prefetch","task_kind":"storage-transfer",
@@ -676,7 +676,7 @@ DONE:
             (gf.complex128, 34.0 + 0.0j),
         )
         with patch.dict(os.environ, {
-            "GRAPHFORGE_TENSOR_BACKEND": "native",
+            "TIGA_TENSOR_BACKEND": "native",
         }):
             for dtype, expected in cases:
                 with self.subTest(dtype=dtype):
@@ -697,12 +697,12 @@ DONE:
             (torch.float64, gf.float64),
         )
         environment = {
-            "GRAPHFORGE_TENSOR_BACKEND": "native",
+            "TIGA_TENSOR_BACKEND": "native",
         }
         translator = find_gf_translate()
         if translator is None:
             self.skipTest("built gf-translate is required")
-        environment["GRAPHFORGE_TRANSLATE"] = translator
+        environment["TIGA_TRANSLATE"] = translator
         with patch.dict(os.environ, environment):
             for torch_dtype, gf_dtype in cases:
                 with self.subTest(dtype=gf_dtype):
@@ -727,12 +727,12 @@ DONE:
             (torch.complex128, gf.complex128),
         )
         environment = {
-            "GRAPHFORGE_TENSOR_BACKEND": "native",
+            "TIGA_TENSOR_BACKEND": "native",
         }
         translator = find_gf_translate()
         if translator is None:
             self.skipTest("built gf-translate is required")
-        environment["GRAPHFORGE_TRANSLATE"] = translator
+        environment["TIGA_TRANSLATE"] = translator
         with patch.dict(os.environ, environment):
             for torch_dtype, gf_dtype in cases:
                 with self.subTest(dtype=gf_dtype):
@@ -863,7 +863,7 @@ DONE:
         value = gf.tensor(
             [[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]], requires_grad=True
         )
-        with patch.dict(os.environ, {"GRAPHFORGE_TENSOR_BACKEND": "native"}):
+        with patch.dict(os.environ, {"TIGA_TENSOR_BACKEND": "native"}):
             prefix = value.cumsum(1)
             suffix = value.cumsum(-1, reverse=True)
             self.assertEqual(prefix.tolist(), [[1.0, 3.0, 6.0], [4.0, 9.0, 15.0]])
@@ -884,7 +884,7 @@ DONE:
         source_torch = torch.randn((7, 19, 5), device="cuda")
         cotangent_torch = torch.randn_like(source_torch)
         source = gf.from_torch(source_torch, requires_grad=True)
-        with patch.dict(os.environ, {"GRAPHFORGE_TENSOR_BACKEND": "native"}):
+        with patch.dict(os.environ, {"TIGA_TENSOR_BACKEND": "native"}):
             output = source.cumsum(1)
             actual = output.to_torch()
             gradient = gf.autograd.grad(
@@ -919,7 +919,7 @@ DONE:
         output = (
             q.unsqueeze(-1).broadcast_to(state_shape) * lifted.cumsum(1)
         ).sum(axis=2)
-        with patch.dict(os.environ, {"GRAPHFORGE_TENSOR_BACKEND": "native"}):
+        with patch.dict(os.environ, {"TIGA_TENSOR_BACKEND": "native"}):
             actual = output.to_torch()
         expected = (
             q_torch.unsqueeze(-1)
@@ -954,7 +954,7 @@ DONE:
             gf.autograd.grad(value.sum(), value, checkpoint="unknown")
 
     def test_native_checkpoint_planner_selects_save_or_recompute_by_budget(self):
-        from graphforge.compiler.native import checkpoint_plan, plan_checkpoints
+        from tiga.compiler.native import checkpoint_plan, plan_checkpoints
 
         value = gf.tensor([1.0, 2.0, 3.0, 4.0], requires_grad=True)
         index = gf.tensor([3, 1, 0], dtype=gf.int64)
@@ -989,10 +989,10 @@ DONE:
         self.assertEqual(spilled["peak_spill_bytes"], 12)
         self.assertIn('storage_tier = "host-pinned"', spilled["ir"])
 
-        from graphforge.compiler.gpu_tensor import _physicalize_storage
+        from tiga.compiler.gpu_tensor import _physicalize_storage
 
         with patch.dict(
-            os.environ, {"GRAPHFORGE_CHECKPOINT_BUDGET_BYTES": "0"}
+            os.environ, {"TIGA_CHECKPOINT_BUDGET_BYTES": "0"}
         ):
             physical, _, actual_saved, _, plan = _physicalize_storage(gradient)
         self.assertEqual(actual_saved, 0)
@@ -1021,7 +1021,7 @@ DONE:
     def test_native_codegen_fuses_shape_expression(self):
         lhs = gf.tensor([[[1.0, 2.0, 3.0]], [[4.0, 5.0, 6.0]]])
         rhs = gf.tensor([[[10.0], [20.0], [30.0], [40.0]]])
-        with patch.dict(os.environ, {"GRAPHFORGE_TENSOR_BACKEND": "native"}):
+        with patch.dict(os.environ, {"TIGA_TENSOR_BACKEND": "native"}):
             output = (lhs * rhs + lhs).sum((0, 2), keepdims=True)
             self.assertEqual(
                 output.tolist(),
@@ -1042,7 +1042,7 @@ DONE:
     def test_native_cpu_contiguous_pointwise_uses_vector_ir_and_scalar_tail(self):
         lhs = gf.tensor([float(index) for index in range(33)])
         rhs = gf.tensor([2.0] * 33)
-        with patch.dict(os.environ, {"GRAPHFORGE_TENSOR_BACKEND": "native"}):
+        with patch.dict(os.environ, {"TIGA_TENSOR_BACKEND": "native"}):
             output = (lhs * rhs + lhs).sqrt()
             actual = output.tolist()
         expected = [(3.0 * index) ** 0.5 for index in range(33)]
@@ -1050,7 +1050,7 @@ DONE:
             self.assertAlmostEqual(found, wanted, places=5)
         loops = output.generated_code("cpu_loop")
         llvm = output.generated_code("llvm")
-        self.assertIn("graphforge.cpu.vector_width = 16", loops)
+        self.assertIn("tiga.cpu.vector_width = 16", loops)
         self.assertIn("vector.load", loops)
         self.assertIn("vector.store", loops)
         self.assertIn("vector<16xf32>", llvm)
@@ -1077,7 +1077,7 @@ DONE:
             drhs.tolist(),
             [[-3.0, 4.0], [-3.0, 6.5], [-3.0, 9.0]],
         )
-        with patch.dict(os.environ, {"GRAPHFORGE_TENSOR_BACKEND": "native"}):
+        with patch.dict(os.environ, {"TIGA_TENSOR_BACKEND": "native"}):
             compiled = lhs @ rhs
             self.assertEqual(compiled.tolist(), [[14.0, 4.0], [32.0, 13.0]])
         self.assertEqual(compiled.execution["backend"], "cpu-llvm-jit")
@@ -1166,7 +1166,7 @@ DONE:
 
     def test_native_complex_codegen(self):
         value = gf.tensor([1.0 + 2.0j, 3.0 - 4.0j])
-        with patch.dict(os.environ, {"GRAPHFORGE_TENSOR_BACKEND": "native"}):
+        with patch.dict(os.environ, {"TIGA_TENSOR_BACKEND": "native"}):
             output = (value * value.conj()).sum(
                 axis=0, keepdims=True
             )
@@ -1220,15 +1220,15 @@ DONE:
         package_parent = Path(gf.__file__).resolve().parent.parent
         environment = {
             "PYTHONPATH": str(package_parent),
-            "GRAPHFORGE_RUNTIME_LIBRARY": str(gf.runtime._library()._name),
-            "GRAPHFORGE_TENSOR_BACKEND": "native",
+            "TIGA_RUNTIME_LIBRARY": str(gf.runtime._library()._name),
+            "TIGA_TENSOR_BACKEND": "native",
         }
         completed = subprocess.run(
             [
                 sys.executable,
                 "-S",
                 "-c",
-                "import graphforge as gf; "
+                "import tiga as gf; "
                 "x=gf.tensor([2.,3.], requires_grad=True); "
                 "assert gf.autograd.grad((x*x).sum(), x).tolist()==[4.,6.]",
             ],
@@ -1251,7 +1251,7 @@ class NoTorch(importlib.abc.MetaPathFinder):
             raise ModuleNotFoundError("torch import forbidden", name="torch")
         return None
 sys.meta_path.insert(0, NoTorch())
-import graphforge as gf
+import tiga as gf
 view = gf.tensor([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]], device="cuda")
 assert view.permute(1, 0).tolist() == [[1.0, 4.0], [2.0, 5.0], [3.0, 6.0]]
 x = gf.tensor([float(i % 17) for i in range(8192)], device="cuda")
@@ -1274,10 +1274,10 @@ assert "torch" not in sys.modules
             env={
                 **os.environ,
                 "PYTHONPATH": str(repository / "python"),
-                "GRAPHFORGE_RUNTIME_LIBRARY": str(gf.runtime._library()._name),
-                "GRAPHFORGE_TENSOR_BACKEND": "native",
-                "GRAPHFORGE_TRANSLATE": find_gf_translate() or "",
-                "GRAPHFORGE_COMPILE_WORKER": "0",
+                "TIGA_RUNTIME_LIBRARY": str(gf.runtime._library()._name),
+                "TIGA_TENSOR_BACKEND": "native",
+                "TIGA_TRANSLATE": find_gf_translate() or "",
+                "TIGA_COMPILE_WORKER": "0",
             },
             text=True,
             capture_output=True,
@@ -1286,7 +1286,7 @@ assert "torch" not in sys.modules
         self.assertEqual(completed.returncode, 0, completed.stderr)
 
     def test_tensor_mlir_has_no_external_tool_frontend(self):
-        import graphforge.compiler.tensor_mlir as tensor_mlir_module
+        import tiga.compiler.tensor_mlir as tensor_mlir_module
 
         self.assertFalse(hasattr(tensor_mlir_module, "find_gf_opt"))
         value = gf.tensor([1.0, 2.0]) + 1.0
@@ -1299,14 +1299,14 @@ assert "torch" not in sys.modules
                 sys.executable,
                 "-S",
                 "-c",
-                "import graphforge as gf; "
+                "import tiga as gf; "
                 "assert gf.sum().specialization_key()==('sum',0,False); "
                 "assert gf.online_softmax().name=='online_softmax'",
             ],
             env={
                 **os.environ,
                 "PYTHONPATH": str(repository / "python"),
-                "GRAPHFORGE_RUNTIME_LIBRARY": str(gf.runtime._library()._name),
+                "TIGA_RUNTIME_LIBRARY": str(gf.runtime._library()._name),
             },
             text=True,
             capture_output=True,
@@ -1335,7 +1335,7 @@ assert "torch" not in sys.modules
         x = gf.from_torch(torch_x)
         scale = gf.from_torch(torch_scale)
         self.assertEqual(x.to_torch().data_ptr(), torch_x.data_ptr())
-        with patch.dict(os.environ, {"GRAPHFORGE_TENSOR_BACKEND": "native"}):
+        with patch.dict(os.environ, {"TIGA_TENSOR_BACKEND": "native"}):
             output = (x * scale + x).sum(axis=1)
             actual = output.to_torch()
         expected = (torch_x * torch_scale + torch_x).sum(dim=1)
@@ -1355,8 +1355,8 @@ assert "torch" not in sys.modules
         lhs = gf.from_torch(lhs_torch, requires_grad=True)
         rhs = gf.from_torch(rhs_torch, requires_grad=True)
         with patch.dict(os.environ, {
-            "GRAPHFORGE_TENSOR_BACKEND": "native",
-            "GRAPHFORGE_MATMUL_PROVIDER": "ttir",
+            "TIGA_TENSOR_BACKEND": "native",
+            "TIGA_MATMUL_PROVIDER": "ttir",
         }):
             output = lhs @ rhs
             actual = output.to_torch()
@@ -1370,8 +1370,8 @@ assert "torch" not in sys.modules
         dlhs, drhs = gf.autograd.grad(
             output, (lhs, rhs), grad_output=gf.from_torch(cotangent_torch))
         with patch.dict(os.environ, {
-            "GRAPHFORGE_TENSOR_BACKEND": "native",
-            "GRAPHFORGE_MATMUL_PROVIDER": "ttir",
+            "TIGA_TENSOR_BACKEND": "native",
+            "TIGA_MATMUL_PROVIDER": "ttir",
         }):
             dlhs_torch = dlhs.to_torch()
             drhs_torch = drhs.to_torch()
@@ -1392,8 +1392,8 @@ assert "torch" not in sys.modules
         rhs_torch = torch.randn((96, 71), device="cuda", dtype=torch.float16)
         output = gf.from_torch(lhs_torch) @ gf.from_torch(rhs_torch)
         with patch.dict(os.environ, {
-            "GRAPHFORGE_TENSOR_BACKEND": "native",
-            "GRAPHFORGE_MATMUL_PROVIDER": "auto",
+            "TIGA_TENSOR_BACKEND": "native",
+            "TIGA_MATMUL_PROVIDER": "auto",
         }):
             actual = output.to_torch()
         torch.testing.assert_close(
@@ -1435,7 +1435,7 @@ assert "torch" not in sys.modules
             checkpoint="auto")
 
         self.assertIn("checkpoint_candidate", gradient.expression())
-        with patch.dict(os.environ, {"GRAPHFORGE_TENSOR_BACKEND": "native"}):
+        with patch.dict(os.environ, {"TIGA_TENSOR_BACKEND": "native"}):
             actual = gradient.to_torch()
         destination = torch.arange(nodes, device="cuda").repeat_interleave(degree)
         expected = torch_dy[destination] * torch_x[col_idx]
@@ -1485,9 +1485,9 @@ assert "torch" not in sys.modules
             checkpoint="auto",
         )
         environment = {
-            "GRAPHFORGE_TENSOR_BACKEND": "native",
-            "GRAPHFORGE_CHECKPOINT_BUDGET_BYTES": "0",
-            "GRAPHFORGE_CHECKPOINT_SPILL_BUDGET_BYTES": str(edges * 4),
+            "TIGA_TENSOR_BACKEND": "native",
+            "TIGA_CHECKPOINT_BUDGET_BYTES": "0",
+            "TIGA_CHECKPOINT_SPILL_BUDGET_BYTES": str(edges * 4),
         }
         with patch.dict(os.environ, environment):
             actual = gradient.to_torch()
@@ -1538,7 +1538,7 @@ assert "torch" not in sys.modules
         self.assertEqual(gradient.shape, (edges, 1))
         self.assertIn("checkpoint_candidate", gradient.expression())
         self.assertIn("sum", gradient.expression())
-        with patch.dict(os.environ, {"GRAPHFORGE_TENSOR_BACKEND": "native"}):
+        with patch.dict(os.environ, {"TIGA_TENSOR_BACKEND": "native"}):
             actual = gradient.to_torch()
         expected = (
             torch_dy[destination] * torch_x[col_idx]

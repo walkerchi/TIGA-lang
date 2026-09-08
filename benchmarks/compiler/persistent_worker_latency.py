@@ -39,11 +39,11 @@ def main() -> None:
     if not torch.cuda.is_available():
         raise SystemExit("CUDA is required")
 
-    with tempfile.TemporaryDirectory(prefix="graphforge-worker-cache-") as cache:
+    with tempfile.TemporaryDirectory(prefix="tiga-worker-cache-") as cache:
         os.environ["TRITON_CACHE_DIR"] = cache
-        os.environ["GRAPHFORGE_COMPILE_WORKER"] = "1"
-        from graphforge.codegen.compile_worker import _WORKER
-        from graphforge.codegen.ttir import compile_ttir
+        os.environ["TIGA_COMPILE_WORKER"] = "1"
+        from tiga.codegen.compile_worker import _WORKER
+        from tiga.codegen.ttir import compile_ttir
 
         started = time.perf_counter_ns()
         cold = compile_ttir(MODULE, options={"num_warps": 1})

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from graphforge.codegen import (
+from tiga.codegen import (
     ProviderCapabilities, get_provider, provider_conformance,
     register_provider,
 )

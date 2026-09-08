@@ -108,7 +108,7 @@ def evaluate_sota_gates(
         raise ValueError("SOTA threshold must be positive")
     if bootstrap_resamples <= 0:
         raise ValueError("bootstrap_resamples must be positive")
-    ignored = {"graphforge.reference"}
+    ignored = {"tiga.reference"}
     if ignored_providers is not None:
         ignored.update(ignored_providers)
 

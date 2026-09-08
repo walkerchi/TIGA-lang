@@ -1,15 +1,19 @@
-"""Compiler-runtime storage instances: RAM -> NVMe -> RAM."""
+"""Chainable tensor spill: .disk() writes, .cpu() reads — gf owns the files."""
 
-import graphforge as gf
+import torch
 
+import tiga as gf
 
-with gf.runtime.HierarchyRuntime(budgets={"ram": 1024, "nvme": 1024}) as runtime:
-    source = runtime.allocate("state", 7, tier="ram", capacity_bytes=16)
-    source.buffer.write(b"GraphForge-state")
-    spill = runtime.allocate("state", 7, tier="nvme", capacity_bytes=16)
-    runtime.transfer(source, spill).wait()
-    source.close()
-    restored = runtime.allocate("state", 7, tier="ram", capacity_bytes=16)
-    runtime.transfer(spill, restored).wait()
-    assert restored.buffer.read() == b"GraphForge-state"
-    print(runtime.peak_live_bytes)
+# --8<-- [start:core]
+values = gf.from_torch(torch.arange(8, dtype=torch.float32))  # (8,)
+values.disk()  # write the payload to the spill store, free the buffer
+back = values.cpu()  # read it back — any later use would reload lazily anyway
+
+# Persist across processes: name the spill. Another process attaches it with
+#   gf.from_disk("layer-3-activations")
+values.disk(name="layer-3-activations")
+# --8<-- [end:core]
+
+# Anonymous spills are deleted when the tensor is collected or the process
+# exits. Named spills live in TIGA_SPILL_DIR or ~/.cache/tiga/spill
+# until you delete them.

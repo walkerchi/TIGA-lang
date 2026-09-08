@@ -1,1 +1,1 @@
-"""Benchmark-only handwritten oracles; never imported by graphforge."""
+"""Benchmark-only handwritten oracles; never imported by tiga."""

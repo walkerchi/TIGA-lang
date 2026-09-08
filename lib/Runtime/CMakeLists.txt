@@ -12,7 +12,7 @@ set_target_properties(GraphForgeRuntime PROPERTIES
 
 install(
   TARGETS GraphForgeRuntime
-  LIBRARY DESTINATION graphforge/lib
-    COMPONENT GraphForgeWheel
-  RUNTIME DESTINATION graphforge/lib
-    COMPONENT GraphForgeWheel)
+  LIBRARY DESTINATION tiga/lib
+    COMPONENT TigaWheel
+  RUNTIME DESTINATION tiga/lib
+    COMPONENT TigaWheel)

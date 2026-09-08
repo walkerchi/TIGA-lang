@@ -6,7 +6,7 @@ import argparse
 
 import torch
 
-import graphforge as gf
+import tiga as gf
 
 
 class Diffusion(gf.MessagePassing):

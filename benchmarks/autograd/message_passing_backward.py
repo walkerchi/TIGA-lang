@@ -1,9 +1,9 @@
 """Static CSR MessagePassing VJP roofline: generated vs handwritten kernels.
 
-The forward UDF is ``y[dst] = sum_e weight[e] * x[src]``. GraphForge derives
+The forward UDF is ``y[dst] = sum_e weight[e] * x[src]``. Tiga derives
 both source and per-edge-weight gradients from this UDF. The dweight case
 reports the explicit saved-primal policy needed for an honest backward-only
-comparison; benchmark-only handwritten Triton remains outside GraphForge.
+comparison; benchmark-only handwritten Triton remains outside Tiga.
 """
 
 from __future__ import annotations
@@ -15,9 +15,9 @@ import warnings
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
-import graphforge as gf
+import tiga as gf
 import torch
-from graphforge.interop.torch.relation_vjp import compile_source_vjp
+from tiga.interop.torch.relation_vjp import compile_source_vjp
 
 from benchmarks.common.hardware_roofline import measure_roofs, samples_ms
 from benchmarks.common.output_layout import artifact_path
@@ -128,7 +128,7 @@ def main() -> None:
         native_gradient = gf.autograd.grad(
             native_output, native_weight, grad_output=native_dy,
             checkpoint=args.checkpoint)
-        from graphforge.compiler.gpu_tensor import compile_tensor
+        from tiga.compiler.gpu_tensor import compile_tensor
         generated_executable = compile_tensor(native_gradient)
         native_gradient.to_torch()
         generated_launch = generated_executable.prepare(native_gradient)
@@ -170,7 +170,7 @@ def main() -> None:
         if oracle_plan is None:
             raise RuntimeError("benchmark-only handwritten Triton oracle is unavailable")
         providers = {
-            "graphforge.generated_vjp": lambda: generated(cotangent),
+            "tiga.generated_vjp": lambda: generated(cotangent),
             "torch.autograd": torch_autograd,
             "torch.sparse.transpose": torch_explicit,
             "handwritten.triton": lambda: oracle_plan.run(
@@ -196,7 +196,7 @@ def main() -> None:
         if oracle_plan is None or saved_oracle_plan is None:
             raise RuntimeError("matched handwritten Triton oracle is unavailable")
         providers = {
-            "graphforge.generated_vjp": graphforge_generated,
+            "tiga.generated_vjp": graphforge_generated,
             "torch.autograd": torch_autograd,
             "torch.explicit_gather": torch_explicit,
             "handwritten.triton.recompute": (
@@ -235,7 +235,7 @@ def main() -> None:
         if args.gradient == "dweight":
             saved_policy = (
                 name in {"torch.autograd", "handwritten.triton.saved"}
-                or (name == "graphforge.generated_vjp"
+                or (name == "tiga.generated_vjp"
                     and args.checkpoint != "recompute")
             )
             physical_bytes = edges * (
@@ -260,35 +260,35 @@ def main() -> None:
             arithmetic_intensity_flop_per_byte=intensity, samples_ms=raw,
             compile_ms=((generated.compile_ms if args.gradient == "dx" else
                          generated_executable.compile_ms)
-                        if name == "graphforge.generated_vjp" else None),
+                        if name == "tiga.generated_vjp" else None),
             materialize_ms=((generated.materialize_ms if args.gradient == "dx"
                              else generated_executable.materialize_ms)
-                            if name == "graphforge.generated_vjp" else None),
+                            if name == "tiga.generated_vjp" else None),
             lowering=((generated.transform if args.gradient == "dx" else
                        "gf-tensor-vjp-to-pointwise-ttir")
-                      if name == "graphforge.generated_vjp" else None),
+                      if name == "tiga.generated_vjp" else None),
             checkpoint_policy=(args.checkpoint if args.gradient == "dweight"
-                               and name == "graphforge.generated_vjp" else None),
+                               and name == "tiga.generated_vjp" else None),
             saved_bytes=((generated_executable.saved_bytes
                           if args.gradient == "dweight" else 0)
-                         if name == "graphforge.generated_vjp" else
+                         if name == "tiga.generated_vjp" else
                          (saved_source.nbytes if saved_policy else 0)
                          if args.gradient == "dweight" else None),
             physical_ideal_bytes=physical_bytes,
             saved_compile_ms=((generated_executable.saved_compile_ms
                               if args.gradient == "dweight" else 0.0)
-                              if name == "graphforge.generated_vjp" else None),
+                              if name == "tiga.generated_vjp" else None),
             checkpoint_planning_ms=(
                 float(generated_executable.checkpoint_plan["planning_ms"])
                 if args.gradient == "dweight"
-                and name == "graphforge.generated_vjp"
+                and name == "tiga.generated_vjp"
                 and generated_executable.checkpoint_plan is not None
                 else None
             ),
             checkpoint_native_load_ms=(
                 float(generated_executable.checkpoint_plan["native_load_ms"])
                 if args.gradient == "dweight"
-                and name == "graphforge.generated_vjp"
+                and name == "tiga.generated_vjp"
                 and generated_executable.checkpoint_plan is not None
                 else None
             ),
@@ -298,16 +298,16 @@ def main() -> None:
                 + float(generated_executable.checkpoint_plan["planning_ms"])
                 + float(generated_executable.checkpoint_plan["native_load_ms"])
                 if args.gradient == "dweight"
-                and name == "graphforge.generated_vjp"
+                and name == "tiga.generated_vjp"
                 and generated_executable.checkpoint_plan is not None
                 else generated.compile_ms
                 if args.gradient == "dx"
-                and name == "graphforge.generated_vjp"
+                and name == "tiga.generated_vjp"
                 else None
             ),
         ))
     gates = evaluate_sota_gates(
-        results, ["graphforge.generated_vjp"],
+        results, ["tiga.generated_vjp"],
         baselines={"torch.autograd", "torch.sparse.transpose",
                    "torch.explicit_gather", "handwritten.triton",
                    "handwritten.triton.recompute",

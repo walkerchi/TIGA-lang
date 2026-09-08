@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-import graphforge as gf
+import tiga as gf
 import pytest
 
 
 def test_for_loop_matches_functional_repeat(monkeypatch):
-    monkeypatch.setenv("GRAPHFORGE_TENSOR_BACKEND", "native")
+    monkeypatch.setenv("TIGA_TENSOR_BACKEND", "native")
 
     @gf.jit
     def integrate(value, rate):
@@ -32,7 +32,7 @@ def test_for_loop_matches_functional_repeat(monkeypatch):
 
 
 def test_while_loop_matches_functional_form_and_zero_trip(monkeypatch):
-    monkeypatch.setenv("GRAPHFORGE_TENSOR_BACKEND", "native")
+    monkeypatch.setenv("TIGA_TENSOR_BACKEND", "native")
 
     @gf.jit(max_iterations=10)
     def countdown(value, threshold):
@@ -46,14 +46,14 @@ def test_while_loop_matches_functional_form_and_zero_trip(monkeypatch):
     assert semantic.count("gf_control.while") == 1
     lowered = (final.execution or {})["artifacts"]["cpu_loop"]
     assert "scf.while" in lowered
-    assert "graphforge.cpu.max_iterations = 10" in lowered
+    assert "tiga.cpu.max_iterations = 10" in lowered
 
     already = countdown(gf.tensor(1.0, dtype=gf.float32), 2.5)
     assert already.tolist() == pytest.approx(1.0)
 
 
 def test_for_with_leading_break_is_bounded_while(monkeypatch):
-    monkeypatch.setenv("GRAPHFORGE_TENSOR_BACKEND", "native")
+    monkeypatch.setenv("TIGA_TENSOR_BACKEND", "native")
 
     @gf.jit
     def fixed_point(value, tolerance):
@@ -67,11 +67,11 @@ def test_for_with_leading_break_is_bounded_while(monkeypatch):
     assert final.tolist() == pytest.approx(0.25)
     assert final.mlir().count("gf_control.while") == 1
     lowered = (final.execution or {})["artifacts"]["cpu_loop"]
-    assert "graphforge.cpu.max_iterations = 100" in lowered
+    assert "tiga.cpu.max_iterations = 100" in lowered
 
 
 def test_loop_variable_desugars_to_carried_index(monkeypatch):
-    monkeypatch.setenv("GRAPHFORGE_TENSOR_BACKEND", "native")
+    monkeypatch.setenv("TIGA_TENSOR_BACKEND", "native")
 
     @gf.jit
     def sweep(value):
@@ -98,7 +98,7 @@ def test_loop_variable_desugars_to_carried_index(monkeypatch):
 
 
 def test_body_locals_stay_out_of_carried_state(monkeypatch):
-    monkeypatch.setenv("GRAPHFORGE_TENSOR_BACKEND", "native")
+    monkeypatch.setenv("TIGA_TENSOR_BACKEND", "native")
 
     @gf.jit
     def step(value):
@@ -121,7 +121,7 @@ class _ScaledLaplacian(gf.MessagePassing):
 
 
 def test_message_passing_inside_jit_loop(monkeypatch):
-    monkeypatch.setenv("GRAPHFORGE_TENSOR_BACKEND", "native")
+    monkeypatch.setenv("TIGA_TENSOR_BACKEND", "native")
     graph = gf.Graph.from_csr(
         gf.tensor([0, 2, 4], dtype=gf.int64),
         gf.tensor([0, 1, 0, 1], dtype=gf.int64),
@@ -203,7 +203,7 @@ def test_unsupported_constructs_fail_closed():
 
 
 def test_tensor_if_is_rejected_outside_loops(monkeypatch):
-    monkeypatch.setenv("GRAPHFORGE_TENSOR_BACKEND", "native")
+    monkeypatch.setenv("TIGA_TENSOR_BACKEND", "native")
 
     @gf.jit
     def branchy(value):

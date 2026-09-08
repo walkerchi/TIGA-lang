@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-labelledby="title desc">
+  <title id="title">Tiga</title>
+  <desc id="desc">An open ring and lowering chevron.</desc>
+  <path d="M91 31A43 43 0 1 0 91 97"
+        fill="none" stroke="#101216" stroke-width="12" stroke-linecap="round"/>
+  <path d="m82 49 17 15-17 15" fill="none" stroke="#168bff" stroke-width="10"
+        stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

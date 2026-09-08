@@ -1,4 +1,4 @@
-"""GraphForge Tensor matmul roofline against an external vendor baseline."""
+"""Tiga Tensor matmul roofline against an external vendor baseline."""
 
 from __future__ import annotations
 
@@ -12,12 +12,12 @@ import time
 
 import torch
 
-import graphforge as gf
+import tiga as gf
 from benchmarks.common.hardware_roofline import measure_roofs, samples_ms
 from benchmarks.common.output_layout import operation_dir
 from benchmarks.common.perf_protocol import evaluate_sota_gates
 from benchmarks.common.plotting import plot_latency, plot_roofline, write_report
-from graphforge.compiler.gpu_tensor import compile_tensor
+from tiga.compiler.gpu_tensor import compile_tensor
 
 
 def main() -> None:
@@ -54,8 +54,8 @@ def main() -> None:
     rhs = gf.from_torch(rhs_torch)
     output = lhs @ rhs
 
-    previous_provider = os.environ.get("GRAPHFORGE_MATMUL_PROVIDER")
-    os.environ["GRAPHFORGE_MATMUL_PROVIDER"] = args.provider
+    previous_provider = os.environ.get("TIGA_MATMUL_PROVIDER")
+    os.environ["TIGA_MATMUL_PROVIDER"] = args.provider
     try:
         cold_started = time.perf_counter_ns()
         executable = compile_tensor(output)
@@ -65,9 +65,9 @@ def main() -> None:
         graphforge_launch = executable.prepare(output)
     finally:
         if previous_provider is None:
-            os.environ.pop("GRAPHFORGE_MATMUL_PROVIDER", None)
+            os.environ.pop("TIGA_MATMUL_PROVIDER", None)
         else:
-            os.environ["GRAPHFORGE_MATMUL_PROVIDER"] = previous_provider
+            os.environ["TIGA_MATMUL_PROVIDER"] = previous_provider
 
     def graphforge_run():
         graphforge_launch()
@@ -84,7 +84,7 @@ def main() -> None:
         (args.m * args.k + args.k * args.n + args.m * args.n) * 2)
     intensity = flops / common_bytes
     providers = (
-        ("graphforge.compiler_auto", graphforge_run),
+        ("tiga.compiler_auto", graphforge_run),
         ("torch.mm.cublas", vendor_run),
     )
     results = []
@@ -103,7 +103,7 @@ def main() -> None:
             "memory_roof": "DRAM", "samples_ms": raw,
         })
     gates = evaluate_sota_gates(
-        results, {"graphforge.compiler_auto"},
+        results, {"tiga.compiler_auto"},
         baselines={"torch.mm.cublas"}, threshold=1.0)
     gate = gates[0]
     vendor_gflops = results[1]["achieved_gflops"]
@@ -145,12 +145,12 @@ def main() -> None:
     write_report(payload, None, None, None, output_dir)
     (output_dir / "REPORT.md").write_text(
         "# Dense matmul calibration\n\n"
-        "GraphForge preserves the native `gf.Tensor` contraction as "
+        "Tiga preserves the native `gf.Tensor` contraction as "
         "`gf_tensor.matmul`. The selected provider is reported explicitly; "
         "`auto` may dispatch a legal contiguous FP16 contraction to cuBLAS, "
         "while `--provider ttir` measures compiler-emitted `tt.dot`. Neither "
         "path dispatches through Torch.\n\n"
-        f"GraphForge: {results[0]['milliseconds']:.4f} ms "
+        f"Tiga: {results[0]['milliseconds']:.4f} ms "
         f"({results[0]['achieved_gflops']/1000:.2f} TFLOP/s).  "
         f"cuBLAS through torch.mm: {results[1]['milliseconds']:.4f} ms "
         f"({vendor_gflops/1000:.2f} TFLOP/s).  Strict SOTA gate: "

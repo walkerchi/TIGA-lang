@@ -1,6 +1,6 @@
 """Matched horizontal-fusion benchmark for two CSR reductions.
 
-GraphForge's measured candidate is produced by the complete compiler pipeline:
+Tiga's measured candidate is produced by the complete compiler pipeline:
 two typed ``gf.apply`` operations, horizontal-fusion, Domain→Iter→Kernel,
 schedule selection, Kernel→TTIR, and the active vendor provider.  The Triton
 kernel below is deliberately only a handwritten SOTA/oracle comparator.
@@ -18,14 +18,14 @@ from pathlib import Path
 
 import torch
 
-import graphforge as gf
+import tiga as gf
 from benchmarks.common.hardware_roofline import measure_roofs, samples_ms
 from benchmarks.common.output_layout import artifact_path
 from benchmarks.common.perf_protocol import evaluate_sota_gates
 from benchmarks.common.plotting import plot_latency, plot_roofline, write_report
-from graphforge.codegen import prepare_ttir_csr_product
-from graphforge.compiler.toolchain import find_gf_opt, find_gf_translate
-from graphforge.interop.torch.compiler_bridge import (
+from tiga.codegen import prepare_ttir_csr_product
+from tiga.compiler.toolchain import find_gf_opt, find_gf_translate
+from tiga.interop.torch.compiler_bridge import (
     lower_kernel_to_ttir,
     parse_kernel_ttir_plan,
 )
@@ -191,8 +191,8 @@ def main():
     block_d = triton.next_power_of_2(degree)
 
     providers = {
-        "graphforge.compiler_fused": lambda: compiler_plan.run(x, w0, x, w1),
-        "graphforge.unfused": lambda: (
+        "tiga.compiler_fused": lambda: compiler_plan.run(x, w0, x, w1),
+        "tiga.unfused": lambda: (
             leaf(graph=graph, src={"x": x}, dst={}, edge={"weight": w0}),
             leaf(graph=graph, src={"x": x}, dst={}, edge={"weight": w1}),
         ),
@@ -242,12 +242,12 @@ def main():
             optimistic_roof_gflops=optimistic,
             percent_of_optimistic_roof=100.0 * achieved / optimistic,
             samples_ms=raw,
-            compile_ms=compile_ms if name == "graphforge.compiler_fused" else None,
+            compile_ms=compile_ms if name == "tiga.compiler_fused" else None,
             lowering=("gf.apply-product→Kernel→TTIR"
-                      if name == "graphforge.compiler_fused" else None),
+                      if name == "tiga.compiler_fused" else None),
         ))
     gates = evaluate_sota_gates(
-        results, {"graphforge.compiler_fused"}, threshold=1.0)
+        results, {"tiga.compiler_fused"}, threshold=1.0)
     case = f"cuda_n{nodes}_degree{degree}_{args.index_dtype}"
     output = args.json or artifact_path("horizontal_fusion", case)
     payload = {

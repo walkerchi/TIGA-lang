@@ -1,0 +1,84 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="680" height="420" viewBox="0 0 680 420" role="img" aria-labelledby="title desc">
+  <title id="title">Causal: the upper triangle does not exist</title>
+  <desc id="desc">The same attention matrix with only the lower triangle filled, j at most i. Cells above the diagonal are absent edges, not masked-out scores.</desc>
+  <defs><style>
+      text{font-family:Arial,sans-serif}
+      .title{font-size:20px;font-weight:700;fill:#0f172a}
+      .body{font-size:12.5px;fill:#334155}
+      .mono{font-family:Consolas,monospace;font-size:12px;fill:#312e81}
+      .axis{font-size:11.5px;fill:#64748b}
+      .cap{font-size:11px;fill:#64748b}
+</style></defs>
+  <rect width="680" height="420" rx="18" fill="#f8fafc" />
+  <text x="32" y="44" class="title">Causal: the upper triangle does not exist</text>
+<rect x="150" y="112" width="28" height="28" rx="3" fill="#4f46e5" stroke="#ffffff" stroke-width="1.5" />
+  <rect x="178" y="112" width="28" height="28" rx="3" fill="#ffffff" stroke="#e2e8f0" stroke-width="1.5" />
+  <rect x="206" y="112" width="28" height="28" rx="3" fill="#ffffff" stroke="#e2e8f0" stroke-width="1.5" />
+  <rect x="234" y="112" width="28" height="28" rx="3" fill="#ffffff" stroke="#e2e8f0" stroke-width="1.5" />
+  <rect x="262" y="112" width="28" height="28" rx="3" fill="#ffffff" stroke="#e2e8f0" stroke-width="1.5" />
+  <rect x="290" y="112" width="28" height="28" rx="3" fill="#ffffff" stroke="#e2e8f0" stroke-width="1.5" />
+  <rect x="318" y="112" width="28" height="28" rx="3" fill="#ffffff" stroke="#e2e8f0" stroke-width="1.5" />
+  <rect x="346" y="112" width="28" height="28" rx="3" fill="#ffffff" stroke="#e2e8f0" stroke-width="1.5" />
+  <rect x="150" y="140" width="28" height="28" rx="3" fill="#4f46e5" stroke="#ffffff" stroke-width="1.5" />
+  <rect x="178" y="140" width="28" height="28" rx="3" fill="#4f46e5" stroke="#ffffff" stroke-width="1.5" />
+  <rect x="206" y="140" width="28" height="28" rx="3" fill="#ffffff" stroke="#e2e8f0" stroke-width="1.5" />
+  <rect x="234" y="140" width="28" height="28" rx="3" fill="#ffffff" stroke="#e2e8f0" stroke-width="1.5" />
+  <rect x="262" y="140" width="28" height="28" rx="3" fill="#ffffff" stroke="#e2e8f0" stroke-width="1.5" />
+  <rect x="290" y="140" width="28" height="28" rx="3" fill="#ffffff" stroke="#e2e8f0" stroke-width="1.5" />
+  <rect x="318" y="140" width="28" height="28" rx="3" fill="#ffffff" stroke="#e2e8f0" stroke-width="1.5" />
+  <rect x="346" y="140" width="28" height="28" rx="3" fill="#ffffff" stroke="#e2e8f0" stroke-width="1.5" />
+  <rect x="150" y="168" width="28" height="28" rx="3" fill="#4f46e5" stroke="#ffffff" stroke-width="1.5" />
+  <rect x="178" y="168" width="28" height="28" rx="3" fill="#4f46e5" stroke="#ffffff" stroke-width="1.5" />
+  <rect x="206" y="168" width="28" height="28" rx="3" fill="#4f46e5" stroke="#ffffff" stroke-width="1.5" />
+  <rect x="234" y="168" width="28" height="28" rx="3" fill="#ffffff" stroke="#e2e8f0" stroke-width="1.5" />
+  <rect x="262" y="168" width="28" height="28" rx="3" fill="#ffffff" stroke="#e2e8f0" stroke-width="1.5" />
+  <rect x="290" y="168" width="28" height="28" rx="3" fill="#ffffff" stroke="#e2e8f0" stroke-width="1.5" />
+  <rect x="318" y="168" width="28" height="28" rx="3" fill="#ffffff" stroke="#e2e8f0" stroke-width="1.5" />
+  <rect x="346" y="168" width="28" height="28" rx="3" fill="#ffffff" stroke="#e2e8f0" stroke-width="1.5" />
+  <rect x="150" y="196" width="28" height="28" rx="3" fill="#4f46e5" stroke="#ffffff" stroke-width="1.5" />
+  <rect x="178" y="196" width="28" height="28" rx="3" fill="#4f46e5" stroke="#ffffff" stroke-width="1.5" />
+  <rect x="206" y="196" width="28" height="28" rx="3" fill="#4f46e5" stroke="#ffffff" stroke-width="1.5" />
+  <rect x="234" y="196" width="28" height="28" rx="3" fill="#4f46e5" stroke="#ffffff" stroke-width="1.5" />
+  <rect x="262" y="196" width="28" height="28" rx="3" fill="#ffffff" stroke="#e2e8f0" stroke-width="1.5" />
+  <rect x="290" y="196" width="28" height="28" rx="3" fill="#ffffff" stroke="#e2e8f0" stroke-width="1.5" />
+  <rect x="318" y="196" width="28" height="28" rx="3" fill="#ffffff" stroke="#e2e8f0" stroke-width="1.5" />
+  <rect x="346" y="196" width="28" height="28" rx="3" fill="#ffffff" stroke="#e2e8f0" stroke-width="1.5" />
+  <rect x="150" y="224" width="28" height="28" rx="3" fill="#4f46e5" stroke="#ffffff" stroke-width="1.5" />
+  <rect x="178" y="224" width="28" height="28" rx="3" fill="#4f46e5" stroke="#ffffff" stroke-width="1.5" />
+  <rect x="206" y="224" width="28" height="28" rx="3" fill="#4f46e5" stroke="#ffffff" stroke-width="1.5" />
+  <rect x="234" y="224" width="28" height="28" rx="3" fill="#4f46e5" stroke="#ffffff" stroke-width="1.5" />
+  <rect x="262" y="224" width="28" height="28" rx="3" fill="#4f46e5" stroke="#ffffff" stroke-width="1.5" />
+  <rect x="290" y="224" width="28" height="28" rx="3" fill="#ffffff" stroke="#e2e8f0" stroke-width="1.5" />
+  <rect x="318" y="224" width="28" height="28" rx="3" fill="#ffffff" stroke="#e2e8f0" stroke-width="1.5" />
+  <rect x="346" y="224" width="28" height="28" rx="3" fill="#ffffff" stroke="#e2e8f0" stroke-width="1.5" />
+  <rect x="150" y="252" width="28" height="28" rx="3" fill="#4f46e5" stroke="#ffffff" stroke-width="1.5" />
+  <rect x="178" y="252" width="28" height="28" rx="3" fill="#4f46e5" stroke="#ffffff" stroke-width="1.5" />
+  <rect x="206" y="252" width="28" height="28" rx="3" fill="#4f46e5" stroke="#ffffff" stroke-width="1.5" />
+  <rect x="234" y="252" width="28" height="28" rx="3" fill="#4f46e5" stroke="#ffffff" stroke-width="1.5" />
+  <rect x="262" y="252" width="28" height="28" rx="3" fill="#4f46e5" stroke="#ffffff" stroke-width="1.5" />
+  <rect x="290" y="252" width="28" height="28" rx="3" fill="#4f46e5" stroke="#ffffff" stroke-width="1.5" />
+  <rect x="318" y="252" width="28" height="28" rx="3" fill="#ffffff" stroke="#e2e8f0" stroke-width="1.5" />
+  <rect x="346" y="252" width="28" height="28" rx="3" fill="#ffffff" stroke="#e2e8f0" stroke-width="1.5" />
+  <rect x="150" y="280" width="28" height="28" rx="3" fill="#4f46e5" stroke="#ffffff" stroke-width="1.5" />
+  <rect x="178" y="280" width="28" height="28" rx="3" fill="#4f46e5" stroke="#ffffff" stroke-width="1.5" />
+  <rect x="206" y="280" width="28" height="28" rx="3" fill="#4f46e5" stroke="#ffffff" stroke-width="1.5" />
+  <rect x="234" y="280" width="28" height="28" rx="3" fill="#4f46e5" stroke="#ffffff" stroke-width="1.5" />
+  <rect x="262" y="280" width="28" height="28" rx="3" fill="#4f46e5" stroke="#ffffff" stroke-width="1.5" />
+  <rect x="290" y="280" width="28" height="28" rx="3" fill="#4f46e5" stroke="#ffffff" stroke-width="1.5" />
+  <rect x="318" y="280" width="28" height="28" rx="3" fill="#4f46e5" stroke="#ffffff" stroke-width="1.5" />
+  <rect x="346" y="280" width="28" height="28" rx="3" fill="#ffffff" stroke="#e2e8f0" stroke-width="1.5" />
+  <rect x="150" y="308" width="28" height="28" rx="3" fill="#4f46e5" stroke="#ffffff" stroke-width="1.5" />
+  <rect x="178" y="308" width="28" height="28" rx="3" fill="#4f46e5" stroke="#ffffff" stroke-width="1.5" />
+  <rect x="206" y="308" width="28" height="28" rx="3" fill="#4f46e5" stroke="#ffffff" stroke-width="1.5" />
+  <rect x="234" y="308" width="28" height="28" rx="3" fill="#4f46e5" stroke="#ffffff" stroke-width="1.5" />
+  <rect x="262" y="308" width="28" height="28" rx="3" fill="#4f46e5" stroke="#ffffff" stroke-width="1.5" />
+  <rect x="290" y="308" width="28" height="28" rx="3" fill="#4f46e5" stroke="#ffffff" stroke-width="1.5" />
+  <rect x="318" y="308" width="28" height="28" rx="3" fill="#4f46e5" stroke="#ffffff" stroke-width="1.5" />
+  <rect x="346" y="308" width="28" height="28" rx="3" fill="#4f46e5" stroke="#ffffff" stroke-width="1.5" />
+  <text x="262" y="96" text-anchor="middle" class="axis">j · key / value (src)</text>
+  <text x="132" y="224" text-anchor="middle" class="axis" transform="rotate(-90 132 224)">i · query (dst)</text>
+  <text x="262" y="368" text-anchor="middle" class="cap">filled cell = edge j→i</text>
+  <text x="430" y="170" class="body">j ≤ i keeps N(N+1)/2 edges</text>
+  <text x="430" y="194" class="body">the upper triangle is not masked —</text>
+  <text x="430" y="218" class="body">it does not exist</text>
+</svg>

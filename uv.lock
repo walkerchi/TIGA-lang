@@ -699,90 +699,6 @@ wheels = [
 ]
 
 [[package]]
-name = "graphforge-compiler"
-version = "0.1.0a1"
-source = { editable = "." }
-
-[package.optional-dependencies]
-benchmarks = [
-    { name = "matplotlib", version = "3.10.9", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
-    { name = "matplotlib", version = "3.11.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
-    { name = "torch" },
-]
-cuda = [
-    { name = "triton" },
-]
-dev = [
-    { name = "build" },
-    { name = "matplotlib", version = "3.10.9", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
-    { name = "matplotlib", version = "3.11.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
-    { name = "mkdocs-material" },
-    { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
-    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.11.*'" },
-    { name = "numpy", version = "2.5.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
-    { name = "pillow" },
-    { name = "pytest" },
-    { name = "torch" },
-    { name = "triton" },
-    { name = "twine" },
-]
-docs = [
-    { name = "mkdocs-material" },
-]
-mpi = [
-    { name = "mpi4py" },
-]
-nccl-cu12 = [
-    { name = "nvidia-nccl-cu12" },
-]
-test = [
-    { name = "lit" },
-    { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
-    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.11.*'" },
-    { name = "numpy", version = "2.5.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
-    { name = "pillow" },
-    { name = "pytest" },
-    { name = "torch" },
-]
-torch = [
-    { name = "torch" },
-]
-visualization = [
-    { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
-    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.11.*'" },
-    { name = "numpy", version = "2.5.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
-    { name = "pillow" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "build", marker = "extra == 'dev'", specifier = ">=1.2" },
-    { name = "lit", marker = "extra == 'test'", specifier = ">=18" },
-    { name = "matplotlib", marker = "extra == 'benchmarks'", specifier = ">=3.8" },
-    { name = "matplotlib", marker = "extra == 'dev'", specifier = ">=3.8" },
-    { name = "mkdocs-material", marker = "extra == 'dev'", specifier = ">=9.6" },
-    { name = "mkdocs-material", marker = "extra == 'docs'", specifier = ">=9.6" },
-    { name = "mpi4py", marker = "extra == 'mpi'", specifier = ">=4" },
-    { name = "numpy", marker = "extra == 'dev'", specifier = ">=1.24" },
-    { name = "numpy", marker = "extra == 'test'", specifier = ">=1.24" },
-    { name = "numpy", marker = "extra == 'visualization'", specifier = ">=1.24" },
-    { name = "nvidia-nccl-cu12", marker = "extra == 'nccl-cu12'", specifier = ">=2.28" },
-    { name = "pillow", marker = "extra == 'dev'", specifier = ">=10" },
-    { name = "pillow", marker = "extra == 'test'", specifier = ">=10" },
-    { name = "pillow", marker = "extra == 'visualization'", specifier = ">=10" },
-    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8" },
-    { name = "pytest", marker = "extra == 'test'", specifier = ">=8" },
-    { name = "torch", marker = "extra == 'benchmarks'", specifier = ">=2.1" },
-    { name = "torch", marker = "extra == 'dev'", specifier = ">=2.1" },
-    { name = "torch", marker = "extra == 'test'", specifier = ">=2.1" },
-    { name = "torch", marker = "extra == 'torch'", specifier = ">=2.1" },
-    { name = "triton", marker = "extra == 'cuda'", specifier = ">=3.3" },
-    { name = "triton", marker = "extra == 'dev'", specifier = ">=3.3" },
-    { name = "twine", marker = "extra == 'dev'", specifier = ">=5.1" },
-]
-provides-extras = ["torch", "cuda", "nccl-cu12", "benchmarks", "visualization", "docs", "test", "mpi", "dev"]
-
-[[package]]
 name = "id"
 version = "1.6.1"
 source = { registry = "https://pypi.org/simple" }
@@ -1368,6 +1284,18 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/79/9b/9b4c96d6593b2a541e1cb8b34899a6d021d208bb357042823d4d2cabdbe7/mkdocs_material_extensions-1.3.1.tar.gz", hash = "sha256:10c9511cea88f568257f960358a467d12b970e1f7b2c0e5fb2bb48cab1928443", size = 11847, upload-time = "2023-11-22T19:09:45.208Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/5b/54/662a4743aa81d9582ee9339d4ffa3c8fd40a4965e033d77b9da9774d3960/mkdocs_material_extensions-1.3.1-py3-none-any.whl", hash = "sha256:adff8b62700b25cb77b53358dad940f3ef973dd6db797907c49e3c2ef3ab4e31", size = 8728, upload-time = "2023-11-22T19:09:43.465Z" },
+]
+
+[[package]]
+name = "mkdocs-static-i18n"
+version = "1.3.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "mkdocs" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/ce/f9/51e2ffda9c7210bc35a24f3717b08c052cd4b728dfa87f901c00d8005259/mkdocs_static_i18n-1.3.1.tar.gz", hash = "sha256:a6125ea7db6cc1a900d76a967f262535af09831160a93c56d7f0d522a79b5faf", size = 1371325, upload-time = "2026-02-20T10:42:41.835Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/6a/0b/43ff4afb6b438d47718b1959a22075ed95d8460d8c47381878b37a40de63/mkdocs_static_i18n-1.3.1-py3-none-any.whl", hash = "sha256:4036e24795a150c9c4d4b001ed24a43aec01335f76188dbe5a5d8fb4a27eba65", size = 21853, upload-time = "2026-02-20T10:42:40.551Z" },
 ]
 
 [[package]]
@@ -2287,6 +2215,94 @@ sdist = { url = "https://files.pythonhosted.org/packages/83/d3/803453b36afefb7c2
 wheels = [
     { url = "https://files.pythonhosted.org/packages/a2/09/77d55d46fd61b4a135c444fc97158ef34a095e5681d0a6c10b75bf356191/sympy-1.14.0-py3-none-any.whl", hash = "sha256:e091cc3e99d2141a0ba2847328f5479b05d94a6635cb96148ccb3f34671bd8f5", size = 6299353, upload-time = "2025-04-27T18:04:59.103Z" },
 ]
+
+[[package]]
+name = "tiga-lang"
+version = "0.1.0"
+source = { editable = "." }
+
+[package.optional-dependencies]
+benchmarks = [
+    { name = "matplotlib", version = "3.10.9", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
+    { name = "matplotlib", version = "3.11.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
+    { name = "torch" },
+]
+cuda = [
+    { name = "triton" },
+]
+dev = [
+    { name = "build" },
+    { name = "matplotlib", version = "3.10.9", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
+    { name = "matplotlib", version = "3.11.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
+    { name = "mkdocs-material" },
+    { name = "mkdocs-static-i18n" },
+    { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
+    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.11.*'" },
+    { name = "numpy", version = "2.5.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
+    { name = "pillow" },
+    { name = "pytest" },
+    { name = "torch" },
+    { name = "triton" },
+    { name = "twine" },
+]
+docs = [
+    { name = "mkdocs-material" },
+    { name = "mkdocs-static-i18n" },
+]
+mpi = [
+    { name = "mpi4py" },
+]
+nccl-cu12 = [
+    { name = "nvidia-nccl-cu12" },
+]
+test = [
+    { name = "lit" },
+    { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
+    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.11.*'" },
+    { name = "numpy", version = "2.5.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
+    { name = "pillow" },
+    { name = "pytest" },
+    { name = "torch" },
+]
+torch = [
+    { name = "torch" },
+]
+visualization = [
+    { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
+    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.11.*'" },
+    { name = "numpy", version = "2.5.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
+    { name = "pillow" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "build", marker = "extra == 'dev'", specifier = ">=1.2" },
+    { name = "lit", marker = "extra == 'test'", specifier = ">=18" },
+    { name = "matplotlib", marker = "extra == 'benchmarks'", specifier = ">=3.8" },
+    { name = "matplotlib", marker = "extra == 'dev'", specifier = ">=3.8" },
+    { name = "mkdocs-material", marker = "extra == 'dev'", specifier = ">=9.6" },
+    { name = "mkdocs-material", marker = "extra == 'docs'", specifier = ">=9.6" },
+    { name = "mkdocs-static-i18n", marker = "extra == 'dev'", specifier = ">=1.3" },
+    { name = "mkdocs-static-i18n", marker = "extra == 'docs'", specifier = ">=1.3" },
+    { name = "mpi4py", marker = "extra == 'mpi'", specifier = ">=4" },
+    { name = "numpy", marker = "extra == 'dev'", specifier = ">=1.24" },
+    { name = "numpy", marker = "extra == 'test'", specifier = ">=1.24" },
+    { name = "numpy", marker = "extra == 'visualization'", specifier = ">=1.24" },
+    { name = "nvidia-nccl-cu12", marker = "extra == 'nccl-cu12'", specifier = ">=2.28" },
+    { name = "pillow", marker = "extra == 'dev'", specifier = ">=10" },
+    { name = "pillow", marker = "extra == 'test'", specifier = ">=10" },
+    { name = "pillow", marker = "extra == 'visualization'", specifier = ">=10" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8" },
+    { name = "pytest", marker = "extra == 'test'", specifier = ">=8" },
+    { name = "torch", marker = "extra == 'benchmarks'", specifier = ">=2.1" },
+    { name = "torch", marker = "extra == 'dev'", specifier = ">=2.1" },
+    { name = "torch", marker = "extra == 'test'", specifier = ">=2.1" },
+    { name = "torch", marker = "extra == 'torch'", specifier = ">=2.1" },
+    { name = "triton", marker = "extra == 'cuda'", specifier = ">=3.3" },
+    { name = "triton", marker = "extra == 'dev'", specifier = ">=3.3" },
+    { name = "twine", marker = "extra == 'dev'", specifier = ">=5.1" },
+]
+provides-extras = ["torch", "cuda", "nccl-cu12", "benchmarks", "visualization", "docs", "test", "mpi", "dev"]
 
 [[package]]
 name = "tomli"
