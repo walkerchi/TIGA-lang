@@ -323,24 +323,26 @@ def _matched_panel_records(
     return records
 
 
-def _showcase_badge(provider: str, primary: bool) -> str:
-    if primary:
-        return "GF"
-    if provider.startswith("tiga."):
-        return "AUTO"
-    if provider.startswith("torch.compile"):
-        return "TC"
-    if provider.startswith("torch"):
-        return "PT"
-    if provider.startswith("pyg"):
-        return "PyG"
-    if provider.startswith(("triton", "handwritten")):
-        return "TR"
-    if provider.startswith("warp"):
-        return "WP"
-    if provider.startswith("flash_sparse_attn."):
-        return "FSA"
-    return "PEER"
+def _showcase_provider_label(provider: str) -> str:
+    """Use readable method names, never unexplained provider badges."""
+    labels = {
+        "tiga.prepared_auto": "Tiga (automatic)",
+        "tiga.compiler_chunked_tail": "Tiga (chunked-tail)",
+        "tiga-compiled-tile": "Tiga (compiled tile)",
+        "tiga.generated_vjp": "Tiga (compiled backward)",
+        "tiga.control": "Tiga (compiled loop)",
+        "tiga.compiler_tile_pruned": "Tiga (tile-pruned)",
+        "torch.sparse.mm": "PyTorch sparse.mm",
+        "torch.compile.index_add": "torch.compile (index_add)",
+        "torch-eager": "PyTorch eager",
+        "torch.autograd": "PyTorch autograd",
+        "pyg.message_passing": "PyTorch Geometric",
+        "triton.csr": "Triton (handwritten)",
+        "handwritten.triton": "Triton (handwritten)",
+        "warp-fused": "NVIDIA Warp (fused)",
+        "flash_sparse_attn.official": "Flash Sparse Attention",
+    }
+    return labels.get(provider, provider)
 
 
 def plot_release_showcase(manifest: dict, root: Path, output: Path) -> Path:
@@ -355,65 +357,54 @@ def plot_release_showcase(manifest: dict, root: Path, output: Path) -> Path:
         raise ValueError("the README showcase requires exactly six panels")
 
     docs_style.apply()
-    fig = plt.figure(figsize=(18.0, 10.6))
+    fig = plt.figure(figsize=(16.0, 12.0))
     grid = fig.add_gridspec(
-        2, 3, left=0.055, right=0.965, bottom=0.12, top=0.705,
-        wspace=0.34, hspace=0.56,
+        3, 2, left=0.035, right=0.965, bottom=0.09, top=0.79,
+        wspace=0.14, hspace=0.65,
     )
     fig.text(
-        0.045, 0.94, "Compiler Performance Evaluation",
-        ha="left", va="top", fontsize=31, fontweight="normal",
+        0.035, 0.97, "Tiga performance on six workloads",
+        ha="left", va="top", fontsize=27, fontweight="normal",
         color=docs_style.TEXT,
     )
     fig.text(
-        0.045, 0.875,
-        "6 matched workloads · fixed semantics and baselines · median latency · higher is better",
-        ha="left", va="top", fontsize=15.5, color=docs_style.TEXT,
+        0.035, 0.92,
+        "Speedup = baseline median latency / method median latency · higher is better",
+        ha="left", va="top", fontsize=13, color=docs_style.TEXT,
     )
     fig.add_artist(Line2D(
-        [0.045, 0.955], [0.825, 0.825], transform=fig.transFigure,
-        color=docs_style.SLATE, alpha=0.55, linewidth=2.0,
+        [0.035, 0.965], [0.855, 0.855], transform=fig.transFigure,
+        color=docs_style.SLATE, alpha=0.4, linewidth=1.0,
     ))
     fig.legend(
         handles=(
-            Patch(facecolor=docs_style.GF, label="Tiga compiled path"),
-            Patch(facecolor=docs_style.GF_SOFT,
-                  label="Tiga auto alternative"),
-            Patch(facecolor="#c3ccd9", label="Matched peer"),
+            Patch(facecolor=docs_style.GF, label="Tiga"),
+            Patch(facecolor="#c3ccd9", label="Comparison methods"),
         ),
-        loc="upper left", bbox_to_anchor=(0.043, 0.808), ncol=3,
-        frameon=False, fontsize=13.5, handlelength=0.8, handleheight=0.8,
+        loc="upper left", bbox_to_anchor=(0.028, 0.892), ncol=2,
+        frameon=False, fontsize=12, handlelength=0.8, handleheight=0.8,
         columnspacing=2.0, handletextpad=0.45,
     )
-    fig.text(
-        0.925, 0.92, "G›", ha="center", va="center", color="white",
-        fontsize=20, fontweight="bold",
-        bbox={"boxstyle": "round,pad=0.42,rounding_size=0.2",
-              "facecolor": "#0b0d10", "edgecolor": "none"},
-    )
-
-    peer_colors = ("#c3ccd9", "#d9dfe8", "#e9edf2")
     for index, (panel, selected, baseline_ms) in enumerate(records):
-        ax = fig.add_subplot(grid[index // 3, index % 3])
+        ax = fig.add_subplot(grid[index // 2, index % 2])
         providers = panel["providers"]
         relative = np.asarray([
             baseline_ms / float(selected[name]["milliseconds"])
             for name in providers
         ])
-        colors = [docs_style.GF] + [
-            docs_style.GF_SOFT if name.startswith("tiga.")
-            else peer_colors[min(peer_index, len(peer_colors) - 1)]
-            for peer_index, name in enumerate(providers[1:])
+        colors = [
+            docs_style.GF if name.startswith(("tiga.", "tiga-"))
+            else "#c3ccd9" for name in providers
         ]
         positions = np.arange(len(providers))
-        bars = ax.bar(
-            positions, relative, width=0.74, color=colors,
+        bars = ax.barh(
+            positions, relative, height=0.48, color=colors,
             edgecolor="none", zorder=3,
         )
-        ceiling = max(1.18, float(relative.max()) * 1.22)
-        ax.set_ylim(0, ceiling)
-        ax.set_xlim(-0.55, len(providers) - 0.45)
-        ax.axhline(0, color=docs_style.SLATE, linewidth=1.2)
+        ceiling = max(1.0, float(relative.max()))
+        ax.set_ylim(4.55, -0.7)
+        ax.set_xlim(-ceiling * 1.20, ceiling * 1.25)
+        ax.axvline(0, color=docs_style.SLATE, linewidth=0.7)
         ax.set_xticks([])
         ax.set_yticks([])
         ax.grid(False)
@@ -423,39 +414,34 @@ def plot_release_showcase(manifest: dict, root: Path, output: Path) -> Path:
             zip(bars, providers, relative, strict=True)
         ):
             ax.text(
-                bar.get_x() + bar.get_width() / 2,
-                bar.get_height() + ceiling * 0.025,
-                f"{ratio:.2f}×", ha="center", va="bottom",
-                fontsize=15.5,
+                ratio + ceiling * 0.04, item_index,
+                f"{ratio:.2f}×", ha="left", va="center",
+                fontsize=12,
                 fontweight="bold" if item_index == 0 else "normal",
                 color=docs_style.TEXT,
             )
             ax.text(
-                bar.get_x() + bar.get_width() / 2,
-                min(bar.get_height() * 0.72, ceiling * 0.34),
-                _showcase_badge(provider, item_index == 0),
-                ha="center", va="center", fontsize=9.5, fontweight="bold",
-                color="white" if item_index < 2 else docs_style.TEXT,
-                bbox={
-                    "boxstyle": "round,pad=0.34,rounding_size=0.18",
-                    "facecolor": "#0b0d10" if item_index < 2 else "none",
-                    "edgecolor": "none" if item_index < 2 else docs_style.SLATE,
-                    "linewidth": 0.8,
-                },
+                -ceiling * 1.20, item_index,
+                _showcase_provider_label(provider),
+                ha="left", va="center", fontsize=11.5,
+                color=docs_style.TEXT,
             )
         ax.text(
-            0.5, -0.13, panel["title"], transform=ax.transAxes,
-            ha="center", va="center", fontsize=12.5, fontweight="bold",
+            0, 1.24, panel["title"], transform=ax.transAxes,
+            ha="left", va="bottom", fontsize=15, fontweight="bold",
             color=docs_style.TEXT,
-            bbox={"boxstyle": "round,pad=0.38,rounding_size=0.9",
-                  "facecolor": "none", "edgecolor": docs_style.SLATE,
-                  "linewidth": 1.1},
+        )
+        ax.text(
+            0, 1.08,
+            "1.00× baseline: " + _showcase_provider_label(panel["baseline"]),
+            transform=ax.transAxes, ha="left", va="bottom",
+            fontsize=10, color=docs_style.TEXT,
         )
         detail = panel.get("detail")
         if detail:
             ax.text(
-                0.5, -0.25, detail, transform=ax.transAxes,
-                ha="center", va="top", fontsize=8.2, color=docs_style.TEXT,
+                0, -0.05, detail, transform=ax.transAxes,
+                ha="left", va="top", fontsize=9, color=docs_style.TEXT,
             )
 
     fig.text(

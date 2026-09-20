@@ -193,6 +193,12 @@ class PlotBenchmarksTest(unittest.TestCase):
             }, output, output / "compiler-overview.png")
             self.assertTrue(showcase.exists())
             self.assertTrue(showcase.with_suffix(".svg").exists())
+            import xml.etree.ElementTree as ET
+            labels = [node.text for node in ET.parse(showcase.with_suffix(".svg"))
+                      .iter('{http://www.w3.org/2000/svg}text')]
+            self.assertIn('PyTorch sparse.mm', labels)
+            self.assertNotIn('PT', labels)
+            self.assertNotIn('GF', labels)
             interactive = write_interactive_compiler_report({
                 "report_panels": [showcase_panel],
             }, output, output / "compiler-report.html")

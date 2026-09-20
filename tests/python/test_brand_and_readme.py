@@ -7,6 +7,19 @@ import xml.etree.ElementTree as ET
 ROOT = Path(__file__).resolve().parents[2]
 
 
+def test_readme_chart_names_methods_without_internal_badges():
+    chart = ET.parse(ROOT/'docs/assets/compiler-performance-overview.svg')
+    labels = [''.join(node.itertext()) for node in
+              chart.iter('{http://www.w3.org/2000/svg}text')]
+    assert not set(labels) & {'GF', 'PT', 'TC', 'TR', 'WP', 'FSA', 'AUTO', 'PEER', 'G›', 'PyG'}
+    for name in ('Tiga (automatic)', 'PyTorch sparse.mm',
+                 'torch.compile (index_add)', 'PyTorch Geometric',
+                 'Triton (handwritten)', 'NVIDIA Warp (fused)',
+                 'Flash Sparse Attention'):
+        assert name in labels
+    assert sum(label.startswith('1.00× baseline:') for label in labels) == 6
+
+
 def test_mark_is_a_flat_triangular_emblem_with_geometric_g():
     root = ET.parse(ROOT/'assets/tiga-mark.svg').getroot()
     ns = '{http://www.w3.org/2000/svg}'
