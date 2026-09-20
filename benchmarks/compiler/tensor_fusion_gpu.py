@@ -79,12 +79,12 @@ def main() -> None:
     first_torch = first.to_torch()
     cold_result_ready_ms = (time.perf_counter_ns() - begin) / 1e6
     executable = compile_tensor(first)
-    graphforge_kernel = _events(lambda: executable.launch(first), args.repeat)
+    tiga_kernel = _events(lambda: executable.launch(first), args.repeat)
 
-    def graphforge_e2e():
+    def tiga_e2e():
         return (x * scale + x).sum(axis=1).to_torch()
 
-    graphforge_e2e_measurement = _wall(graphforge_e2e, args.repeat)
+    tiga_e2e_measurement = _wall(tiga_e2e, args.repeat)
 
     def eager():
         return (x_torch * scale_torch + x_torch).sum(dim=1)
@@ -123,8 +123,8 @@ def main() -> None:
             "first_launch_ms": first.execution["launch_ms"],
             "semantic_hash": first.execution["semantic_hash"],
             "artifact_kinds": sorted(first.execution["artifacts"]),
-            "kernel": graphforge_kernel,
-            "python_e2e": graphforge_e2e_measurement,
+            "kernel": tiga_kernel,
+            "python_e2e": tiga_e2e_measurement,
         },
         "torch_eager": torch_eager,
         "torch_compile": {

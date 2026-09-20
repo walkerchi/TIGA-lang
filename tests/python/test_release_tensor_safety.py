@@ -92,9 +92,9 @@ def test_inference_tokens_never_validate_a_mutation_cache():
 
 def test_extension_discovery_matches_complete_abi_names():
     for suffix in EXTENSION_SUFFIXES:
-        assert _compatible_extension(Path("_graphforge_compiler" + suffix))
-    assert not _compatible_extension(Path("_graphforge_compiler.cpython-999-x86_64-linux-gnu.so"))
-    assert not _compatible_extension(Path("_graphforge_compiler.backup.so"))
+        assert _compatible_extension(Path("_tiga_compiler" + suffix))
+    assert not _compatible_extension(Path("_tiga_compiler.cpython-999-x86_64-linux-gnu.so"))
+    assert not _compatible_extension(Path("_tiga_compiler.backup.so"))
 
 
 def test_editable_tool_discovery_follows_the_loaded_frontend(tmp_path, monkeypatch):
@@ -105,8 +105,8 @@ def test_editable_tool_discovery_follows_the_loaded_frontend(tmp_path, monkeypat
     monkeypatch.setattr(toolchain, "__file__", str(package))
     monkeypatch.delenv("TIGA_OPT", raising=False)
     root = tmp_path / "build/current"
-    extension = root / "python_bindings/_graphforge_compiler.so"
-    monkeypatch.setitem(sys.modules, "tiga._graphforge_compiler", SimpleNamespace(__file__=str(extension)))
+    extension = root / "python_bindings/_tiga_compiler.so"
+    monkeypatch.setitem(sys.modules, "tiga._tiga_compiler", SimpleNamespace(__file__=str(extension)))
     bin_dir = root / "bin"
     bin_dir.mkdir(parents=True)
     opt = bin_dir / "gf-opt"

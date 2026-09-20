@@ -1,20 +1,20 @@
-#include "graphforge/Transforms/Passes.h"
+#include "tiga/Transforms/Passes.h"
 
-#include "graphforge/Dialect/Tensor/TensorDialect.h"
+#include "tiga/Dialect/Tensor/TensorDialect.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/STLExtras.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/PatternMatch.h"
 
-namespace mlir::graphforge {
+namespace mlir::tiga {
 
 #define GEN_PASS_DEF_GFTENSORVJP
-#include "graphforge/Transforms/Passes.h.inc"
+#include "tiga/Transforms/Passes.h.inc"
 
 namespace {
 
-using namespace mlir::graphforge::tensor;
+using namespace mlir::tiga::tensor;
 
 static DenseI64ArrayAttr shapeAttr(OpBuilder &builder, RankedTensorType type) {
   return builder.getDenseI64ArrayAttr(type.getShape());
@@ -456,7 +456,7 @@ public:
   using impl::GFTensorVJPBase<TensorVJPPass>::GFTensorVJPBase;
 
   void getDependentDialects(DialectRegistry &registry) const final {
-    registry.insert<tensor::GraphForgeTensorDialect>();
+    registry.insert<tensor::TigaTensorDialect>();
   }
 
   void runOnOperation() final {
@@ -473,4 +473,4 @@ public:
 };
 
 } // namespace
-} // namespace mlir::graphforge
+} // namespace mlir::tiga

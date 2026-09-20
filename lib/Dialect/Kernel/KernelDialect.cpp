@@ -1,13 +1,13 @@
-#include "graphforge/Dialect/Kernel/KernelDialect.h"
+#include "tiga/Dialect/Kernel/KernelDialect.h"
 
-#include "graphforge/Dialect/Kernel/KernelOpsDialect.cpp.inc"
+#include "tiga/Dialect/Kernel/KernelOpsDialect.cpp.inc"
 
 using namespace mlir;
-using namespace mlir::graphforge::kernel;
+using namespace mlir::tiga::kernel;
 
-void GraphForgeKernelDialect::initialize() {
+void TigaKernelDialect::initialize() {
   addOperations<
 #define GET_OP_LIST
-#include "graphforge/Dialect/Kernel/KernelOps.cpp.inc"
+#include "tiga/Dialect/Kernel/KernelOps.cpp.inc"
       >();
 }

@@ -78,7 +78,8 @@ Tiga 不是运行不可信代码或文件的安全沙箱。
 
 ## 发布与论文 { #publication }
 
-本地 `tiga-lang-paper` 项目保存 tech report 草稿，尚无 arXiv ID 或论文 DOI。
+[技术报告仓库](https://github.com/walkerchi/tiga-lang-paper)包含 LaTeX 正文、图表和复现数据，
+尚无 arXiv ID 或论文 DOI。
 正式论文记录产生前，使用[软件引用元数据](https://github.com/walkerchi/TIGA-lang/blob/main/CITATION.cff)。
 
 公开发布需要可访问的公开文档、有效的支持/安全渠道、版本一致的源码和 wheel、

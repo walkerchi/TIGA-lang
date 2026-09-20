@@ -1,15 +1,15 @@
 find_package(Python3 REQUIRED COMPONENTS Development.Module)
 
-Python3_add_library(_graphforge_compiler MODULE compiler_module.cpp WITH_SOABI)
-target_link_libraries(_graphforge_compiler PRIVATE
-  GraphForgeControl
-  GraphForgeDomain
-  GraphForgeIter
-  GraphForgeKernel
-  GraphForgeStorage
-  GraphForgeTask
-  GraphForgeTensor
-  GraphForgeTransforms
+Python3_add_library(_tiga_compiler MODULE compiler_module.cpp WITH_SOABI)
+target_link_libraries(_tiga_compiler PRIVATE
+  TigaControl
+  TigaDomain
+  TigaIter
+  TigaKernel
+  TigaStorage
+  TigaTask
+  TigaTensor
+  TigaTransforms
   MLIRArithDialect
   MLIRArithToLLVM
   MLIRBuiltinToLLVMIRTranslation
@@ -34,12 +34,12 @@ target_link_libraries(_graphforge_compiler PRIVATE
   MLIRVectorDialect
   MLIRVectorToLLVMPass
 )
-target_compile_definitions(_graphforge_compiler PRIVATE PY_SSIZE_T_CLEAN)
-set_target_properties(_graphforge_compiler PROPERTIES
+target_compile_definitions(_tiga_compiler PRIVATE PY_SSIZE_T_CLEAN)
+set_target_properties(_tiga_compiler PROPERTIES
   PREFIX ""
   INSTALL_RPATH "${TIGA_EXTENSION_RPATH}")
 
 install(
-  TARGETS _graphforge_compiler
+  TARGETS _tiga_compiler
   LIBRARY DESTINATION tiga
   COMPONENT TigaWheel)

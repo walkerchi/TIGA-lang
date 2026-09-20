@@ -78,11 +78,11 @@ def main() -> None:
     ).sum(axis=2)
 
     started = time.perf_counter_ns()
-    graphforge_actual = output.to_torch()
+    tiga_actual = output.to_torch()
     torch.cuda.synchronize()
     cold_ms = (time.perf_counter_ns() - started) / 1e6
     executable = compile_tensor(output)
-    graphforge_run = executable.prepare(output)
+    tiga_run = executable.prepare(output)
 
     def fla_recurrent_run():
         return fused_recurrent_linear_attn(
@@ -96,7 +96,7 @@ def main() -> None:
 
     expected = fla_recurrent_run()[:, :, 0]
     torch.testing.assert_close(
-        graphforge_actual, expected, rtol=2e-5, atol=3e-4,
+        tiga_actual, expected, rtol=2e-5, atol=3e-4,
     )
     chunk_actual = fla_chunk_run()[:, :, 0]
     # FLA's chunk path evaluates the same recurrence with a different
@@ -126,11 +126,11 @@ def main() -> None:
     )
     common_bytes = float(
         (q_fla.numel() + k_fla.numel() + v_fla.numel()
-         + graphforge_actual.numel()) * q_fla.element_size()
+         + tiga_actual.numel()) * q_fla.element_size()
     )
     intensity = useful_flops / common_bytes
     providers = (
-        ("tiga.compiler_scan_contract", graphforge_run),
+        ("tiga.compiler_scan_contract", tiga_run),
         ("fla.fused_recurrent", fla_recurrent_run),
         ("fla.chunk", fla_chunk_run),
     )
@@ -173,8 +173,8 @@ def main() -> None:
         "config": {
             **vars(args), "output_dir": str(output_dir),
             "dtype": "float32", "scale": 1.0, "normalize": False,
-            "graphforge_cold_compile_ms": cold_ms,
-            "graphforge_lowering": "map-scan-contract structural fusion",
+            "tiga_cold_compile_ms": cold_ms,
+            "tiga_lowering": "map-scan-contract structural fusion",
             "fla_chunk_max_abs_error_vs_recurrent": chunk_max_abs_error,
             "fla_chunk_relative_l2_error_vs_recurrent": chunk_relative_l2,
             "semantic_byte_model": "Q + K + V + output",

@@ -565,7 +565,7 @@ def _compiled_fixed_snapshot_radius_vjp(
         source.data_ptr(), tensor_version(source),
         upstream.data_ptr(), tensor_version(upstream),
     )
-    cached = getattr(graph, "_graphforge_compiled_radius_vjp", None)
+    cached = getattr(graph, "_tiga_compiled_radius_vjp", None)
     if cached is not None and cached[0] == fast_key:
         return cached[1].run()
     with torch.no_grad():
@@ -580,7 +580,7 @@ def _compiled_fixed_snapshot_radius_vjp(
             _PreparedRadiusVJP(
                 positions, source, destination, col_idx, upstream, directory),
         )
-        graph._graphforge_compiled_radius_vjp = cached
+        graph._tiga_compiled_radius_vjp = cached
     return cached[1].run()
 
 
@@ -1529,7 +1529,7 @@ class MessagePassing(Kernel):
         edge: Mapping[str, torch.Tensor] | None = None,
         **params: Any,
     ):
-        if not getattr(graph, "_graphforge_graph", False):
+        if not getattr(graph, "_tiga_graph", False):
             raise TypeError("graph must be a tiga.Graph")
         # This module is the deprecated Torch eager/JIT compatibility facade.
         # Native tg.Tensor execution is owned by compiler/runtime modules.

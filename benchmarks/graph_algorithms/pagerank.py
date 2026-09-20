@@ -77,7 +77,7 @@ def _case(nodes: int, degree: int, iterations: int, samples: int, roof):
         ),
         iterations=iterations,
     )
-    graphforge_submit = output.prepare()
+    tiga_submit = output.prepare()
     torch.cuda.synchronize()
     compile_ms = (time.perf_counter_ns() - started) / 1e6
     actual = output.to_torch()
@@ -97,7 +97,7 @@ def _case(nodes: int, degree: int, iterations: int, samples: int, roof):
 
     timings = interleaved_samples_ms(
         {
-            "tiga.control": graphforge_submit,
+            "tiga.control": tiga_submit,
             "torch.sparse.mm": torch_sparse,
         },
         torch.device("cuda"),

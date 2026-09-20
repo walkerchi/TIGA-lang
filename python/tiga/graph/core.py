@@ -91,7 +91,7 @@ class Graph:
     silently materializes an O(N^2) adjacency.
     """
 
-    _graphforge_graph = True
+    _tiga_graph = True
 
     def __init__(
         self,
@@ -749,7 +749,7 @@ class Graph:
         if self._schema.realization == "procedural_radius":
             if getattr(
                 getattr(self._positions, "_buffer", None),
-                "_graphforge_torch_buffer", False,
+                "_tiga_torch_buffer", False,
             ):
                 from ..interop.torch.graph import from_native
 
@@ -1317,7 +1317,7 @@ class Graph:
         if isinstance(row_ptr, Tensor):
             if getattr(
                 getattr(row_ptr, "_buffer", None),
-                "_graphforge_torch_buffer", False,
+                "_tiga_torch_buffer", False,
             ):
                 from ..interop.torch.graph import from_native
 
@@ -1347,7 +1347,7 @@ class Graph:
                 isinstance(self._positions, Tensor) and
                 not getattr(
                     getattr(self._positions, "_buffer", None),
-                    "_graphforge_torch_buffer", False,
+                    "_tiga_torch_buffer", False,
                 )):
             reused = (
                 self._native_csr_snapshot == self._dynamic_snapshot()

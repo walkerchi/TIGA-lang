@@ -8,7 +8,7 @@ import sys
 
 
 def _load_native():
-    name = "tiga._graphforge_compiler"
+    name = "tiga._tiga_compiler"
     try:
         return import_module(name)
     except ModuleNotFoundError as original:
@@ -18,7 +18,7 @@ def _load_native():
         candidates = [
             path
             for path in root.glob(
-                "build/*/python_bindings/_graphforge_compiler*.so"
+                "build/*/python_bindings/_tiga_compiler*.so"
             )
             if _compatible_extension(path)
         ]
@@ -45,7 +45,7 @@ def _compatible_extension(path):
     # A generic '.so' suffix must not accept another CPython ABI's tagged
     # filename. Match complete basenames, including the current ABI/abi3 tags.
     return path.name in {
-        "_graphforge_compiler" + suffix for suffix in machinery.EXTENSION_SUFFIXES
+        "_tiga_compiler" + suffix for suffix in machinery.EXTENSION_SUFFIXES
     }
 
 

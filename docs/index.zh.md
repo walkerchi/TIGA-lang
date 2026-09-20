@@ -110,6 +110,8 @@ print(dw.tolist())   # [1.0, 3.0, 2.0, 1.0, 2.0]
 不是需要额外编写的 API。[编译器入门](compiler-pipeline.md)解释分层目的；
 [IR 实例教程](ir-walkthrough.md)展示真实的 `gf.apply`、
 `gf_iter.traverse`、`gf_kernel.launch` 和 task 操作。
+[技术报告](https://github.com/walkerchi/tiga-lang-paper)进一步讲述编程模型与编译器设计，
+并提供性能评估及复现数据。
 
 ## 评估性能 { #retained-structure-changes-the-algorithm }
 

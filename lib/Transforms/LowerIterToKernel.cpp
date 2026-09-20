@@ -1,16 +1,16 @@
-#include "graphforge/Transforms/Passes.h"
+#include "tiga/Transforms/Passes.h"
 
-#include "graphforge/Dialect/Domain/DomainDialect.h"
-#include "graphforge/Dialect/Iter/IterDialect.h"
-#include "graphforge/Dialect/Kernel/KernelDialect.h"
+#include "tiga/Dialect/Domain/DomainDialect.h"
+#include "tiga/Dialect/Iter/IterDialect.h"
+#include "tiga/Dialect/Kernel/KernelDialect.h"
 #include "llvm/ADT/STLExtras.h"
 #include "mlir/IR/IRMapping.h"
 #include "mlir/IR/PatternMatch.h"
 
-namespace mlir::graphforge {
+namespace mlir::tiga {
 
 #define GEN_PASS_DEF_GFLOWERITERTOKERNEL
-#include "graphforge/Transforms/Passes.h.inc"
+#include "tiga/Transforms/Passes.h.inc"
 
 namespace {
 
@@ -42,7 +42,7 @@ public:
       LowerIterToKernelPass>::GFLowerIterToKernelBase;
 
   void getDependentDialects(DialectRegistry &registry) const final {
-    registry.insert<kernel::GraphForgeKernelDialect>();
+    registry.insert<kernel::TigaKernelDialect>();
   }
 
   void runOnOperation() final {
@@ -60,7 +60,7 @@ public:
           traversal.getRelation().getDefiningOp<RankedRelationOp>();
       if (!relation && !generated && !cartesian && !ranked) {
         traversal.emitError(
-            "requires a GraphForge relation definition before physical lowering");
+            "requires a Tiga relation definition before physical lowering");
         signalPassFailure();
         return;
       }
@@ -156,4 +156,4 @@ public:
 };
 
 } // namespace
-} // namespace mlir::graphforge
+} // namespace mlir::tiga

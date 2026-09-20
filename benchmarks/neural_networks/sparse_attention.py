@@ -104,7 +104,7 @@ def main() -> None:
     candidate = TilePrunedAttention(threshold)
     scale = args.width**-0.5
 
-    def graphforge_run():
+    def tiga_run():
         return candidate(
             graph=graph,
             src={"key": k_nodes, "value": v_nodes},
@@ -128,13 +128,13 @@ def main() -> None:
             )
 
     cold_started = time.perf_counter_ns()
-    graphforge_nodes = graphforge_run()
+    tiga_nodes = tiga_run()
     torch.cuda.synchronize()
     cold_ms = (time.perf_counter_ns() - cold_started) / 1e6
     fsa_output = fsa_run()
     exact_lane = exact_flash_run()
     torch.cuda.synchronize()
-    graphforge_lane = graphforge_nodes.permute(1, 0, 2).reshape(
+    tiga_lane = tiga_nodes.permute(1, 0, 2).reshape(
         args.batch, args.heads, args.sequence, args.width)
     fsa_lane = fsa_output.permute(0, 2, 1, 3)
 
@@ -147,17 +147,17 @@ def main() -> None:
             "max_abs": float(error.abs().max()),
         }
 
-    graphforge_error = error_metrics(graphforge_lane)
+    tiga_error = error_metrics(tiga_lane)
     fsa_error = error_metrics(fsa_lane)
     # Both providers implement thresholded approximation and may traverse
     # score tiles in a different legal order.  Require Tiga's accuracy
     # to be no worse than FSA (5% measurement/numerics allowance), rather than
     # incorrectly asserting bit equality between two order-dependent methods.
     accuracy_limit = max(1e-3, 1.05 * fsa_error["relative_l2"])
-    if graphforge_error["relative_l2"] > accuracy_limit:
+    if tiga_error["relative_l2"] > accuracy_limit:
         raise RuntimeError(
             "Tiga tile pruning exceeds the official FSA accuracy budget: "
-            f"{graphforge_error['relative_l2']:.6g} > {accuracy_limit:.6g}"
+            f"{tiga_error['relative_l2']:.6g} > {accuracy_limit:.6g}"
         )
     source_ttir = candidate.last_variant.artifacts.get("gf.kernel.ttir", "")
     if not source_ttir:
@@ -181,7 +181,7 @@ def main() -> None:
     )
     intensity = useful_flops / semantic_bytes
     providers = (
-        ("tiga.compiler_tile_pruned", graphforge_run),
+        ("tiga.compiler_tile_pruned", tiga_run),
         ("flash_sparse_attn.official", fsa_run),
         ("torch.sdpa.flash_exact", exact_flash_run),
     )
@@ -221,12 +221,12 @@ def main() -> None:
             **vars(args), "output_dir": str(output_dir),
             "dtype": "float16", "threshold": threshold,
             "scale": scale, "causal": False,
-            "graphforge_error_vs_exact": graphforge_error,
+            "tiga_error_vs_exact": tiga_error,
             "fsa_error_vs_exact": fsa_error,
             "accuracy_relative_l2_limit": accuracy_limit,
-            "graphforge_cold_compile_ms": cold_ms,
+            "tiga_cold_compile_ms": cold_ms,
             "provider_layout_repack_ms": repack_ms,
-            "graphforge_lowering": candidate.last_variant.lowering,
+            "tiga_lowering": candidate.last_variant.lowering,
             "semantic_byte_model": "Q + K + V + output",
             "flop_model": "logical 4*B*H*N*N*D + 5*B*H*N*N",
             "measured_admitted_tile_flops": None,
@@ -236,20 +236,20 @@ def main() -> None:
         json.dumps(payload, indent=2, default=str) + "\n")
     plot_roofline(payload, output_dir)
     plot_latency(payload, output_dir)
-    graphforge_result, fsa_result, exact_result = results
+    tiga_result, fsa_result, exact_result = results
     (output_dir / "REPORT.md").write_text(
         "# Dynamic tile-pruned attention: Tiga vs official FSA\n\n"
         "The workload is a benchmark-defined MessagePassing class. Tiga "
         "retains the block threshold in reducer IR and emits dynamic control "
         "flow around payload load/update; no attention operator is in core.\n\n"
-        f"Tiga: {graphforge_result['milliseconds']:.4f} ms; official FSA: "
+        f"Tiga: {tiga_result['milliseconds']:.4f} ms; official FSA: "
         f"{fsa_result['milliseconds']:.4f} ms; exact Flash SDPA: "
         f"{exact_result['milliseconds']:.4f} ms. Gate: "
         f"{'PASS' if gate.passed else 'FAIL'}, speedup "
         f"{gate.speedup_vs_sota:.3f}x, 95% CI "
         f"[{gate.speedup_ci_low:.3f}, {gate.speedup_ci_high:.3f}].\n\n"
         f"Relative-L2 error vs exact: Tiga "
-        f"{graphforge_error['relative_l2']:.6g}, FSA "
+        f"{tiga_error['relative_l2']:.6g}, FSA "
         f"{fsa_error['relative_l2']:.6g}. One-time provider-native layout "
         f"repack: {repack_ms:.3f} ms; Tiga cold compile + first launch: "
         f"{cold_ms:.2f} ms. All points use x={intensity:.6g} logical useful "

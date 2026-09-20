@@ -1,11 +1,11 @@
-#include "graphforge/Transforms/FusionAnalysis.h"
+#include "tiga/Transforms/FusionAnalysis.h"
 
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "mlir/IR/BuiltinAttributes.h"
 
 using namespace mlir;
-using namespace mlir::graphforge;
+using namespace mlir::tiga;
 
 llvm::StringRef FusionDecision::reason() const {
   switch (rejection) {
@@ -52,7 +52,7 @@ static bool sharedInputsHaveSameVersion(ApplyOp first, ApplyOp second) {
   return true;
 }
 
-FusionDecision mlir::graphforge::analyzeHorizontalFusion(ApplyOp producer,
+FusionDecision mlir::tiga::analyzeHorizontalFusion(ApplyOp producer,
                                                           ApplyOp consumer) {
   if (producer->getBlock() != consumer->getBlock())
     return {FusionRejection::DifferentBlock};

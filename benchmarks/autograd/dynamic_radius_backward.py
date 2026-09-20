@@ -100,7 +100,7 @@ def main() -> None:
     reference_output = torch.zeros_like(source).index_add(
         0, destination, distance * source[col_idx])
 
-    def graphforge_backward():
+    def tiga_backward():
         return torch.autograd.grad(
             output, (positions, source), cotangent, retain_graph=True)
 
@@ -117,15 +117,15 @@ def main() -> None:
     # First call includes topology binding and compiler/provider JIT; it is
     # reported separately and excluded from warm backward samples.
     compile_started = time.perf_counter_ns()
-    graphforge_backward()
+    tiga_backward()
     torch.cuda.synchronize()
     cold_backward_ms = (time.perf_counter_ns() - compile_started) / 1e6
-    prepared = torch_graph._graphforge_compiled_radius_vjp[1]
+    prepared = torch_graph._tiga_compiled_radius_vjp[1]
     compile_ms = prepared.executable.compile_ms
 
     expected = torch_backward()
     for name, provider in {
-        "tiga.generated_vjp": graphforge_backward,
+        "tiga.generated_vjp": tiga_backward,
         "torch.autograd": torch_backward,
         "handwritten.triton": lambda: oracle.run(cotangent),
     }.items():
@@ -138,7 +138,7 @@ def main() -> None:
             msg=lambda error: f"{name} source VJP: {error}")
 
     providers = {
-        "tiga.generated_vjp": graphforge_backward,
+        "tiga.generated_vjp": tiga_backward,
         "torch.autograd": torch_backward,
         "handwritten.triton": lambda: oracle.run(cotangent),
     }

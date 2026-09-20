@@ -52,7 +52,7 @@ def _chunks(tensor):
     if tensor.ready_event is not None:
         tensor.ready_event.wait()
     source = tensor._buffer
-    if getattr(source, "_graphforge_torch_buffer", False):
+    if getattr(source, "_tiga_torch_buffer", False):
         source = Buffer.wrap_address(source.address, source.nbytes, device=source.device, owner=source)
     width = tensor.dtype.itemsize
     if tensor.is_contiguous:

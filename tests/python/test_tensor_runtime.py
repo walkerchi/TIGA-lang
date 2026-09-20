@@ -1028,7 +1028,7 @@ DONE:
                 [[[231.0], [441.0], [651.0], [861.0]]],
             )
         self.assertEqual(output.execution["backend"], "cpu-llvm-jit")
-        self.assertIn("graphforge_run", output.generated_code())
+        self.assertIn("tiga_run", output.generated_code())
         self.assertIn("llvm.func", output.generated_code())
         self.assertIn("scf.for", output.generated_code("cpu_loop"))
         self.assertIn("memref.load", output.generated_code("cpu_loop"))

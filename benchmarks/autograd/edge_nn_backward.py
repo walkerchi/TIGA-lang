@@ -81,7 +81,7 @@ def main() -> None:
         for parameter in mlp.parameters():
             parameter.grad = None
 
-    def graphforge_step() -> None:
+    def tiga_step() -> None:
         zero_grads()
         out = program(graph=graph, src={"x": x}, dst={})
         (out * cotangent).sum().backward()
@@ -96,7 +96,7 @@ def main() -> None:
     # Cross-check gradients once before timing.  Field grads reduce over
     # <=degree terms; weight grads reduce over all E edges, so their
     # accumulation-order noise floor is looser.
-    graphforge_step()
+    tiga_step()
     fused = [x.grad.clone(), positions.grad.clone()]
     fused += [p.grad.clone() for p in mlp.parameters()]
     eager_step()
@@ -108,7 +108,7 @@ def main() -> None:
                                    msg=lambda e, name=name: f"{name}: {e}")
 
     providers = {
-        "tiga.fused_recompute_vjp": graphforge_step,
+        "tiga.fused_recompute_vjp": tiga_step,
         "torch.eager_autograd": eager_step,
     }
     results = {}

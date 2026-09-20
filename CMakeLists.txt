@@ -44,13 +44,13 @@ message(STATUS "Using LLVMConfig.cmake from ${LLVM_DIR}")
 if(UNIX AND NOT APPLE AND
    TARGET zstd::libzstd_static AND TARGET zstd::libzstd_shared)
   get_target_property(
-    _graphforge_shared_zstd zstd::libzstd_shared IMPORTED_LOCATION)
-  if(_graphforge_shared_zstd)
+    _tiga_shared_zstd zstd::libzstd_shared IMPORTED_LOCATION)
+  if(_tiga_shared_zstd)
     set_property(
       TARGET zstd::libzstd_static PROPERTY IMPORTED_LOCATION
-      "${_graphforge_shared_zstd}")
+      "${_tiga_shared_zstd}")
   endif()
-  unset(_graphforge_shared_zstd)
+  unset(_tiga_shared_zstd)
 endif()
 
 if(TIGA_STRICT_LLVM_VERSION AND
@@ -109,23 +109,23 @@ endif()
 # of the wheel component.  Static SDK builds have no runtime artifact here and
 # need no extra installation step.
 if(TIGA_BUNDLE_LLVM_RUNTIME)
-  set(_graphforge_llvm_runtime_targets)
+  set(_tiga_llvm_runtime_targets)
   foreach(_target IN ITEMS MLIR LLVM)
     if(TARGET ${_target})
       get_target_property(_target_type ${_target} TYPE)
       if(_target_type STREQUAL "SHARED_LIBRARY")
-        list(APPEND _graphforge_llvm_runtime_targets ${_target})
+        list(APPEND _tiga_llvm_runtime_targets ${_target})
       endif()
     endif()
   endforeach()
-  if(_graphforge_llvm_runtime_targets)
+  if(_tiga_llvm_runtime_targets)
     if(UNIX)
       # install(IMPORTED_RUNTIME_ARTIFACTS) preserves an imported library's
       # symlink chain.  Some distro LLVM packages point that chain outside the
       # SDK prefix (for example into a multi-arch directory), and wheel formats
       # cannot carry such an external target.  Resolve it at configure time and
       # install a regular file using the ELF/Mach-O install name instead.
-      foreach(_target IN LISTS _graphforge_llvm_runtime_targets)
+      foreach(_target IN LISTS _tiga_llvm_runtime_targets)
         get_target_property(_configs ${_target} IMPORTED_CONFIGURATIONS)
         get_target_property(_location ${_target} IMPORTED_LOCATION)
         get_target_property(_soname ${_target} IMPORTED_SONAME)
@@ -158,7 +158,7 @@ if(TIGA_BUNDLE_LLVM_RUNTIME)
       endforeach()
     else()
       install(
-        IMPORTED_RUNTIME_ARTIFACTS ${_graphforge_llvm_runtime_targets}
+        IMPORTED_RUNTIME_ARTIFACTS ${_tiga_llvm_runtime_targets}
         LIBRARY DESTINATION tiga/lib
           COMPONENT TigaWheel
         RUNTIME DESTINATION tiga

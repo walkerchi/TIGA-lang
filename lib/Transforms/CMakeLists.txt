@@ -1,4 +1,4 @@
-add_mlir_library(GraphForgeTransforms
+add_mlir_library(TigaTransforms
   FusionAnalysis.cpp
   FusionPasses.cpp
   LowerDomainToIter.cpp
@@ -13,19 +13,19 @@ add_mlir_library(GraphForgeTransforms
   LowerTensorToCPU.cpp
 
   ADDITIONAL_HEADER_DIRS
-  ${PROJECT_SOURCE_DIR}/include/graphforge/Transforms
+  ${PROJECT_SOURCE_DIR}/include/tiga/Transforms
 
   DEPENDS
-  GraphForgePassesIncGen
+  TigaPassesIncGen
 
   LINK_LIBS PUBLIC
-  GraphForgeControl
-  GraphForgeDomain
-  GraphForgeIter
-  GraphForgeKernel
-  GraphForgeStorage
-  GraphForgeTask
-  GraphForgeTensor
+  TigaControl
+  TigaDomain
+  TigaIter
+  TigaKernel
+  TigaStorage
+  TigaTask
+  TigaTensor
   MLIRArithDialect
   MLIRComplexDialect
   MLIRFuncDialect

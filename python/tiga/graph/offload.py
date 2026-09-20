@@ -25,13 +25,13 @@ import shutil
 import tempfile
 
 _BUDGET_BYTES: "contextvars.ContextVar[int | None]" = contextvars.ContextVar(
-    "graphforge_graph_ram_budget", default=None)
+    "tiga_graph_ram_budget", default=None)
 _BUDGET_ENV = "TIGA_GRAPH_RAM_BUDGET"
 
 # Paged execution builds page-local CSR graphs through from_csr; those must
 # never offload recursively.
 _IN_PAGED: "contextvars.ContextVar[bool]" = contextvars.ContextVar(
-    "graphforge_in_paged_execution", default=False)
+    "tiga_in_paged_execution", default=False)
 
 _offload_dir: Path | None = None
 _counter = itertools.count()

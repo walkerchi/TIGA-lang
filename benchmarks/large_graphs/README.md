@@ -28,9 +28,10 @@ The implementation sequence is deliberate:
 4. Scale 29 forces NVMe or distributed execution and gates halo/paging overlap.
 
 A profile is not marked runnable until its required runtime path exists.
-Currently GraphForge can compile the in-HBM MessagePassing kernel; RAM/NVMe and
-distributed rows are capacity targets for the memory/distributed milestones,
-not claimed results.
+This dataset suite is a capacity plan, not a measurement of every listed dataset.
+Measured Tiga paging and distributed workloads are documented separately in
+[the performance report](../../docs/experiments.md); support for those workloads
+does not imply that every dataset profile here has been executed.
 
 Required result groups are `import`, `kernel-only`, `iteration`, and
 `end-to-end`. Every result records partition edge counts, hub spill counts,

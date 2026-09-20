@@ -112,7 +112,7 @@ def main() -> None:
     block_d = triton.next_power_of_2(args.degree)
     block_m = max(1, min(16, 512 // block_d))
 
-    def graphforge_run():
+    def tiga_run():
         return kernel(
             graph=graph, src={"score": score, "value": value}, dst={})
 
@@ -129,10 +129,10 @@ def main() -> None:
         return (torch.softmax(scores, dim=1) * values).sum(dim=1)
 
     cold_start = time.perf_counter_ns()
-    actual = graphforge_run()
+    actual = tiga_run()
     torch.cuda.synchronize()
     cold_ms = (time.perf_counter_ns() - cold_start) / 1e6
-    prepared_graphforge = kernel.prepare(
+    prepared_tiga = kernel.prepare(
         graph=graph, src={"score": score, "value": value}, dst={})
     expected = triton_run()
     torch.testing.assert_close(actual, expected, rtol=3e-4, atol=3e-4)
@@ -146,7 +146,7 @@ def main() -> None:
         r"block_rows=(\d+) num_warps=(\d+)", generated_ttir)
     if schedule is None:
         raise RuntimeError("Tiga TTIR omitted its launch schedule")
-    graphforge_block_rows, graphforge_num_warps = map(int, schedule.groups())
+    tiga_block_rows, tiga_num_warps = map(int, schedule.groups())
 
     roof = measure_roofs(device, args.quick, args.repeat)
     # Common semantic model for every provider: max, stable exponentiation,
@@ -161,7 +161,7 @@ def main() -> None:
         + args.nodes * score.element_size())
     intensity = useful_flops / common_bytes
     providers = (
-        ("tiga.compiler_ttir", prepared_graphforge),
+        ("tiga.compiler_ttir", prepared_tiga),
         ("triton.handwritten_fused", triton_run),
         ("torch.explicit", torch_run),
     )
@@ -195,11 +195,11 @@ def main() -> None:
         "sota_gates": [gate.to_dict()],
         "config": {
             **vars(args), "output_dir": str(output_dir),
-            "graphforge_cold_compile_ms": cold_ms,
-            "graphforge_lowering": kernel.last_variant.lowering,
-            "graphforge_provider": kernel.last_variant.provider,
-            "graphforge_block_rows": graphforge_block_rows,
-            "graphforge_num_warps": graphforge_num_warps,
+            "tiga_cold_compile_ms": cold_ms,
+            "tiga_lowering": kernel.last_variant.lowering,
+            "tiga_provider": kernel.last_variant.provider,
+            "tiga_block_rows": tiga_block_rows,
+            "tiga_num_warps": tiga_num_warps,
             "baseline_block_rows": block_m, "block_neighbors": block_d,
             "semantic_byte_model": "row_ptr + col_idx + score + value + out",
             "useful_flop_model": "8 per edge + 1 division per row",

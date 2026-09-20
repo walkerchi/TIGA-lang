@@ -141,7 +141,7 @@ equivalent implementation in the same environment:
   legal and preferred lowering;
 - custom fusion and generated relations must include the best runnable Triton,
   TileLang or target-native handwritten kernel;
-- a bucket passes only when `best_baseline_median / graphforge_median >= 1.00×`
+- a bucket passes only when `best_baseline_median / tiga_median >= 1.00×`
   and the bootstrap 95% confidence-interval lower bound also reaches 1.00×; a
   geomean cannot offset a failing bucket, and statistical uncertainty counts as
   not passed;

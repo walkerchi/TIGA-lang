@@ -1,5 +1,6 @@
-# GraphForge generated artifacts
+# Generated artifacts (including the legacy cache location)
 /output/
+/.tiga-cache/
 /.graphforge-cache/
 /triton-cache/
 /cuda-library-cache/

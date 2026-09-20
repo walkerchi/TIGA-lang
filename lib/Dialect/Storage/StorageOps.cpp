@@ -1,11 +1,11 @@
-#include "graphforge/Dialect/Storage/StorageDialect.h"
+#include "tiga/Dialect/Storage/StorageDialect.h"
 
 #include "llvm/ADT/StringSwitch.h"
 
 #include <optional>
 
 using namespace mlir;
-using namespace mlir::graphforge::storage;
+using namespace mlir::tiga::storage;
 
 static std::optional<int64_t> getInstanceVersion(Value value) {
   auto instance = value.getDefiningOp<InstanceOp>();
@@ -104,4 +104,4 @@ LogicalResult JoinOp::verify() {
 }
 
 #define GET_OP_CLASSES
-#include "graphforge/Dialect/Storage/StorageOps.cpp.inc"
+#include "tiga/Dialect/Storage/StorageOps.cpp.inc"

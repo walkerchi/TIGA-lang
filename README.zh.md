@@ -7,7 +7,8 @@
     <a href="docs/getting-started.zh.md">快速开始</a> ·
     <a href="docs/api.zh.md">Python API</a> ·
     <a href="docs/examples.zh.md">示例</a> ·
-    <a href="docs/roadmap.zh.md">支持范围与路线图</a>
+    <a href="docs/roadmap.zh.md">支持范围与路线图</a> ·
+    <a href="https://github.com/walkerchi/tiga-lang-paper">技术报告</a>
   </p>
 </div>
 
@@ -145,17 +146,32 @@ node 更新、自定义 reducer、动态关系和 Torch interop 见
 
 ## 编译器与开发
 
+[技术报告](https://github.com/walkerchi/tiga-lang-paper)介绍编程模型、IR 设计、
+自动微分、分层存储与性能评估。论文仓库包含 LaTeX 正文、图表和复现数据。
+
 连接关系的语义贯穿 Domain、Iter、Kernel 与 Task IR。
 编译器选择实际遍历、内存放置与目标
 [lowering](https://en.wikipedia.org/wiki/Compiler#Back_end)，
 梯度由自动 [VJP](https://en.wikipedia.org/wiki/Automatic_differentiation) 表达。
 [编译流程](docs/compiler-pipeline.zh.md)解释各层职责；
 [用实例读懂 IR](docs/ir-walkthrough.zh.md)展示真实输入与编译输出，并提供复现命令。
-内部 `gf-*` 工具名和 `graphforge` C++ 目录名保留，公开安装包与 import 名为
-`tiga-lang` 和 `tiga`。
+Python 包和 C++ 源码命名空间统一为 `tiga`。已有 `gf.*` IR 语法与
+`gf-*` 工具名保持稳定。
 
 [开发指南](docs/development.zh.md)包含 Python、MLIR、文档和 GPU 测试环境，
 以及部分 LLVM SDK 缺少的测试工具。贡献流程见 [CONTRIBUTING.md](CONTRIBUTING.md)，
 变更记录见 [CHANGELOG.md](CHANGELOG.md)。
+
+### 仓库结构
+
+| 路径 | 职责 |
+|---|---|
+| `python/tiga/` | Python API、捕获、执行与框架适配 |
+| `include/tiga/`、`lib/` | C++/TableGen 声明与编译器、运行时实现 |
+| `python_bindings/`、`tools/` | 原生 Python 绑定、编译工具与维护脚本 |
+| `CMakeLists.txt`、`cmake/` | 原生构建入口与共享构建配置 |
+| `tests/`、`examples/`、`benchmarks/` | 回归测试、使用示例与性能测量 |
+| `docs/`、`assets/` | 文档与正式品牌资源；历史规划存放在 `docs/archive/` |
+| `third_party/licenses/` | 随发行包附带的第三方许可证，不是第三方源码 |
 
 采用 [Apache-2.0](LICENSE) 许可证。

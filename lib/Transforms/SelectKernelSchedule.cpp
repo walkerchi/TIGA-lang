@@ -1,17 +1,17 @@
 #include "mlir/IR/BuiltinOps.h"
-#include "graphforge/Transforms/Passes.h"
+#include "tiga/Transforms/Passes.h"
 
-#include "graphforge/Dialect/Kernel/KernelDialect.h"
+#include "tiga/Dialect/Kernel/KernelDialect.h"
 #include "llvm/ADT/STLExtras.h"
 #include "mlir/IR/BuiltinTypes.h"
 
 #include <algorithm>
 #include <optional>
 
-namespace mlir::graphforge {
+namespace mlir::tiga {
 
 #define GEN_PASS_DEF_GFSELECTKERNELSCHEDULE
-#include "graphforge/Transforms/Passes.h.inc"
+#include "tiga/Transforms/Passes.h.inc"
 
 namespace {
 
@@ -121,7 +121,7 @@ static void setSchedule(Operation *operation, StringRef kind,
   operation->setAttr("block_neighbors",
                      builder.getI64IntegerAttr(blockNeighbors));
   operation->setAttr("num_warps", builder.getI64IntegerAttr(numWarps));
-  // One means that GraphForge has not admitted a compiler-controlled async
+  // One means that Tiga has not admitted a compiler-controlled async
   // producer/consumer pipeline. A provider may still perform instruction
   // scheduling, but it cannot be reported as a semantic multi-stage pipeline.
   operation->setAttr("pipeline_stages", builder.getI64IntegerAttr(1));
@@ -255,4 +255,4 @@ public:
 };
 
 } // namespace
-} // namespace mlir::graphforge
+} // namespace mlir::tiga

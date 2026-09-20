@@ -18,7 +18,7 @@ def _load_module(name: str, path: Path):
 
 
 solvers = _load_module(
-    "graphforge_example_solvers", EXAMPLES / "solvers.py")
+    "tiga_example_solvers", EXAMPLES / "solvers.py")
 
 
 class _ScaledLaplacian(tg.MessagePassing):
@@ -315,7 +315,7 @@ def test_tolerance_cg_lowers_to_bounded_while_without_host_polling(monkeypatch):
 def test_fem_poisson_example_is_matrix_free_and_accurate(monkeypatch):
     monkeypatch.setenv("TIGA_TENSOR_BACKEND", "native")
     monkeypatch.syspath_prepend(str(EXAMPLES))
-    module = _load_module("graphforge_fem_poisson", EXAMPLES / "fem_poisson.py")
+    module = _load_module("tiga_fem_poisson", EXAMPLES / "fem_poisson.py")
 
     solution, _exact, error = module.solve(interior_nodes=6, iterations=3)
     assert error < 2.0e-5
@@ -337,7 +337,7 @@ def test_dynamic_radius_linear_solve_keeps_operator_inside_bounded_while(
     monkeypatch.setenv("TIGA_TENSOR_BACKEND", "native")
     monkeypatch.syspath_prepend(str(EXAMPLES))
     module = _load_module(
-        "graphforge_meshfree_linear_solve", EXAMPLES / "meshfree_linear_solve.py")
+        "tiga_meshfree_linear_solve", EXAMPLES / "meshfree_linear_solve.py")
 
     solution, residual, graph, kernel = module.solve(points=8)
     assert residual.tolist() < 2.0e-5

@@ -163,9 +163,9 @@ def main() -> None:
         "config": {
             **vars(args), "output_dir": str(output_dir),
             "dtype": "float32", "index_dtype": "int32",
-            "graphforge_cold_compile_first_launch_ms": cold_ms,
-            "graphforge_compile_ms": executable.compile_ms,
-            "graphforge_worker_pool_threads": args.threads,
+            "tiga_cold_compile_first_launch_ms": cold_ms,
+            "tiga_compile_ms": executable.compile_ms,
+            "tiga_worker_pool_threads": args.threads,
             "semantic_byte_model": "row_ptr + col_idx + weight + x + output",
         },
     }

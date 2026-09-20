@@ -291,7 +291,7 @@ def _write_indices(path: Path, values: Sequence[int], dtype: DType) -> None:
 def _field_payload_bytes(value: Tensor) -> bytes:
     buffer = value._buffer
     if (buffer is not None and value.is_contiguous and value.offset == 0
-            and not getattr(buffer, "_graphforge_torch_buffer", False)):
+            and not getattr(buffer, "_tiga_torch_buffer", False)):
         return buffer.read(bytes=value.nbytes)
     code, components = _field_codec(value.dtype)
     flat = _as_components(value._read_flat(), components)

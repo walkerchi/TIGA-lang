@@ -1,4 +1,4 @@
-#include "graphforge/Dialect/Domain/DomainDialect.h"
+#include "tiga/Dialect/Domain/DomainDialect.h"
 
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/StringSwitch.h"
@@ -9,7 +9,7 @@
 #include <cmath>
 
 using namespace mlir;
-using namespace mlir::graphforge;
+using namespace mlir::tiga;
 
 LogicalResult RelationOp::verify() {
   auto origin = (*this)->getAttrOfType<StringAttr>("origin").getValue();
@@ -443,4 +443,4 @@ LogicalResult YieldOp::verify() {
 }
 
 #define GET_OP_CLASSES
-#include "graphforge/Dialect/Domain/DomainOps.cpp.inc"
+#include "tiga/Dialect/Domain/DomainOps.cpp.inc"

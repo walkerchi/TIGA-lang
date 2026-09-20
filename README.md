@@ -7,7 +7,8 @@
     <a href="https://github.com/walkerchi/TIGA-lang/blob/main/docs/getting-started.md">Getting started</a> ·
     <a href="https://github.com/walkerchi/TIGA-lang/blob/main/docs/getting-started.zh.md">中文指南</a> ·
     <a href="https://github.com/walkerchi/TIGA-lang/blob/main/docs/api.md">Python API</a> ·
-    <a href="https://github.com/walkerchi/TIGA-lang/blob/main/docs/roadmap.md">Status and limitations</a>
+    <a href="https://github.com/walkerchi/TIGA-lang/blob/main/docs/roadmap.md">Status and limitations</a> ·
+    <a href="https://github.com/walkerchi/tiga-lang-paper">Technical report</a>
   </p>
 </div>
 
@@ -152,6 +153,10 @@ commands are in the [reproduction guide](https://github.com/walkerchi/TIGA-lang/
 
 ## Compiler and development
 
+The [technical report](https://github.com/walkerchi/tiga-lang-paper) covers the
+programming model, IR design, differentiation, memory hierarchy and evaluation.
+Its repository contains the LaTeX manuscript, figures and reproduction data.
+
 Relation semantics stay visible through Domain, Iter, Kernel and Task IR.
 The compiler selects physical traversal, memory placement and target
 [lowering](https://en.wikipedia.org/wiki/Compiler#Back_end), while gradients
@@ -160,12 +165,24 @@ are represented by an automatic
 Read the [compiler pipeline](https://github.com/walkerchi/TIGA-lang/blob/main/docs/compiler-pipeline.md) for the boundaries.
 The [IR walkthrough](https://github.com/walkerchi/TIGA-lang/blob/main/docs/ir-walkthrough.md) follows one checked compiler input
 through real Domain, Iter, Kernel and Task output, with reproducible commands.
-Internal `gf-*` tool names and `graphforge` C++ directories remain intentional;
-the public distribution and import names are `tiga-lang` and `tiga`.
+The Python package and C++ source namespace are `tiga`. The existing `gf.*` IR
+syntax and `gf-*` tool names remain stable.
 
 The [development guide](https://github.com/walkerchi/TIGA-lang/blob/main/docs/development.md) gives the complete Python,
 MLIR, documentation and GPU test setup, including the test utilities omitted
 from some LLVM SDKs. Contribution rules are in [CONTRIBUTING.md](https://github.com/walkerchi/TIGA-lang/blob/main/CONTRIBUTING.md);
 changes are recorded in [CHANGELOG.md](https://github.com/walkerchi/TIGA-lang/blob/main/CHANGELOG.md).
+
+### Repository layout
+
+| Path | Purpose |
+|---|---|
+| `python/tiga/` | Python API, capture, execution and framework adapters |
+| `include/tiga/`, `lib/` | C++/TableGen declarations and compiler/runtime implementations |
+| `python_bindings/`, `tools/` | Native Python binding, compiler executables and maintenance scripts |
+| `CMakeLists.txt`, `cmake/` | Native build entry point and shared build configuration |
+| `tests/`, `examples/`, `benchmarks/` | Regression tests, usage examples and performance measurements |
+| `docs/`, `assets/` | Documentation and canonical brand assets; historical plans in `docs/archive/` |
+| `third_party/licenses/` | License texts for redistributed dependencies, not vendored source code |
 
 Licensed under [Apache-2.0](https://github.com/walkerchi/TIGA-lang/blob/main/LICENSE).

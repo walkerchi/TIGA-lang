@@ -1,14 +1,14 @@
-add_mlir_dialect_library(GraphForgeIter
+add_mlir_dialect_library(TigaIter
   IterDialect.cpp
   IterOps.cpp
 
   ADDITIONAL_HEADER_DIRS
-  ${PROJECT_SOURCE_DIR}/include/graphforge/Dialect/Iter
+  ${PROJECT_SOURCE_DIR}/include/tiga/Dialect/Iter
 
   DEPENDS
   MLIRIterOpsIncGen
 
   LINK_LIBS PUBLIC
-  GraphForgeDomain
+  TigaDomain
   MLIRIR
 )

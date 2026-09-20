@@ -1,7 +1,7 @@
 # Tiga Scheduling Abstractions Survey: From Tensor Axes to Multi-Space Mappings
 
-> Non-normative research note. Adopted scheduling contracts take effect only in
-> `PROJECT.md` at the repository root.
+> Historical research note. The API reference, support matrix and regression
+> tests define currently supported scheduling behavior.
 
 Date: 2026-08-06
 

@@ -14,9 +14,15 @@ ROOT = Path(__file__).resolve().parents[2]
 FENCES = re.compile(r"^([ \t]*)```python\n(.*?)^\1```", re.M | re.S)
 
 
+def _documentation_pages():
+    # Historical records are excluded by mkdocs.yml, not user-facing examples.
+    return [path for path in (ROOT / "docs").rglob("*.md")
+            if "archive" not in path.relative_to(ROOT / "docs").parts]
+
+
 def test_user_documentation_does_not_expose_internal_experiment_brief():
     paths = [ROOT / "mkdocs.yml", ROOT / "README.md", ROOT / "README.zh.md",
-             *(ROOT / "docs").rglob("*.md")]
+             *_documentation_pages()]
     forbidden = ("三个核心实验", "当前三组实验", "Three key experiments",
                  "three current experiments", "current question-led evaluation",
                  "图下方现在是", "本次未改默认路由", "旧环图和人为大 halo",
@@ -186,7 +192,7 @@ def test_iter_walkthrough_numerical_loop(suffix, monkeypatch):
 def test_public_python_fences_have_valid_syntax():
     excluded = {"IR_DESIGN.md", "RELATED_WORK.md", "SCHEDULING_ABSTRACTIONS.md",
                 "GPU_GRAPH_OPTIMIZATION.md", "design-notes.md"}
-    for path in [ROOT / "README.md", *(ROOT / "docs").rglob("*.md")]:
+    for path in [ROOT / "README.md", *_documentation_pages()]:
         if path.name in excluded or "rfcs" in path.parts:
             continue
         for index, code in enumerate(_blocks(path)):
@@ -201,7 +207,7 @@ def test_python_import_alias_convention():
     for folder in ("examples", "benchmarks", "python", "tests", "tools"):
         sources.extend((str(p), p.read_text()) for p in (ROOT / folder).rglob("*.py")
                        if "__pycache__" not in p.parts)
-    for path in [ROOT / "README.md", *(ROOT / "docs").rglob("*.md")]:
+    for path in [ROOT / "README.md", *_documentation_pages()]:
         sources.extend((str(path), code) for code in _blocks(path)
                        if "--8<--" not in code)
     for filename, source in sources:
@@ -232,7 +238,7 @@ def test_example_pages_have_titles_and_existing_source_links():
 def test_every_public_page_has_both_languages():
     excluded = {"IR_DESIGN.md", "RELATED_WORK.md", "SCHEDULING_ABSTRACTIONS.md",
                 "GPU_GRAPH_OPTIMIZATION.md", "design-notes.md"}
-    for path in (ROOT / "docs").rglob("*.md"):
+    for path in _documentation_pages():
         if path.name in excluded or "rfcs" in path.parts:
             continue
         counterpart = (path.with_name(path.name.replace(".zh.md", ".md"))
@@ -244,7 +250,7 @@ def test_every_public_page_has_both_languages():
 def test_public_prose_uses_neutral_voice():
     excluded = {"IR_DESIGN.md", "RELATED_WORK.md", "SCHEDULING_ABSTRACTIONS.md",
                 "GPU_GRAPH_OPTIMIZATION.md", "design-notes.md"}
-    for path in (ROOT / "docs").rglob("*.md"):
+    for path in _documentation_pages():
         if path.name in excluded or "rfcs" in path.parts:
             continue
         source = re.sub(r"(?ms)^([ \t]*)```.*?^\1```", "", path.read_text())

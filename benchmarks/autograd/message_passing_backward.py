@@ -182,7 +182,7 @@ def main() -> None:
             return product if args.features == 1 else product.sum(
                 dim=1, keepdim=True)
 
-        def graphforge_generated():
+        def tiga_generated():
             return generated_launch()
 
         if args.features == 1:
@@ -196,7 +196,7 @@ def main() -> None:
         if oracle_plan is None or saved_oracle_plan is None:
             raise RuntimeError("matched handwritten Triton oracle is unavailable")
         providers = {
-            "tiga.generated_vjp": graphforge_generated,
+            "tiga.generated_vjp": tiga_generated,
             "torch.autograd": torch_autograd,
             "torch.explicit_gather": torch_explicit,
             "handwritten.triton.recompute": (

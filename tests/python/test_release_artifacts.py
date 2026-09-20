@@ -62,7 +62,7 @@ def test_first_release_matrix_and_notices_are_explicit():
     project = tomllib.loads((root / "pyproject.toml").read_text())["project"]
     assert project["requires-python"] == ">=3.11,<3.13"
     assert not project["dependencies"]
-    assert "graphforge-docs.app" not in project["urls"]["Documentation"]
+    assert ".app.walkerchi.com" not in project["urls"]["Documentation"]
     for name in ("llvm-22.1.8.txt", "zstd-1.5.5.txt"):
         assert (root / "third_party/licenses" / name).stat().st_size > 1000
 

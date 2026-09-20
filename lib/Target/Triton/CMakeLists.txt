@@ -1,16 +1,16 @@
-add_mlir_library(GraphForgeTargetTriton
+add_mlir_library(TigaTargetTriton
   Translate.cpp
 
   ADDITIONAL_HEADER_DIRS
-  ${PROJECT_SOURCE_DIR}/include/graphforge/Target/Triton
+  ${PROJECT_SOURCE_DIR}/include/tiga/Target/Triton
 
   LINK_LIBS PUBLIC
-  GraphForgeControl
-  GraphForgeDomain
-  GraphForgeKernel
-  GraphForgeStorage
-  GraphForgeTask
-  GraphForgeTensor
+  TigaControl
+  TigaDomain
+  TigaKernel
+  TigaStorage
+  TigaTask
+  TigaTensor
   MLIRArithDialect
   MLIRFuncDialect
   MLIRMathDialect

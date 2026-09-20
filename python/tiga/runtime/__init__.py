@@ -102,10 +102,10 @@ class _CDevice(ctypes.Structure):
 
 def _shared_library_names() -> tuple[str, ...]:
     if sys.platform == "darwin":
-        return ("libgraphforge_runtime.dylib",)
+        return ("libtiga_runtime.dylib",)
     if os.name == "nt":
-        return ("graphforge_runtime.dll", "libgraphforge_runtime.dll")
-    return ("libgraphforge_runtime.so",)
+        return ("tiga_runtime.dll", "libtiga_runtime.dll")
+    return ("libtiga_runtime.so",)
 
 
 def _library_candidates() -> list[Path]:
@@ -163,7 +163,7 @@ def _library() -> ctypes.CDLL:
             failures.append(f"{candidate}: {error}")
     detail = "\n".join(failures) if failures else "no candidate library exists"
     raise RuntimeError(
-        "Tiga native runtime is unavailable; build GraphForgeRuntime or "
+        "Tiga native runtime is unavailable; build TigaRuntime or "
         "install a native wheel. Search result:\n" + detail
     )
 

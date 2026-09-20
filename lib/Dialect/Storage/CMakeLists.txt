@@ -1,14 +1,14 @@
-add_mlir_dialect_library(GraphForgeStorage
+add_mlir_dialect_library(TigaStorage
   StorageDialect.cpp
   StorageOps.cpp
   StorageTypes.cpp
 
   ADDITIONAL_HEADER_DIRS
-  ${PROJECT_SOURCE_DIR}/include/graphforge/Dialect/Storage
+  ${PROJECT_SOURCE_DIR}/include/tiga/Dialect/Storage
 
   DEPENDS
   MLIRStorageOpsIncGen
-  GraphForgeStorageTypesIncGen
+  TigaStorageTypesIncGen
 
   LINK_LIBS PUBLIC
   MLIRIR

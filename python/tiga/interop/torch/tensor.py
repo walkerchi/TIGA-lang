@@ -4,7 +4,7 @@ from __future__ import annotations
 
 
 class TorchBuffer:
-    _graphforge_torch_buffer = True
+    _tiga_torch_buffer = True
 
     def __init__(self, value: object) -> None:
         from ...runtime import Device
@@ -63,7 +63,7 @@ class TorchBuffer:
         import torch
 
         row_buffer = row_ptr._buffer
-        if not getattr(row_buffer, "_graphforge_torch_buffer", False):
+        if not getattr(row_buffer, "_tiga_torch_buffer", False):
             raise TypeError("row_ptr must use the same Torch storage provider")
         column_owner = self.tensor
         columns = torch.as_strided(
@@ -170,7 +170,7 @@ def to_torch(value):
 
     value.realize()
     buffer = value._buffer
-    if not getattr(buffer, "_graphforge_torch_buffer", False):
+    if not getattr(buffer, "_tiga_torch_buffer", False):
         raise RuntimeError("zero-copy to_torch requires Torch-owned storage")
     owner = buffer.tensor
     return torch.as_strided(
@@ -198,7 +198,7 @@ def copy_to_torch(value):
     if not value.is_contiguous:
         raise RuntimeError("copy_to_torch currently requires contiguous storage")
     buffer = value._buffer
-    if getattr(buffer, "_graphforge_torch_buffer", False):
+    if getattr(buffer, "_tiga_torch_buffer", False):
         return to_torch(value)
     if not isinstance(buffer, Buffer):
         raise RuntimeError("Tiga Tensor storage is not addressable")

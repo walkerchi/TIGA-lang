@@ -1,16 +1,16 @@
-#include "graphforge/Transforms/Passes.h"
+#include "tiga/Transforms/Passes.h"
 
-#include "graphforge/Dialect/Task/TaskDialect.h"
+#include "tiga/Dialect/Task/TaskDialect.h"
 #include "mlir/IR/PatternMatch.h"
 
-namespace mlir::graphforge {
+namespace mlir::tiga {
 
 #define GEN_PASS_DEF_GFDECOMPOSEDEGREEWORKLISTS
-#include "graphforge/Transforms/Passes.h.inc"
+#include "tiga/Transforms/Passes.h.inc"
 
 namespace {
-namespace gfs = mlir::graphforge::storage;
-namespace gft = mlir::graphforge::task;
+namespace gfs = mlir::tiga::storage;
+namespace gft = mlir::tiga::task;
 
 class DecomposeDegreeWorklistsPass
     : public impl::GFDecomposeDegreeWorklistsBase<
@@ -20,7 +20,7 @@ public:
       DecomposeDegreeWorklistsPass>::GFDecomposeDegreeWorklistsBase;
 
   void getDependentDialects(DialectRegistry &registry) const final {
-    registry.insert<gft::GraphForgeTaskDialect>();
+    registry.insert<gft::TigaTaskDialect>();
   }
 
   void runOnOperation() final {
@@ -82,4 +82,4 @@ public:
 };
 
 } // namespace
-} // namespace mlir::graphforge
+} // namespace mlir::tiga

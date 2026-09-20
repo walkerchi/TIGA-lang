@@ -14,7 +14,7 @@
 | 修改内容 | 实现入口 |
 |---|---|
 | 公共字段与调用检查 | `python/tiga/message_passing/` |
-| Domain 操作与验证 | `include/graphforge/Dialect/Domain/`、`lib/Dialect/Domain/` |
+| Domain 操作与验证 | `include/tiga/Dialect/Domain/`、`lib/Dialect/Domain/` |
 | 关系遍历 | `lib/Transforms/LowerDomainToIter.cpp` |
 | Kernel 表示与调度 | `lib/Transforms/LowerIterToKernel.cpp`、`lib/Transforms/SelectKernelSchedule.cpp` |
 | 分布式任务依赖 | `lib/Transforms/PlanDistributedTasks.cpp` |
@@ -24,7 +24,8 @@
 
 | 目录 | 职责 |
 |---|---|
-| `include/graphforge/Dialect/`、`lib/Dialect/` | 操作定义、约束与 verifier |
+| `CMakeLists.txt`、`cmake/` | 原生构建入口与共享配置，包括 LLVM SDK 的固定版本 |
+| `include/tiga/Dialect/`、`lib/Dialect/` | 操作定义、约束与 verifier |
 | `lib/Transforms/`、`lib/Target/` | 编译转换与目标代码生成 |
 | `python/tiga/` | 公共 Python API，按 tensor、graph、autograd、message_passing 等子包组织 |
 | `python_bindings/`、`lib/Runtime/` | 原生编译绑定与不依赖 Torch 的运行时 |
@@ -33,10 +34,24 @@
 | `benchmarks/` | 工作负载、测量协议与报告 |
 | `benchmarks/kernels/` | 仅用于性能对照的手写实现，不由核心代码导入 |
 | `tests/mlir/`、`tests/python/` | 编译器与 Python/运行时回归测试 |
-| `output/roofline/` | 按操作与案例保留的性能证据 |
+| `third_party/licenses/` | 随原生 wheel 分发的许可证，不包含第三方源码 |
+| `assets/` | 正式 logo 的源文件与生成资源 |
+| `docs/archive/` | 历史设计记录，不是当前 API 规范 |
+| `output/roofline/` | 本地测量输出，不纳入 Git 跟踪 |
 
-`PROJECT.md` 保存内部架构规划与历史实现记录；`DESIGN_DECISION_TIMELINE.md`
-记录设计选择、否决方案及原因。两者都不是当前功能的无条件支持承诺；
+`include/` 与 `lib/` 分别存放声明和实现。TableGen 读取 `.td` 操作定义，
+在构建目录生成 C++ 头文件；生成文件不作为源码提交。`cmake/` 是根构建的
+配置辅助目录，不是另一个项目。Python 打包通过 scikit-build-core 调用同一套原生构建。
+
+当前依赖不是 Git submodule：CMake 查找固定版本的 LLVM/MLIR SDK，Python extras
+单独安装可选包。`third_party/licenses/` 只保存随二进制分发的许可证，不包含 LLVM
+或 Torch 源码；从没有 Git 元数据的源码包和 wheel 安装时也必须包含这些许可文本。
+
+C++ 命名空间和头文件路径使用 `tiga`，原生扩展名为 `_tiga_compiler`，Linux
+运行时库名为 `libtiga_runtime`。现有 `gf.*` IR 语法、`gf-*` 工具与 `gfrt_*`
+C ABI 符号保持稳定；历史实验快照保留原名称与校验和。
+
+历史规划存放在 `docs/archive/`，不进入使用文档站点。
 现行边界以 [API reference](api.zh.md)、[支持矩阵](roadmap.zh.md) 和实现测试为准。
 `SECURITY.md` 是面向外部贡献者的安全漏洞私密报告政策。
 

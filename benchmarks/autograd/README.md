@@ -2,7 +2,7 @@
 
 These workloads measure compiler-generated reverse programs against matched
 framework and handwritten backward implementations. Handwritten kernels are
-oracles under `benchmarks/kernels/`; GraphForge runtime never imports them.
+oracles under `benchmarks/kernels/`; Tiga runtime never imports them.
 
 Current coverage:
 

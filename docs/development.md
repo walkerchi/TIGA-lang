@@ -15,7 +15,7 @@ changing the project, not requirements for running a first program.
 | Change | Implementation starting point |
 |---|---|
 | Public fields and call validation | `python/tiga/message_passing/` |
-| Domain operations and verification | `include/graphforge/Dialect/Domain/`, `lib/Dialect/Domain/` |
+| Domain operations and verification | `include/tiga/Dialect/Domain/`, `lib/Dialect/Domain/` |
 | Relation traversal | `lib/Transforms/LowerDomainToIter.cpp` |
 | Kernel representation and schedule | `lib/Transforms/LowerIterToKernel.cpp`, `SelectKernelSchedule.cpp` |
 | Distributed task dependencies | `lib/Transforms/PlanDistributedTasks.cpp` |
@@ -24,8 +24,11 @@ changing the project, not requirements for running a first program.
 ## Repository layout
 
 ```text
-include/graphforge/Dialect/  TableGen dialect definitions
-include/graphforge/Dialect/Tensor/ canonical Tensor operations and contracts
+CMakeLists.txt              native build entry point used by Python packaging
+cmake/                      shared build settings, including the pinned LLVM SDK
+include/tiga/               C++ headers and TableGen declarations
+include/tiga/Dialect/  TableGen dialect definitions
+include/tiga/Dialect/Tensor/ canonical Tensor operations and contracts
 lib/Dialect/                 verifiers and dialect implementation
 lib/Transforms/              target-independent analyses and passes
 lib/Target/                  provider translators
@@ -48,13 +51,32 @@ benchmarks/                  workloads, protocol and reports
 benchmarks/kernels/          handwritten oracles; never imported by core
 tests/mlir/                  IR/verifier/pass/translation tests
 tests/python/                frontend/runtime/differential tests
-output/roofline/             checked benchmark artifacts by operation/case
+third_party/licenses/        license texts copied into native wheels, not dependency sources
+assets/                     canonical logo sources and rendered variants
+docs/archive/               historical design records, not current API contracts
+output/roofline/             local benchmark outputs (ignored by Git)
 ```
 
-`PROJECT.md` contains internal architecture plans and historical implementation
-notes; `DESIGN_DECISION_TIMELINE.md` records why designs were adopted or rejected.
-Neither is an unconditional current support contract. The [API reference](api.md),
-[support matrix](roadmap.md) and implementation tests define the current boundary.
+`include/` and `lib/` separate declarations from implementations. TableGen reads
+the `.td` definitions and writes generated C++ headers into the build directory;
+these generated files are not source files to commit. `cmake/` is a set of
+configuration helpers for the root build, not a separate project. Python
+packaging invokes that same native build through scikit-build-core.
+
+Dependencies are not Git submodules: CMake discovers a pinned LLVM/MLIR SDK,
+while Python extras install optional packages separately. `third_party/licenses/`
+contains only the notices required alongside redistributed binaries, not LLVM
+or Torch source checkouts. It must also be present in source archives and wheels
+that are installed without Git.
+
+The C++ namespace and headers use `tiga`; the native extension is
+`_tiga_compiler`, and the runtime library is `libtiga_runtime` on Linux.
+The existing `gf.*` IR syntax, `gf-*` executables and `gfrt_*` C ABI symbols remain
+stable. Historical experiment snapshots retain their recorded names and hashes.
+
+Historical planning documents live in `docs/archive/` and are excluded from the
+documentation site. The [API reference](api.md), [support matrix](roadmap.md) and
+implementation tests define the current boundary.
 `SECURITY.md` is the public policy for privately reporting vulnerabilities.
 
 ## Building and checks

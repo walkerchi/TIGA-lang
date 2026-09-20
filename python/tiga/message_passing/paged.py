@@ -612,7 +612,7 @@ def execute_paged_vjp(
     out_feature = upstream.shape[1:]
     out_row_bytes = _row_width(upstream.shape) * upstream.dtype.itemsize
     if (upstream.is_contiguous and upstream.offset == 0
-            and not getattr(upstream._buffer, "_graphforge_torch_buffer", False)):
+            and not getattr(upstream._buffer, "_tiga_torch_buffer", False)):
         upstream_bytes = upstream._buffer.read(bytes=upstream.nbytes)
     else:
         # Rare path: strided or provider-owned grad_output — normalize once

@@ -9,7 +9,7 @@ import pytest
 def _load_pagerank_probe():
     path = (Path(__file__).parents[2] / "examples" / "compiler_probes" /
             "pagerank.py")
-    spec = importlib.util.spec_from_file_location("graphforge_pagerank_probe", path)
+    spec = importlib.util.spec_from_file_location("tiga_pagerank_probe", path)
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)

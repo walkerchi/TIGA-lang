@@ -1,4 +1,4 @@
-#include "graphforge/Runtime/CAPI.h"
+#include "tiga/Runtime/CAPI.h"
 #include "CudaDriver.h"
 
 #include <atomic>
@@ -86,9 +86,9 @@ GFRTStatus gfrt_buffer_allocate(GFRTDevice device, size_t bytes,
       data = bytes ? ::operator new(bytes, std::align_val_t(alignment))
                    : nullptr;
     } else {
-      graphforge::runtime::cuda::DevicePointer pointer = 0;
-      if (!graphforge::runtime::cuda::allocate(device.ordinal, bytes, pointer))
-        return graphforge::runtime::cuda::available()
+      tiga::runtime::cuda::DevicePointer pointer = 0;
+      if (!tiga::runtime::cuda::allocate(device.ordinal, bytes, pointer))
+        return tiga::runtime::cuda::available()
                    ? GFRT_STATUS_OUT_OF_MEMORY
                    : GFRT_STATUS_UNSUPPORTED;
       data = reinterpret_cast<void *>(static_cast<uintptr_t>(pointer));
@@ -107,8 +107,8 @@ GFRTStatus gfrt_buffer_allocate_pinned(size_t bytes, GFRTBuffer **outBuffer) {
   *outBuffer = nullptr;
   try {
     void *data = nullptr;
-    if (!graphforge::runtime::cuda::hostAllocate(0, bytes, data))
-      return graphforge::runtime::cuda::available()
+    if (!tiga::runtime::cuda::hostAllocate(0, bytes, data))
+      return tiga::runtime::cuda::available()
                  ? GFRT_STATUS_OUT_OF_MEMORY
                  : GFRT_STATUS_UNSUPPORTED;
     *outBuffer = new GFRTBuffer{
@@ -148,13 +148,13 @@ void gfrt_buffer_release(GFRTBuffer *buffer) {
       buffer->references.fetch_sub(1, std::memory_order_acq_rel) != 1)
     return;
   if (buffer->owned && buffer->pinned)
-    graphforge::runtime::cuda::hostRelease(0, buffer->data);
+    tiga::runtime::cuda::hostRelease(0, buffer->data);
   else if (buffer->owned && buffer->device.type == GFRT_DEVICE_CPU)
     ::operator delete(buffer->data, std::align_val_t(buffer->alignment));
   else if (buffer->owned && buffer->device.type == GFRT_DEVICE_CUDA)
-    graphforge::runtime::cuda::release(
+    tiga::runtime::cuda::release(
         buffer->device.ordinal,
-        static_cast<graphforge::runtime::cuda::DevicePointer>(
+        static_cast<tiga::runtime::cuda::DevicePointer>(
             reinterpret_cast<uintptr_t>(buffer->data)));
   else if (buffer->deleter)
     buffer->deleter(buffer->data, buffer->deleterContext);
@@ -190,9 +190,9 @@ GFRTStatus gfrt_buffer_write(GFRTBuffer *buffer, size_t offset,
     return GFRT_STATUS_OK;
   }
   if (buffer->device.type == GFRT_DEVICE_CUDA)
-    return graphforge::runtime::cuda::copyHostToDevice(
+    return tiga::runtime::cuda::copyHostToDevice(
                buffer->device.ordinal,
-               static_cast<graphforge::runtime::cuda::DevicePointer>(
+               static_cast<tiga::runtime::cuda::DevicePointer>(
                    reinterpret_cast<uintptr_t>(buffer->data)) + offset,
                source, bytes)
                ? GFRT_STATUS_OK
@@ -211,9 +211,9 @@ GFRTStatus gfrt_buffer_read(GFRTBuffer *buffer, size_t offset,
     return GFRT_STATUS_OK;
   }
   if (buffer->device.type == GFRT_DEVICE_CUDA)
-    return graphforge::runtime::cuda::copyDeviceToHost(
+    return tiga::runtime::cuda::copyDeviceToHost(
                buffer->device.ordinal, destination,
-               static_cast<graphforge::runtime::cuda::DevicePointer>(
+               static_cast<tiga::runtime::cuda::DevicePointer>(
                    reinterpret_cast<uintptr_t>(buffer->data)) + offset,
                bytes)
                ? GFRT_STATUS_OK
@@ -247,27 +247,27 @@ GFRTStatus gfrt_buffer_copy_async(
   bool copied = false;
   if (sourceCPU && destination->device.type == GFRT_DEVICE_CUDA &&
       destination->device.ordinal == ordinal) {
-    copied = graphforge::runtime::cuda::copyHostToDeviceAsync(
+    copied = tiga::runtime::cuda::copyHostToDeviceAsync(
         ordinal,
-        static_cast<graphforge::runtime::cuda::DevicePointer>(
+        static_cast<tiga::runtime::cuda::DevicePointer>(
             reinterpret_cast<uintptr_t>(destination->data)) + destinationOffset,
         static_cast<char *>(source->data) + sourceOffset, bytes, stream->native);
   } else if (source->device.type == GFRT_DEVICE_CUDA &&
              source->device.ordinal == ordinal && destinationCPU) {
-    copied = graphforge::runtime::cuda::copyDeviceToHostAsync(
+    copied = tiga::runtime::cuda::copyDeviceToHostAsync(
         ordinal, static_cast<char *>(destination->data) + destinationOffset,
-        static_cast<graphforge::runtime::cuda::DevicePointer>(
+        static_cast<tiga::runtime::cuda::DevicePointer>(
             reinterpret_cast<uintptr_t>(source->data)) + sourceOffset,
         bytes, stream->native);
   } else if (source->device.type == GFRT_DEVICE_CUDA &&
              destination->device.type == GFRT_DEVICE_CUDA &&
              source->device.ordinal == ordinal &&
              destination->device.ordinal == ordinal) {
-    copied = graphforge::runtime::cuda::copyDeviceToDeviceAsync(
+    copied = tiga::runtime::cuda::copyDeviceToDeviceAsync(
         ordinal,
-        static_cast<graphforge::runtime::cuda::DevicePointer>(
+        static_cast<tiga::runtime::cuda::DevicePointer>(
             reinterpret_cast<uintptr_t>(destination->data)) + destinationOffset,
-        static_cast<graphforge::runtime::cuda::DevicePointer>(
+        static_cast<tiga::runtime::cuda::DevicePointer>(
             reinterpret_cast<uintptr_t>(source->data)) + sourceOffset,
         bytes, stream->native);
   } else {
@@ -287,8 +287,8 @@ GFRTStatus gfrt_stream_create(GFRTDevice device, GFRTStream **outStream) {
   try {
     void *native = nullptr;
     if (device.type == GFRT_DEVICE_CUDA &&
-        !graphforge::runtime::cuda::createStream(device.ordinal, native))
-      return graphforge::runtime::cuda::available()
+        !tiga::runtime::cuda::createStream(device.ordinal, native))
+      return tiga::runtime::cuda::available()
                  ? GFRT_STATUS_INTERNAL
                  : GFRT_STATUS_UNSUPPORTED;
     *outStream = new GFRTStream{{}, device, native, true};
@@ -322,7 +322,7 @@ void gfrt_stream_release(GFRTStream *stream) {
   if (stream &&
       stream->references.fetch_sub(1, std::memory_order_acq_rel) == 1) {
     if (stream->device.type == GFRT_DEVICE_CUDA && stream->owned)
-      graphforge::runtime::cuda::destroyStream(stream->device.ordinal,
+      tiga::runtime::cuda::destroyStream(stream->device.ordinal,
                                                 stream->native);
     delete stream;
   }
@@ -340,7 +340,7 @@ GFRTStatus gfrt_stream_synchronize(GFRTStream *stream) {
   if (!stream)
     return GFRT_STATUS_INVALID_ARGUMENT;
   if (stream->device.type == GFRT_DEVICE_CUDA &&
-      !graphforge::runtime::cuda::synchronizeStream(stream->device.ordinal,
+      !tiga::runtime::cuda::synchronizeStream(stream->device.ordinal,
                                                      stream->native))
     return GFRT_STATUS_INTERNAL;
   return GFRT_STATUS_OK;
@@ -355,7 +355,7 @@ GFRTStatus gfrt_stream_wait_event(GFRTStream *stream, GFRTEvent *event) {
                                                         : GFRT_STATUS_INTERNAL;
   if (stream->device.type != GFRT_DEVICE_CUDA)
     return GFRT_STATUS_UNSUPPORTED;
-  return graphforge::runtime::cuda::streamWaitEvent(
+  return tiga::runtime::cuda::streamWaitEvent(
              stream->device.ordinal, stream->native, event->native)
              ? GFRT_STATUS_OK
              : GFRT_STATUS_INTERNAL;
@@ -369,12 +369,12 @@ GFRTStatus gfrt_event_create_completed(GFRTDevice device,
   try {
     void *native = nullptr;
     if (device.type == GFRT_DEVICE_CUDA) {
-      if (!graphforge::runtime::cuda::createEvent(device.ordinal, native) ||
-          !graphforge::runtime::cuda::recordEvent(device.ordinal, native,
+      if (!tiga::runtime::cuda::createEvent(device.ordinal, native) ||
+          !tiga::runtime::cuda::recordEvent(device.ordinal, native,
                                                    nullptr)) {
         if (native)
-          graphforge::runtime::cuda::destroyEvent(device.ordinal, native);
-        return graphforge::runtime::cuda::available()
+          tiga::runtime::cuda::destroyEvent(device.ordinal, native);
+        return tiga::runtime::cuda::available()
                    ? GFRT_STATUS_INTERNAL
                    : GFRT_STATUS_UNSUPPORTED;
       }
@@ -396,7 +396,7 @@ void gfrt_event_retain(GFRTEvent *event) {
 void gfrt_event_release(GFRTEvent *event) {
   if (event && event->references.fetch_sub(1, std::memory_order_acq_rel) == 1) {
     if (event->device.type == GFRT_DEVICE_CUDA)
-      graphforge::runtime::cuda::destroyEvent(event->device.ordinal,
+      tiga::runtime::cuda::destroyEvent(event->device.ordinal,
                                                event->native);
     delete event;
   }
@@ -411,7 +411,7 @@ int gfrt_event_is_ready(const GFRTEvent *event) {
     return 0;
   if (event->device.type == GFRT_DEVICE_CUDA) {
     bool ready = false;
-    return graphforge::runtime::cuda::queryEvent(
+    return tiga::runtime::cuda::queryEvent(
                event->device.ordinal, event->native, ready) && ready;
   }
   return event->ready.load(std::memory_order_acquire);
@@ -421,7 +421,7 @@ GFRTStatus gfrt_event_wait(GFRTEvent *event) {
   if (!event)
     return GFRT_STATUS_INVALID_ARGUMENT;
   if (event->device.type == GFRT_DEVICE_CUDA)
-    return graphforge::runtime::cuda::waitEvent(event->device.ordinal,
+    return tiga::runtime::cuda::waitEvent(event->device.ordinal,
                                                  event->native)
                ? GFRT_STATUS_OK
                : GFRT_STATUS_INTERNAL;
@@ -441,11 +441,11 @@ GFRTStatus gfrt_event_record(GFRTStream *stream, GFRTEvent **outEvent) {
     if (stream->device.type != GFRT_DEVICE_CUDA)
       return GFRT_STATUS_UNSUPPORTED;
     void *native = nullptr;
-    if (!graphforge::runtime::cuda::createEvent(stream->device.ordinal, native) ||
-        !graphforge::runtime::cuda::recordEvent(
+    if (!tiga::runtime::cuda::createEvent(stream->device.ordinal, native) ||
+        !tiga::runtime::cuda::recordEvent(
             stream->device.ordinal, native, stream->native)) {
       if (native)
-        graphforge::runtime::cuda::destroyEvent(stream->device.ordinal, native);
+        tiga::runtime::cuda::destroyEvent(stream->device.ordinal, native);
       return GFRT_STATUS_INTERNAL;
     }
     *outEvent = new GFRTEvent{{}, stream->device, false, native};
@@ -464,9 +464,9 @@ GFRTStatus gfrt_module_load(GFRTDevice device, const void *image, size_t bytes,
     return GFRT_STATUS_UNSUPPORTED;
   try {
     void *native = nullptr;
-    if (!graphforge::runtime::cuda::loadModule(
+    if (!tiga::runtime::cuda::loadModule(
             device.ordinal, static_cast<const char *>(image), bytes, native))
-      return graphforge::runtime::cuda::available() ? GFRT_STATUS_INTERNAL
+      return tiga::runtime::cuda::available() ? GFRT_STATUS_INTERNAL
                                                      : GFRT_STATUS_UNSUPPORTED;
     *outModule = new GFRTModule{{}, device, native};
   } catch (const std::bad_alloc &) {
@@ -479,7 +479,7 @@ void gfrt_module_release(GFRTModule *module) {
   if (!module ||
       module->references.fetch_sub(1, std::memory_order_acq_rel) != 1)
     return;
-  graphforge::runtime::cuda::unloadModule(module->device.ordinal,
+  tiga::runtime::cuda::unloadModule(module->device.ordinal,
                                            module->native);
   delete module;
 }
@@ -491,7 +491,7 @@ GFRTStatus gfrt_module_get_kernel(GFRTModule *module, const char *name,
   *outKernel = nullptr;
   try {
     void *native = nullptr;
-    if (!graphforge::runtime::cuda::getFunction(
+    if (!tiga::runtime::cuda::getFunction(
             module->device.ordinal, module->native, name, native))
       return GFRT_STATUS_INTERNAL;
     module->references.fetch_add(1, std::memory_order_relaxed);
@@ -521,7 +521,7 @@ GFRTStatus gfrt_kernel_launch(
       stream->device.ordinal != kernel->module->device.ordinal)
     return GFRT_STATUS_INVALID_ARGUMENT;
   *outEvent = nullptr;
-  if (!graphforge::runtime::cuda::launch(
+  if (!tiga::runtime::cuda::launch(
           stream->device.ordinal, kernel->native, stream->native, gridX, gridY,
           gridZ, blockX, blockY, blockZ, sharedBytes, arguments))
     return GFRT_STATUS_INTERNAL;
@@ -537,7 +537,7 @@ GFRTStatus gfrt_kernel_launch_async(
       stream->device.type != kernel->module->device.type ||
       stream->device.ordinal != kernel->module->device.ordinal)
     return GFRT_STATUS_INVALID_ARGUMENT;
-  if (!graphforge::runtime::cuda::launch(
+  if (!tiga::runtime::cuda::launch(
           stream->device.ordinal, kernel->native, stream->native, gridX, gridY,
           gridZ, blockX, blockY, blockZ, sharedBytes, arguments))
     return GFRT_STATUS_INTERNAL;

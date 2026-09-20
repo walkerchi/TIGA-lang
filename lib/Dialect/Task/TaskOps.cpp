@@ -1,4 +1,4 @@
-#include "graphforge/Dialect/Task/TaskDialect.h"
+#include "tiga/Dialect/Task/TaskDialect.h"
 
 #include "llvm/ADT/StringSwitch.h"
 #include "llvm/ADT/SmallSet.h"
@@ -6,7 +6,7 @@
 #include <optional>
 
 using namespace mlir;
-using namespace mlir::graphforge::task;
+using namespace mlir::tiga::task;
 
 static std::optional<int64_t> getTaskEventVersion(Value value) {
   Operation *producer = value.getDefiningOp();
@@ -72,7 +72,7 @@ static LogicalResult verifyDegreeStorage(Operation *operation,
           "degree upper bounds must be strictly increasing");
     previous = bound;
   }
-  auto relation = relationValue.getDefiningOp<graphforge::RelationOp>();
+  auto relation = relationValue.getDefiningOp<tiga::RelationOp>();
   if (relation) {
     if (relation.getVersionAttr().getInt() != version)
       return operation->emitOpError(
@@ -86,7 +86,7 @@ static LogicalResult verifyDegreeStorage(Operation *operation,
       return operation->emitOpError(
           "last degree bound does not cover degree_max");
   }
-  auto instance = storageValue.getDefiningOp<graphforge::storage::InstanceOp>();
+  auto instance = storageValue.getDefiningOp<tiga::storage::InstanceOp>();
   if (!instance)
     return operation->emitOpError(
         "requires a visible physical storage instance");
@@ -101,7 +101,7 @@ static LogicalResult verifyDegreeStorage(Operation *operation,
     return operation->emitOpError("packed worklist size overflows i64");
   int64_t requiredElements = rows + 2 * buckets + 1;
   auto region =
-      instance.getRegion().getDefiningOp<graphforge::storage::RegionOp>();
+      instance.getRegion().getDefiningOp<tiga::storage::RegionOp>();
   if (region) {
     if (region.getVersionAttr().getInt() != version)
       return operation->emitOpError(
@@ -136,7 +136,7 @@ LogicalResult PartitionOp::verify() {
            .Cases("destination", "source", "edge", "spatial", "2d", true)
            .Default(false))
     return emitOpError("unknown partition scheme '") << getScheme() << "'";
-  if (auto relation = getRelation().getDefiningOp<graphforge::RelationOp>();
+  if (auto relation = getRelation().getDefiningOp<tiga::RelationOp>();
       relation && relation.getVersionAttr().getInt() != getVersionAttr().getInt())
     return emitOpError("partition version does not match relation snapshot");
   return success();
@@ -222,12 +222,12 @@ LogicalResult DegreeResetOp::verify() {
   if (getBucketsAttr().getInt() <= 0 || version < 0)
     return emitOpError(
         "bucket count must be positive and version non-negative");
-  auto instance = getStorage().getDefiningOp<graphforge::storage::InstanceOp>();
+  auto instance = getStorage().getDefiningOp<tiga::storage::InstanceOp>();
   if (!instance || instance.getLayout() != "degree-row-worklist" ||
       instance.getExternal())
     return emitOpError("requires compiler-owned degree-row-worklist storage");
   auto region =
-      instance.getRegion().getDefiningOp<graphforge::storage::RegionOp>();
+      instance.getRegion().getDefiningOp<tiga::storage::RegionOp>();
   if (region && region.getVersionAttr().getInt() != version)
     return emitOpError("storage version does not match snapshot_version");
   return success();
@@ -374,7 +374,7 @@ static LogicalResult verifyPartialStorage(Operation *operation, Value storageVal
       activeRows * partials > INT64_MAX / stateBytes)
     return operation->emitOpError("partial-state size overflows i64");
   auto instance = storageValue.getDefiningOp<
-      graphforge::storage::InstanceOp>();
+      tiga::storage::InstanceOp>();
   if (!instance || instance.getLayout() != "row-partial-f32" ||
       instance.getExternal())
     return operation->emitOpError(
@@ -384,7 +384,7 @@ static LogicalResult verifyPartialStorage(Operation *operation, Value storageVal
     return operation->emitOpError(
         "partial-state instance capacity is too small");
   auto region = instance.getRegion().getDefiningOp<
-      graphforge::storage::RegionOp>();
+      tiga::storage::RegionOp>();
   if (region && region.getVersionAttr().getInt() != version)
     return operation->emitOpError(
         "partial-state storage version does not match snapshot_version");
@@ -402,7 +402,7 @@ LogicalResult RowSplitPartialOp::verify() {
           getPartialsPerRowAttr().getInt(), getStateBytesAttr().getInt(),
           version)))
     return failure();
-  auto relation = getRelation().getDefiningOp<graphforge::RelationOp>();
+  auto relation = getRelation().getDefiningOp<tiga::RelationOp>();
   if (!relation || relation.getVersionAttr().getInt() != version ||
       (relation.getNumDstAttr().getInt() >= 0 &&
        relation.getNumDstAttr().getInt() != getRowsAttr().getInt()))
@@ -513,4 +513,4 @@ LogicalResult CollectiveOp::verify() {
 }
 
 #define GET_OP_CLASSES
-#include "graphforge/Dialect/Task/TaskOps.cpp.inc"
+#include "tiga/Dialect/Task/TaskOps.cpp.inc"

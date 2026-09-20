@@ -1,7 +1,8 @@
 # Contributing to Tiga
 
-Tiga is alpha software. The design contract lives in [PROJECT.md](PROJECT.md);
-the [development guide](docs/development.md) contains the source installation,
+The [API reference](docs/api.md), [support matrix](docs/roadmap.md), and regression
+tests describe the current contract. Historical plans live in [docs/archive](docs/archive/README.md).
+The [development guide](docs/development.md) contains the source installation,
 MLIR test configuration, Python checks and GPU release gate.
 
 ## Reproducing a bug

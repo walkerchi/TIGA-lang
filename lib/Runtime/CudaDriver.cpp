@@ -9,7 +9,7 @@
 #include <dlfcn.h>
 #endif
 
-namespace graphforge::runtime::cuda {
+namespace tiga::runtime::cuda {
 namespace {
 
 using Result = int;
@@ -241,4 +241,4 @@ bool launch(int ordinal, Function function, Stream stream, uint32_t gridX,
                             blockZ, sharedBytes, stream, arguments, nullptr) == success;
 }
 
-} // namespace graphforge::runtime::cuda
+} // namespace tiga::runtime::cuda

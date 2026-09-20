@@ -96,7 +96,7 @@ class Graph:
     correctness path until they provide a provable spatial bound.
     """
 
-    _graphforge_graph = True
+    _tiga_graph = True
 
     def __init__(
         self,
@@ -1502,7 +1502,7 @@ def from_native(graph) -> Graph:
         # CPU-generated topology (e.g. Graph.stencil) can be Tiga-owned.
         # Copy these integer indices once into the cached Torch view; keep
         # Torch-owned topology zero-copy. This is not a gradient bridge.
-        return value.to_torch(copy=not getattr(value._buffer, "_graphforge_torch_buffer", False))
+        return value.to_torch(copy=not getattr(value._buffer, "_tiga_torch_buffer", False))
 
     row_ptr = topology_tensor(graph._row_ptr)
     col_idx = topology_tensor(graph._col_idx)

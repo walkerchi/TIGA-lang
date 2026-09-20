@@ -175,6 +175,7 @@ nav:
       - Current status & roadmap: roadmap.md
       - How Tiga compares: comparison.md
 exclude_docs: |
+  archive/**
   design-notes.md
   IR_DESIGN.md
   RELATED_WORK.md

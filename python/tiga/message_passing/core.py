@@ -599,7 +599,7 @@ class MessagePassing(Kernel):
         ndata: Mapping[str, Tensor | object] | None = None,
         **params: Any,
     ):
-        if not getattr(graph, "_graphforge_graph", False):
+        if not getattr(graph, "_tiga_graph", False):
             raise TypeError("graph must be a tiga.Graph")
         src, dst = _resolve_node_fields(graph, src, dst, ndata)
         edge = {} if edge is None else edge

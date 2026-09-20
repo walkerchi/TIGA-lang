@@ -55,7 +55,7 @@ def main() -> None:
     graph = tg.Graph.knn(positions, args.k)
     kernel = NeighborSum()
 
-    def graphforge_pipeline():
+    def tiga_pipeline():
         return kernel(
             graph=graph, src={"x": source}, dst={},
             edge={"weight": weight})
@@ -69,7 +69,7 @@ def main() -> None:
             source[index] * weight.reshape(args.nodes, args.k)
         ).sum(dim=1)
 
-    actual = graphforge_pipeline()
+    actual = tiga_pipeline()
     # Tiga's ranked metric is explicitly pairwise squared Euclidean
     # accumulation with source-index tie breaking. PyTorch's default cdist may
     # switch to a GEMM identity and perturb nearly equal boundary distances;
@@ -104,7 +104,7 @@ def main() -> None:
         + args.nodes * source.element_size())
     intensity = useful_flops / common_bytes
     providers = (
-        ("tiga.knn_build_consume_ttir", graphforge_pipeline),
+        ("tiga.knn_build_consume_ttir", tiga_pipeline),
         ("tiga.knn_build_consume_prepared_ttir", prepared_pipeline),
         ("torch.cdist_topk_gather_sum", torch_pipeline),
     )

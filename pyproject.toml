@@ -31,6 +31,7 @@ Homepage = "https://github.com/walkerchi/TIGA-lang"
 Documentation = "https://github.com/walkerchi/TIGA-lang/blob/main/docs/index.md"
 Repository = "https://github.com/walkerchi/TIGA-lang.git"
 Issues = "https://github.com/walkerchi/TIGA-lang/issues"
+"Technical report" = "https://github.com/walkerchi/tiga-lang-paper"
 
 [project.optional-dependencies]
 # Explicit opt-in only; ordinary installation must not install or upgrade Torch.
@@ -92,7 +93,6 @@ sdist.include = [
   "README.md",
   "README.zh.md",
   "assets/**",
-  "PROJECT.md",
 ]
 sdist.exclude = [
   "**/__pycache__",

@@ -1,10 +1,10 @@
-#ifndef GRAPHFORGE_RUNTIME_CUDA_DRIVER_H
-#define GRAPHFORGE_RUNTIME_CUDA_DRIVER_H
+#ifndef TIGA_RUNTIME_CUDA_DRIVER_H
+#define TIGA_RUNTIME_CUDA_DRIVER_H
 
 #include <cstddef>
 #include <cstdint>
 
-namespace graphforge::runtime::cuda {
+namespace tiga::runtime::cuda {
 
 using DevicePointer = uint64_t;
 using Stream = void *;
@@ -46,6 +46,6 @@ bool launch(int ordinal, Function function, Stream stream, uint32_t gridX,
             uint32_t blockY, uint32_t blockZ, uint32_t sharedBytes,
             void **arguments);
 
-} // namespace graphforge::runtime::cuda
+} // namespace tiga::runtime::cuda
 
 #endif

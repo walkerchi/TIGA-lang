@@ -1,9 +1,9 @@
-add_mlir_dialect_library(GraphForgeControl
+add_mlir_dialect_library(TigaControl
   ControlDialect.cpp
   ControlOps.cpp
 
   ADDITIONAL_HEADER_DIRS
-  ${PROJECT_SOURCE_DIR}/include/graphforge/Dialect/Control
+  ${PROJECT_SOURCE_DIR}/include/tiga/Dialect/Control
 
   DEPENDS
   MLIRControlOpsIncGen

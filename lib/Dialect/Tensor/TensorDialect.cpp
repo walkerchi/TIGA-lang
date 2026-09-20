@@ -1,13 +1,13 @@
-#include "graphforge/Dialect/Tensor/TensorDialect.h"
+#include "tiga/Dialect/Tensor/TensorDialect.h"
 
-#include "graphforge/Dialect/Tensor/TensorOpsDialect.cpp.inc"
+#include "tiga/Dialect/Tensor/TensorOpsDialect.cpp.inc"
 
 using namespace mlir;
-using namespace mlir::graphforge::tensor;
+using namespace mlir::tiga::tensor;
 
-void GraphForgeTensorDialect::initialize() {
+void TigaTensorDialect::initialize() {
   addOperations<
 #define GET_OP_LIST
-#include "graphforge/Dialect/Tensor/TensorOps.cpp.inc"
+#include "tiga/Dialect/Tensor/TensorOps.cpp.inc"
       >();
 }

@@ -1,7 +1,7 @@
-#include "graphforge/Transforms/Passes.h"
+#include "tiga/Transforms/Passes.h"
 
-#include "graphforge/Dialect/Domain/DomainDialect.h"
-#include "graphforge/Transforms/FusionAnalysis.h"
+#include "tiga/Dialect/Domain/DomainDialect.h"
+#include "tiga/Transforms/FusionAnalysis.h"
 #include "llvm/ADT/SmallVector.h"
 #include "mlir/IR/IRMapping.h"
 #include "mlir/IR/PatternMatch.h"
@@ -9,12 +9,12 @@
 #include "mlir/Rewrite/FrozenRewritePatternSet.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
-namespace mlir::graphforge {
+namespace mlir::tiga {
 
 #define GEN_PASS_DEF_GFVERIFYDOMAIN
 #define GEN_PASS_DEF_GFFORMAPPLYFUSIONGROUPS
 #define GEN_PASS_DEF_GFFUSECOMPATIBLEAPPLIES
-#include "graphforge/Transforms/Passes.h.inc"
+#include "tiga/Transforms/Passes.h.inc"
 
 namespace {
 
@@ -200,4 +200,4 @@ public:
 };
 
 } // namespace
-} // namespace mlir::graphforge
+} // namespace mlir::tiga

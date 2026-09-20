@@ -16,9 +16,9 @@ def schedules_from_mlir(module: str) -> tuple[MachineSchedule, ...]:
     if not isinstance(module, str) or not module.strip():
         raise TypeError("kernel schedule inspection requires non-empty MLIR")
     try:
-        from tiga import _graphforge_compiler as native
+        from tiga import _tiga_compiler as native
     except ImportError:
-        import _graphforge_compiler as native
+        import _tiga_compiler as native
     records = native.kernel_schedules(module)
     schedules = []
     for record in records:

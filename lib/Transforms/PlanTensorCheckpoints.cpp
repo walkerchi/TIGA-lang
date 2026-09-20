@@ -1,6 +1,6 @@
-#include "graphforge/Transforms/Passes.h"
+#include "tiga/Transforms/Passes.h"
 
-#include "graphforge/Dialect/Tensor/TensorDialect.h"
+#include "tiga/Dialect/Tensor/TensorDialect.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/STLExtras.h"
@@ -13,13 +13,13 @@
 #include <limits>
 #include <optional>
 
-namespace mlir::graphforge {
+namespace mlir::tiga {
 
 #define GEN_PASS_DEF_GFPLANTENSORCHECKPOINTS
-#include "graphforge/Transforms/Passes.h.inc"
+#include "tiga/Transforms/Passes.h.inc"
 
 namespace {
-namespace gft = mlir::graphforge::tensor;
+namespace gft = mlir::tiga::tensor;
 
 static FailureOr<int64_t> staticBytes(RankedTensorType type) {
   if (!type.hasStaticShape())
@@ -283,4 +283,4 @@ public:
 };
 
 } // namespace
-} // namespace mlir::graphforge
+} // namespace mlir::tiga

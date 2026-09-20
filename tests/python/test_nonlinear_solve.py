@@ -22,7 +22,7 @@ def module(monkeypatch):
     monkeypatch.setenv("TIGA_TENSOR_BACKEND", "native")
     monkeypatch.syspath_prepend(str(EXAMPLES))
     return _load_module(
-        "graphforge_example_nonlinear_solve", EXAMPLES / "nonlinear_solve.py")
+        "tiga_example_nonlinear_solve", EXAMPLES / "nonlinear_solve.py")
 
 
 def test_fixed_picard_converges_with_small_residual(module):

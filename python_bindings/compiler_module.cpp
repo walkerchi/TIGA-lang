@@ -1,13 +1,13 @@
 #include <Python.h>
 
-#include "graphforge/Dialect/Control/ControlDialect.h"
-#include "graphforge/Dialect/Domain/DomainDialect.h"
-#include "graphforge/Dialect/Iter/IterDialect.h"
-#include "graphforge/Dialect/Kernel/KernelDialect.h"
-#include "graphforge/Dialect/Storage/StorageDialect.h"
-#include "graphforge/Dialect/Task/TaskDialect.h"
-#include "graphforge/Dialect/Tensor/TensorDialect.h"
-#include "graphforge/Transforms/Passes.h"
+#include "tiga/Dialect/Control/ControlDialect.h"
+#include "tiga/Dialect/Domain/DomainDialect.h"
+#include "tiga/Dialect/Iter/IterDialect.h"
+#include "tiga/Dialect/Kernel/KernelDialect.h"
+#include "tiga/Dialect/Storage/StorageDialect.h"
+#include "tiga/Dialect/Task/TaskDialect.h"
+#include "tiga/Dialect/Tensor/TensorDialect.h"
+#include "tiga/Transforms/Passes.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Support/TargetSelect.h"
@@ -49,9 +49,9 @@
 
 namespace {
 using namespace mlir;
-namespace gf = mlir::graphforge;
-namespace gfc = mlir::graphforge::control;
-namespace gft = mlir::graphforge::tensor;
+namespace gf = mlir::tiga;
+namespace gfc = mlir::tiga::control;
+namespace gft = mlir::tiga::tensor;
 
 struct PyOwned {
   PyObject *value = nullptr;
@@ -118,7 +118,7 @@ static FailureOr<Type> elementType(MLIRContext &context, PyObject *tensor) {
     return ComplexType::get(Float32Type::get(&context));
   if (*name == "complex128")
     return ComplexType::get(Float64Type::get(&context));
-  PyErr_Format(PyExc_TypeError, "unsupported GraphForge dtype %s", name->c_str());
+  PyErr_Format(PyExc_TypeError, "unsupported Tiga dtype %s", name->c_str());
   return failure();
 }
 
@@ -133,7 +133,7 @@ static FailureOr<Type> elementType(MLIRContext &context, StringRef name) {
     return ComplexType::get(Float32Type::get(&context));
   if (name == "complex128")
     return ComplexType::get(Float64Type::get(&context));
-  PyErr_Format(PyExc_TypeError, "unsupported GraphForge dtype %s",
+  PyErr_Format(PyExc_TypeError, "unsupported Tiga dtype %s",
                name.str().c_str());
   return failure();
 }
@@ -831,12 +831,12 @@ struct TensorBuilder {
 
 static void initializeContext(MLIRContext &context) {
   DialectRegistry registry;
-  registry.insert<gfc::GraphForgeControlDialect,
-                  gf::GraphForgeDomainDialect, gf::iter::GraphForgeIterDialect,
-                  gf::kernel::GraphForgeKernelDialect,
-                  gf::storage::GraphForgeStorageDialect,
-                  gf::task::GraphForgeTaskDialect,
-                  gft::GraphForgeTensorDialect, arith::ArithDialect,
+  registry.insert<gfc::TigaControlDialect,
+                  gf::TigaDomainDialect, gf::iter::TigaIterDialect,
+                  gf::kernel::TigaKernelDialect,
+                  gf::storage::TigaStorageDialect,
+                  gf::task::TigaTaskDialect,
+                  gft::TigaTensorDialect, arith::ArithDialect,
                   complex::ComplexDialect, func::FuncDialect,
                   math::MathDialect, memref::MemRefDialect,
                   scf::SCFDialect, vector::VectorDialect>();
@@ -988,7 +988,7 @@ static PyObject *tensorIR(PyObject *, PyObject *args, PyObject *keywords) {
   if (failed(module))
     return nullptr;
   if (failed(verify(*module))) {
-    PyErr_SetString(PyExc_RuntimeError, "native GraphForge IR verification failed");
+    PyErr_SetString(PyExc_RuntimeError, "native Tiga IR verification failed");
     return nullptr;
   }
   if (vjp) {
@@ -996,7 +996,7 @@ static PyObject *tensorIR(PyObject *, PyObject *args, PyObject *keywords) {
     manager.addPass(gf::createGFTensorVJP());
     manager.addPass(createCSEPass());
     if (failed(manager.run(*module))) {
-      PyErr_SetString(PyExc_RuntimeError, "GraphForge VJP pipeline failed");
+      PyErr_SetString(PyExc_RuntimeError, "Tiga VJP pipeline failed");
       return nullptr;
     }
   }
@@ -1853,7 +1853,7 @@ static PyObject *programIR(PyObject *, PyObject *args) {
     OwningOpRef<ModuleOp> source = parseSourceString<ModuleOp>(text, &context);
     if (!source || failed(verify(*source))) {
       PyErr_Format(PyExc_ValueError,
-                   "program input %zd is not verified GraphForge Domain IR",
+                   "program input %zd is not verified Tiga Domain IR",
                    index);
       return nullptr;
     }
@@ -2127,7 +2127,7 @@ private:
 static unsigned cpuThreadCount() {
   unsigned fallback = std::min(
       32u, std::max(1u, std::thread::hardware_concurrency()));
-  const char *raw = std::getenv("GRAPHFORGE_CPU_THREADS");
+  const char *raw = std::getenv("TIGA_CPU_THREADS");
   if (!raw || !*raw) return fallback;
   char *end = nullptr;
   unsigned long parsed = std::strtoul(raw, &end, 10);
@@ -2252,7 +2252,7 @@ static PyObject *planTensorCheckpoints(PyObject *, PyObject *args,
 }
 
 static void destroyCPUState(PyObject *capsule) {
-  void *pointer = PyCapsule_GetPointer(capsule, "graphforge.cpu.executable");
+  void *pointer = PyCapsule_GetPointer(capsule, "tiga.cpu.executable");
   if (pointer) delete static_cast<CPUState *>(pointer);
   else PyErr_Clear();
 }
@@ -2267,7 +2267,7 @@ static PyObject *compileCPU(PyObject *, PyObject *output) {
   MLIRContext context;
   initializeContext(context);
   TensorBuilder capture(context);
-  FailureOr<ModuleOp> module = capture.finish(output, "graphforge_run");
+  FailureOr<ModuleOp> module = capture.finish(output, "tiga_run");
   if (failed(module)) return nullptr;
   std::string semantic = printOperation(*module);
 
@@ -2291,11 +2291,11 @@ static PyObject *compileCPU(PyObject *, PyObject *output) {
   int64_t vectorWidth = 1;
   bool serialControl = false;
   module->walk([&](func::FuncOp function) {
-    if (function.getName() == "graphforge_run") {
+    if (function.getName() == "tiga_run") {
       if (auto width = function->getAttrOfType<IntegerAttr>(
-              "graphforge.cpu.vector_width"))
+              "tiga.cpu.vector_width"))
         vectorWidth = width.getInt();
-      serialControl = function->hasAttr("graphforge.cpu.serial_control");
+      serialControl = function->hasAttr("tiga.cpu.serial_control");
     }
   });
 
@@ -2306,7 +2306,7 @@ static PyObject *compileCPU(PyObject *, PyObject *output) {
   llvmLowering.addPass(createConvertToLLVMPass());
   llvmLowering.addPass(createReconcileUnrealizedCastsPass());
   if (failed(llvmLowering.run(*module))) {
-    PyErr_SetString(PyExc_RuntimeError, "GraphForge CPU LLVM lowering failed");
+    PyErr_SetString(PyExc_RuntimeError, "Tiga CPU LLVM lowering failed");
     return nullptr;
   }
   std::string llvmDialect = printOperation(*module);
@@ -2319,7 +2319,7 @@ static PyObject *compileCPU(PyObject *, PyObject *output) {
     PyErr_SetString(PyExc_RuntimeError, message.c_str());
     return nullptr;
   }
-  auto packed = (*expected)->lookupPacked("_mlir_ciface_graphforge_run");
+  auto packed = (*expected)->lookupPacked("_mlir_ciface_tiga_run");
   if (!packed) {
     std::string message;
     llvm::raw_string_ostream stream(message);
@@ -2331,7 +2331,7 @@ static PyObject *compileCPU(PyObject *, PyObject *output) {
       std::move(*expected), *packed, vectorWidth, cpuThreadCount(),
       serialControl);
   PyObject *capsule = PyCapsule_New(
-      state, "graphforge.cpu.executable", destroyCPUState);
+      state, "tiga.cpu.executable", destroyCPUState);
   if (!capsule) {
     delete state;
     return nullptr;
@@ -2365,7 +2365,7 @@ static PyObject *launchCPU(PyObject *, PyObject *args) {
                         &outputAddress, &outputElements))
     return nullptr;
   auto *state = static_cast<CPUState *>(PyCapsule_GetPointer(
-      capsule, "graphforge.cpu.executable"));
+      capsule, "tiga.cpu.executable"));
   if (!state) return nullptr;
   PyOwned addresses(PySequence_Fast(addressesObject, "expected input addresses"));
   PyOwned sizes(PySequence_Fast(sizesObject, "expected input element counts"));
@@ -2447,8 +2447,8 @@ static PyMethodDef methods[] = {
     {"object_identity", identity, METH_O, "Return a stable in-process object id."},
     {nullptr, nullptr, 0, nullptr}};
 
-static PyModuleDef module = {PyModuleDef_HEAD_INIT, "_graphforge_compiler",
-                             "GraphForge native compiler binding", -1, methods};
+static PyModuleDef module = {PyModuleDef_HEAD_INIT, "_tiga_compiler",
+                             "Tiga native compiler binding", -1, methods};
 } // namespace
 
-PyMODINIT_FUNC PyInit__graphforge_compiler() { return PyModule_Create(&module); }
+PyMODINIT_FUNC PyInit__tiga_compiler() { return PyModule_Create(&module); }

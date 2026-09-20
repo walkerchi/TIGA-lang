@@ -1,2 +1,2 @@
-add_subdirectory(graphforge)
+add_subdirectory(tiga)
 

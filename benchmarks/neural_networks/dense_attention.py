@@ -80,7 +80,7 @@ def main():
     candidate = DenseAttention()
     scale = args.width**-0.5
 
-    def run_graphforge():
+    def run_tiga():
         return candidate(
             graph=graph,
             src={"key": k_nodes, "value": v_nodes},
@@ -99,12 +99,12 @@ def main():
     torch.testing.assert_close(actual, expected, rtol=2e-3, atol=2e-3)
     torch.cuda.synchronize()
     compile_start = time.perf_counter()
-    graphforge_actual = run_graphforge()
+    tiga_actual = run_tiga()
     torch.cuda.synchronize()
-    graphforge_cold_ms = (time.perf_counter() - compile_start) * 1000.0
-    graphforge_as_sdpa = graphforge_actual.permute(1, 0, 2).reshape(shape)
+    tiga_cold_ms = (time.perf_counter() - compile_start) * 1000.0
+    tiga_as_sdpa = tiga_actual.permute(1, 0, 2).reshape(shape)
     torch.testing.assert_close(
-        graphforge_as_sdpa, expected, rtol=3e-3, atol=3e-3)
+        tiga_as_sdpa, expected, rtol=3e-3, atol=3e-3)
 
     oracle_output = torch.empty_like(q.reshape(lanes, args.sequence, args.width))
     oracle_block_m = 64 if args.causal or args.width >= 64 else 128
@@ -153,7 +153,7 @@ def main():
 
     results = []
     providers = (
-        ("tiga.direct_ttir", run_graphforge),
+        ("tiga.direct_ttir", run_tiga),
         ("triton.streaming_oracle", run_oracle),
         ("torch.sdpa.flash", lambda: run(SDPBackend.FLASH_ATTENTION)),
         ("torch.sdpa.math", lambda: run(SDPBackend.MATH)),
@@ -199,10 +199,10 @@ def main():
             **vars(args), "dtype": "float16",
             "useful_flop_convention": "(4*D+5)*logical relation pairs",
             "semantic_byte_model": "Q + K + V + output",
-            "graphforge_status": "direct compiler-emitted TTIR",
-            "graphforge_cold_jit_ms": graphforge_cold_ms,
-            "graphforge_lowering": candidate.last_variant.lowering,
-            "graphforge_provider": candidate.last_variant.provider,
+            "tiga_status": "direct compiler-emitted TTIR",
+            "tiga_cold_jit_ms": tiga_cold_ms,
+            "tiga_lowering": candidate.last_variant.lowering,
+            "tiga_provider": candidate.last_variant.provider,
         },
     }
     gates = evaluate_sota_gates(
@@ -219,18 +219,18 @@ def main():
     plot_roofline(payload, output)
     plot_latency(payload, output)
     write_report(payload, None, None, None, output)
-    graphforge_result, oracle, flash, math = results
+    tiga_result, oracle, flash, math = results
     gate = gates[0]
-    speedup = flash["milliseconds"] / graphforge_result["milliseconds"]
-    oracle_ratio = graphforge_result["milliseconds"] / oracle["milliseconds"]
+    speedup = flash["milliseconds"] / tiga_result["milliseconds"]
+    oracle_ratio = tiga_result["milliseconds"] / oracle["milliseconds"]
     (output / "REPORT.md").write_text(
         "# Dense attention: Tiga direct TTIR vs SOTA\n\n"
         "The Tiga point is produced by the user-defined MessagePassing "
         "program through Domain → Iter → Kernel → serialized TTIR; Tiga "
         "contains no built-in attention operator. The Triton point is a "
         "benchmark-only handwritten parity oracle.\n\n"
-        f"Tiga direct TTIR: {graphforge_result['milliseconds']:.4f} ms "
-        f"({graphforge_result['achieved_gflops'] / 1000:.2f} TFLOP/s).  "
+        f"Tiga direct TTIR: {tiga_result['milliseconds']:.4f} ms "
+        f"({tiga_result['achieved_gflops'] / 1000:.2f} TFLOP/s).  "
         f"PyTorch Flash SDPA: {flash['milliseconds']:.4f} ms "
         f"({flash['achieved_gflops'] / 1000:.2f} TFLOP/s).  "
         f"PyTorch math SDPA: {math['milliseconds']:.4f} ms.  "
@@ -239,7 +239,7 @@ def main():
         f"Strict gate: {'PASS' if gate.passed else 'FAIL'}, "
         f"{gate.speedup_vs_sota:.3f}x, 95% CI "
         f"[{gate.speedup_ci_low:.3f}, {gate.speedup_ci_high:.3f}].  "
-        f"Cold capture+MLIR+provider JIT: {graphforge_cold_ms:.2f} ms.  "
+        f"Cold capture+MLIR+provider JIT: {tiga_cold_ms:.2f} ms.  "
         f"The measured FP16 GEMM ceiling is {fp16_gflops / 1000:.2f} TFLOP/s.\n\n"
         "Both providers implement the same B/H/N/D workload and therefore use "
         f"the same x coordinate: {intensity:.6g} useful FLOP/common byte.\n\n"

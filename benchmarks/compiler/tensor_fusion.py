@@ -40,7 +40,7 @@ def _measure(function, repeat: int, warmup: int = 12) -> dict[str, object]:
     }
 
 
-def _graphforge_run(x: tg.Tensor, scale: tg.Tensor) -> tg.Tensor:
+def _tiga_run(x: tg.Tensor, scale: tg.Tensor) -> tg.Tensor:
     output = (x * scale + x).sum(axis=1)
     output.realize()
     return output
@@ -95,9 +95,9 @@ def main() -> None:
         os.environ["TIGA_CACHE_DIR"] = cache
         os.environ["TIGA_FAST_MATH"] = "0" if args.strict else "1"
         start = time.perf_counter_ns()
-        first = _graphforge_run(x, scale)
+        first = _tiga_run(x, scale)
         cold_ms = (time.perf_counter_ns() - start) / 1e6
-        warm = _measure(lambda: _graphforge_run(x, scale), args.repeat)
+        warm = _measure(lambda: _tiga_run(x, scale), args.repeat)
         executable = compile_tensor(first)
         kernel = _measure(lambda: executable.launch(first), args.repeat)
     if old_backend is None:

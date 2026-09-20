@@ -213,7 +213,7 @@ def compile_tensor(output: Tensor) -> CPUExecutable:
     # the same executable.
     from .tensor_mlir import tensor_mlir
 
-    semantic_ir = tensor_mlir(physical_output, function_name="graphforge_run")
+    semantic_ir = tensor_mlir(physical_output, function_name="tiga_run")
     semantic_hash = hashlib.sha256(semantic_ir.encode()).hexdigest()
     structure = (_PIPELINE_VERSION, semantic_hash)
     inputs = _topological_inputs(physical_output)

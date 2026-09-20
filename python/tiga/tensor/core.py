@@ -918,11 +918,11 @@ class Tensor:
         uniform_degree = all(
             right - left == max_degree for left, right in zip(rows, rows[1:]))
         destination = getattr(
-            row_ptr, "_graphforge_csr_destination_index", None)
+            row_ptr, "_tiga_csr_destination_index", None)
         if destination is None or destination.shape != (self.shape[0],):
             if getattr(
                 getattr(row_ptr, "_buffer", None),
-                "_graphforge_torch_buffer", False,
+                "_tiga_torch_buffer", False,
             ) and row_ptr.device.type.name == "CUDA":
                 from ..interop.torch.provider import cuda_destination_index
 
@@ -935,7 +935,7 @@ class Tensor:
                      for _ in range(end - begin)],
                     dtype=row_ptr.dtype, device=row_ptr.device,
                 )
-            row_ptr._graphforge_csr_destination_index = destination
+            row_ptr._tiga_csr_destination_index = destination
         return Tensor(
             (num_rows, *self.shape[1:]), dtype=self.dtype, device=self.device,
             requires_grad=self.requires_grad,
@@ -1444,7 +1444,7 @@ class Tensor:
             program = expression.attr("program")
             producer = int(expression.attr("producer"))
             # One program run per evaluation, shared across its leaves.
-            run_key = ("graphforge_program", id(program))
+            run_key = ("tiga_program", id(program))
             if run_key not in cache:
                 cache[run_key] = program._observed_results()
             observed = cache[run_key]
@@ -1742,7 +1742,7 @@ class Tensor:
     def _read_flat(self) -> list[object]:
         if self._buffer is None:
             raise RuntimeError("Tensor has no physical storage")
-        if getattr(self._buffer, "_graphforge_torch_buffer", False):
+        if getattr(self._buffer, "_tiga_torch_buffer", False):
             from ..interop.torch.tensor import read_flat
 
             return read_flat(self)
@@ -1792,7 +1792,7 @@ class Tensor:
             raise ValueError("physical write does not match Tensor size")
         if not self.is_contiguous:
             raise ValueError("writes currently require contiguous Tensor storage")
-        if getattr(self._buffer, "_graphforge_torch_buffer", False):
+        if getattr(self._buffer, "_tiga_torch_buffer", False):
             from ..interop.torch.tensor import write_flat
 
             write_flat(self, values)
@@ -1866,7 +1866,7 @@ class Tensor:
                 "Tensor.to_numpy() requires the optional NumPy package"
             ) from error
         self.realize()
-        if getattr(self._buffer, "_graphforge_torch_buffer", False):
+        if getattr(self._buffer, "_tiga_torch_buffer", False):
             return self.to_torch().detach().cpu().numpy().copy()
         dtype = np.dtype({
             "bool": "?", "int32": "=i4", "int64": "=i8",

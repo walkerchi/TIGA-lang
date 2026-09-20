@@ -57,14 +57,14 @@ class GPUExecutable:
     @staticmethod
     def _storage_argument(value: Tensor):
         buffer = value._buffer
-        if getattr(buffer, "_graphforge_torch_buffer", False):
+        if getattr(buffer, "_tiga_torch_buffer", False):
             return buffer.tensor
         return buffer
 
     def launch(self, output: Tensor):
         if self.zero_output:
             buffer = output._buffer
-            if getattr(buffer, "_graphforge_torch_buffer", False):
+            if getattr(buffer, "_tiga_torch_buffer", False):
                 buffer.tensor.zero_()
             else:
                 buffer.write(bytes(output.nbytes))
@@ -88,7 +88,7 @@ class GPUExecutable:
     def prepare(self, output: Tensor):
         """Bind stable buffers and provider launcher once for a hot executable."""
         all_external_storage = all(
-            getattr(value._buffer, "_graphforge_torch_buffer", False)
+            getattr(value._buffer, "_tiga_torch_buffer", False)
             for value in (*self.inputs, output)
         )
         if self.uses_torch_storage and all_external_storage:
@@ -121,7 +121,7 @@ class GPUExecutable:
                 def launch_prepared():
                     if self.zero_output:
                         buffer = output_buffer
-                        if getattr(buffer, "_graphforge_torch_buffer", False):
+                        if getattr(buffer, "_tiga_torch_buffer", False):
                             buffer.tensor.zero_()
                         else:
                             buffer.write(bytes(buffer.nbytes))
@@ -132,7 +132,7 @@ class GPUExecutable:
             def launch():
                 if self.zero_output:
                     buffer = output_buffer
-                    if getattr(buffer, "_graphforge_torch_buffer", False):
+                    if getattr(buffer, "_tiga_torch_buffer", False):
                         buffer.tensor.zero_()
                     else:
                         buffer.write(bytes(buffer.nbytes))
@@ -182,7 +182,7 @@ class GPULibraryExecutable:
     @staticmethod
     def _storage_argument(value: Tensor):
         buffer = value._buffer
-        if getattr(buffer, "_graphforge_torch_buffer", False):
+        if getattr(buffer, "_tiga_torch_buffer", False):
             return buffer.tensor
         return buffer
 
@@ -357,7 +357,7 @@ def _compile_repeat(output: Tensor) -> GPULoopExecutable:
         initial.realize()
     captures = expression.operands[1:]
     uses_torch_storage = any(
-        getattr(value._buffer, "_graphforge_torch_buffer", False)
+        getattr(value._buffer, "_tiga_torch_buffer", False)
         for value in (initial, *captures)
     )
 
@@ -791,7 +791,7 @@ def _physicalize_storage(
                         "host-pinned checkpoint spill currently requires CUDA"
                     )
                 transfer_started = time.perf_counter_ns()
-                if getattr(source._buffer, "_graphforge_torch_buffer", False):
+                if getattr(source._buffer, "_tiga_torch_buffer", False):
                     from ..interop.torch.provider import cuda_pinned_roundtrip
 
                     rewritten = cuda_pinned_roundtrip(source)
@@ -886,7 +886,7 @@ def _physicalize_storage(
             destination = getattr(row_ptr, "_cuda_destination_index_cache", None)
             if destination is None:
                 started = time.perf_counter_ns()
-                if getattr(row_ptr._buffer, "_graphforge_torch_buffer", False):
+                if getattr(row_ptr._buffer, "_tiga_torch_buffer", False):
                     from ..interop.torch.provider import cuda_destination_index
 
                     destination = cuda_destination_index(
@@ -1102,7 +1102,7 @@ def compile_tensor(
     semantic_hash = hashlib.sha256(canonical_ir.encode()).hexdigest()
 
     uses_torch_storage = any(
-        getattr(value._buffer, "_graphforge_torch_buffer", False)
+        getattr(value._buffer, "_tiga_torch_buffer", False)
         for value in inputs
     )
     matmul_provider = os.environ.get(

@@ -38,7 +38,7 @@ def find_tool(
         if path.is_file():
             return str(path)
     from .native import _compatible_extension
-    loaded = sys.modules.get("tiga._graphforge_compiler")
+    loaded = sys.modules.get("tiga._tiga_compiler")
     extension = getattr(loaded, "__file__", None)
     if extension:
         companion = Path(extension).parent.parent / "bin" / name
@@ -46,7 +46,7 @@ def find_tool(
             return str(companion)
         return None  # Never mix a loaded editable frontend with another build.
     extensions = [path for path in repository.glob(
-        "build/*/python_bindings/_graphforge_compiler*.so")
+        "build/*/python_bindings/_tiga_compiler*.so")
         if _compatible_extension(path)]
     if extensions:
         extension = max(extensions, key=lambda path: path.stat().st_mtime_ns)

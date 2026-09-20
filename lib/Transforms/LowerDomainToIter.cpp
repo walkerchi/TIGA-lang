@@ -1,15 +1,15 @@
-#include "graphforge/Transforms/Passes.h"
+#include "tiga/Transforms/Passes.h"
 
-#include "graphforge/Dialect/Domain/DomainDialect.h"
-#include "graphforge/Dialect/Iter/IterDialect.h"
+#include "tiga/Dialect/Domain/DomainDialect.h"
+#include "tiga/Dialect/Iter/IterDialect.h"
 #include "llvm/ADT/STLExtras.h"
 #include "mlir/IR/IRMapping.h"
 #include "mlir/IR/PatternMatch.h"
 
-namespace mlir::graphforge {
+namespace mlir::tiga {
 
 #define GEN_PASS_DEF_GFLOWERDOMAINTOITER
-#include "graphforge/Transforms/Passes.h.inc"
+#include "tiga/Transforms/Passes.h.inc"
 
 namespace {
 
@@ -41,7 +41,7 @@ public:
       LowerDomainToIterPass>::GFLowerDomainToIterBase;
 
   void getDependentDialects(DialectRegistry &registry) const final {
-    registry.insert<iter::GraphForgeIterDialect>();
+    registry.insert<iter::TigaIterDialect>();
   }
 
   void runOnOperation() final {
@@ -55,7 +55,7 @@ public:
       auto cartesian = apply.getRelation().getDefiningOp<CartesianOp>();
       auto ranked = apply.getRelation().getDefiningOp<RankedRelationOp>();
       if (!relation && !generated && !cartesian && !ranked) {
-        apply.emitError("requires a visible GraphForge relation definition");
+        apply.emitError("requires a visible Tiga relation definition");
         signalPassFailure();
         return;
       }
@@ -110,4 +110,4 @@ public:
 };
 
 } // namespace
-} // namespace mlir::graphforge
+} // namespace mlir::tiga

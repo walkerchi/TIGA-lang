@@ -57,7 +57,7 @@ def main() -> None:
     raster.realize()
     torch.cuda.synchronize()
     cold_ms = (time.perf_counter() - started) * 1000.0
-    graphforge_render = raster.prepare()
+    tiga_render = raster.prepare()
     actual = raster.pixels.to_torch()
     torch.testing.assert_close(actual, expected, rtol=2e-5, atol=2e-5)
 
@@ -67,7 +67,7 @@ def main() -> None:
     semantic_bytes = float((pixels + pixels * 3) * 4)
     intensity = useful_flops / semantic_bytes
     providers = (
-        ("tiga.tensor_ttir", graphforge_render),
+        ("tiga.tensor_ttir", tiga_render),
         ("torch.inductor.fused", lambda: inductor_render(source)),
         ("torch.eager", lambda: low + source.reshape(-1, 1) * (high - low)),
     )
@@ -95,7 +95,7 @@ def main() -> None:
         "workload": "linear_scalar_to_rgb", "title_prefix": "Tiga visualization",
         "roof": asdict(roof), "results": results,
         "config": {**vars(args), "dtype": "float32", "output_dir": str(output),
-                   "graphforge_cold_jit_ms": cold_ms,
+                   "tiga_cold_jit_ms": cold_ms,
                    "semantic_byte_model": "one scalar read + one RGB write",
                    "steady_state": "prepared executable with stable input/output storage",
                    "useful_flop_convention": "normalize(2) + RGB FMA(6)"},

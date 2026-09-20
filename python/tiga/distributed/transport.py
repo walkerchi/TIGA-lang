@@ -13,7 +13,7 @@ from .model import HaloMap, derive_halo_map
 
 
 _ACTIVE_RUNTIME: ContextVar["DistributedRuntime | None"] = ContextVar(
-    "graphforge_distributed_runtime", default=None)
+    "tiga_distributed_runtime", default=None)
 
 
 @runtime_checkable

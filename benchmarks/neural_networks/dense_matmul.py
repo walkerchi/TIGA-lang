@@ -62,15 +62,15 @@ def main() -> None:
         output.to_torch()
         torch.cuda.synchronize()
         cold_ms = (time.perf_counter_ns() - cold_started) / 1e6
-        graphforge_launch = executable.prepare(output)
+        tiga_launch = executable.prepare(output)
     finally:
         if previous_provider is None:
             os.environ.pop("TIGA_MATMUL_PROVIDER", None)
         else:
             os.environ["TIGA_MATMUL_PROVIDER"] = previous_provider
 
-    def graphforge_run():
-        graphforge_launch()
+    def tiga_run():
+        tiga_launch()
         return output_torch
 
     def vendor_run():
@@ -84,7 +84,7 @@ def main() -> None:
         (args.m * args.k + args.k * args.n + args.m * args.n) * 2)
     intensity = flops / common_bytes
     providers = (
-        ("tiga.compiler_auto", graphforge_run),
+        ("tiga.compiler_auto", tiga_run),
         ("torch.mm.cublas", vendor_run),
     )
     results = []
@@ -126,9 +126,9 @@ def main() -> None:
         "sota_gates": [gate.to_dict()],
         "config": {
             **vars(args), "dtype": "float16",
-            "graphforge_cold_compile_ms": cold_ms,
-            "graphforge_compile_ms": executable.compile_ms,
-            "graphforge_lowering": (
+            "tiga_cold_compile_ms": cold_ms,
+            "tiga_compile_ms": executable.compile_ms,
+            "tiga_lowering": (
                 "gf_tensor.matmul -> cublasLtMatmul"
                 if executable.backend == "cuda-cublas-library-dispatch"
                 else "gf_tensor.matmul -> tt.dot"

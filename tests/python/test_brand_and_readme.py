@@ -124,3 +124,15 @@ def test_uv_lock_is_local_only_and_not_required_by_ci():
     for path in (ROOT/'.github/workflows').glob('*.yml'):
         text = path.read_text()
         assert 'uv.lock' not in text and 'uv sync --frozen' not in text
+
+
+def test_report_repository_is_consistent_across_public_entry_points():
+    import tomllib
+    report = 'https://github.com/walkerchi/tiga-lang-paper'
+    project = tomllib.loads((ROOT/'pyproject.toml').read_text())['project']
+    assert project['urls']['Technical report'] == report
+    for name in ('README.md', 'README.zh.md', 'docs/index.md', 'docs/index.zh.md',
+                 'docs/support.md', 'docs/support.zh.md'):
+        assert report in (ROOT/name).read_text(), name
+    for name in ('docs/support.md', 'docs/support.zh.md'):
+        assert 'arXiv ID' in (ROOT/name).read_text()

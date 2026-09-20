@@ -116,6 +116,8 @@ These are internal decisions, not extra APIs to write. The
 [compiler introduction](compiler-pipeline.md) explains their purpose; the
 [IR walkthrough](ir-walkthrough.md) shows actual `gf.apply`,
 `gf_iter.traverse`, `gf_kernel.launch` and task operations.
+The [technical report](https://github.com/walkerchi/tiga-lang-paper) develops the
+programming model and compiler design, with evaluation and reproduction data.
 
 ## Evaluate performance { #retained-structure-changes-the-algorithm }
 

@@ -1,23 +1,23 @@
-#include "graphforge/Transforms/Passes.h"
+#include "tiga/Transforms/Passes.h"
 
-#include "graphforge/Dialect/Domain/DomainDialect.h"
-#include "graphforge/Dialect/Kernel/KernelDialect.h"
-#include "graphforge/Dialect/Storage/StorageDialect.h"
-#include "graphforge/Dialect/Task/TaskDialect.h"
+#include "tiga/Dialect/Domain/DomainDialect.h"
+#include "tiga/Dialect/Kernel/KernelDialect.h"
+#include "tiga/Dialect/Storage/StorageDialect.h"
+#include "tiga/Dialect/Task/TaskDialect.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/IR/SymbolTable.h"
 
-namespace mlir::graphforge {
+namespace mlir::tiga {
 
 #define GEN_PASS_DEF_GFPLANSPLITROWS
-#include "graphforge/Transforms/Passes.h.inc"
+#include "tiga/Transforms/Passes.h.inc"
 
 namespace {
-namespace gfk = mlir::graphforge::kernel;
-namespace gfs = mlir::graphforge::storage;
-namespace gft = mlir::graphforge::task;
+namespace gfk = mlir::tiga::kernel;
+namespace gfs = mlir::tiga::storage;
+namespace gft = mlir::tiga::task;
 
 static RelationOp findRelation(gfk::LaunchOp launch) {
   RelationOp relation = launch.getRowPtr().getDefiningOp<RelationOp>();
@@ -77,8 +77,8 @@ public:
   using impl::GFPlanSplitRowsBase<PlanSplitRowsPass>::GFPlanSplitRowsBase;
 
   void getDependentDialects(DialectRegistry &registry) const final {
-    registry.insert<gfs::GraphForgeStorageDialect,
-                    gft::GraphForgeTaskDialect>();
+    registry.insert<gfs::TigaStorageDialect,
+                    gft::TigaTaskDialect>();
   }
 
   void runOnOperation() final {
@@ -307,4 +307,4 @@ public:
 };
 
 } // namespace
-} // namespace mlir::graphforge
+} // namespace mlir::tiga

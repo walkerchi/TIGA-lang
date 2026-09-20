@@ -67,19 +67,19 @@ def reference(x, src, dst, weight):
 
 if tg is not None:
 
-    class GraphForgeDiffusion(tg.MessagePassing):
+    class TigaDiffusion(tg.MessagePassing):
         reducer = tg.sum()
 
         def edge(self, src, dst, edge):
             return edge.weight * (src.u - dst.u)
 
 
-def graphforge_case(x, src, weight, degree):
+def tiga_case(x, src, weight, degree):
     nodes = x.numel()
     row_ptr = torch.arange(
         0, src.numel() + 1, degree, device=x.device, dtype=src.dtype)
     graph = tg.Graph.from_csr(row_ptr, src, num_src=nodes)
-    kernel = GraphForgeDiffusion()
+    kernel = TigaDiffusion()
     return graph, kernel
 
 
@@ -116,11 +116,11 @@ def run_cpu(n: int, degree: int, repeat: int):
     print(f"CPU torch.index_add: {scatter_ms:8.3f} ms  {edges / scatter_ms / 1e6:7.3f} Gedge/s")
     print(f"CPU torch CSR:       {csr_ms:8.3f} ms  {edges / csr_ms / 1e6:7.3f} Gedge/s")
     if tg is not None:
-        graph, kernel = graphforge_case(x, src, weight, degree)
+        graph, kernel = tiga_case(x, src, weight, degree)
         actual = kernel(
             graph=graph, src={"u": x}, dst={"u": x}, edge={"weight": weight})
         torch.testing.assert_close(actual, expected)
-        graphforge_ms = median_ms(
+        tiga_ms = median_ms(
             lambda: kernel(
                 graph=graph,
                 src={"u": x},
@@ -129,8 +129,8 @@ def run_cpu(n: int, degree: int, repeat: int):
             ),
             repeat=repeat,
         )
-        print(f"CPU Tiga ref:  {graphforge_ms:8.3f} ms  "
-              f"{edges / graphforge_ms / 1e6:7.3f} Gedge/s")
+        print(f"CPU Tiga ref:  {tiga_ms:8.3f} ms  "
+              f"{edges / tiga_ms / 1e6:7.3f} Gedge/s")
     return expected
 
 
@@ -168,11 +168,11 @@ def run_gpu(n: int, degree: int, repeat: int):
     print(f"GPU Triton atomic:  {atomic_ms:8.3f} ms  {edges / atomic_ms / 1e6:7.3f} Gedge/s")
     print(f"GPU Triton CSR:     {node_ms:8.3f} ms  {edges / node_ms / 1e6:7.3f} Gedge/s")
     if tg is not None:
-        graph, kernel = graphforge_case(x, src, weight, degree)
+        graph, kernel = tiga_case(x, src, weight, degree)
         actual = kernel(
             graph=graph, src={"u": x}, dst={"u": x}, edge={"weight": weight})
         torch.testing.assert_close(actual, expected, rtol=2e-5, atol=2e-5)
-        graphforge_ms = median_ms(
+        tiga_ms = median_ms(
             lambda: kernel(
                 graph=graph,
                 src={"u": x},
@@ -182,8 +182,8 @@ def run_gpu(n: int, degree: int, repeat: int):
             repeat=repeat,
             cuda=True,
         )
-        print(f"GPU Tiga ref: {graphforge_ms:8.3f} ms  "
-              f"{edges / graphforge_ms / 1e6:7.3f} Gedge/s")
+        print(f"GPU Tiga ref: {tiga_ms:8.3f} ms  "
+              f"{edges / tiga_ms / 1e6:7.3f} Gedge/s")
 
 
 def main():

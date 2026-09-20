@@ -82,7 +82,8 @@ Tiga is not a sandbox for untrusted code or files.
 
 ## Publication and paper { #publication }
 
-The local `tiga-lang-paper` project contains the tech-report draft; no arXiv ID
+The [technical-report repository](https://github.com/walkerchi/tiga-lang-paper)
+contains the LaTeX manuscript, figures and reproduction data; no arXiv ID
 or paper DOI exists yet. Use [software citation metadata](https://github.com/walkerchi/TIGA-lang/blob/main/CITATION.cff)
 until a paper record is available.
 

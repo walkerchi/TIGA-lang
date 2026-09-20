@@ -221,7 +221,7 @@ def main() -> None:
         row_ptr, col_idx, num_src=args.particles, validate="basic")
     consume_kernel = DistanceAggregation()
 
-    def graphforge_consume():
+    def tiga_consume():
         return consume_kernel(
             graph=snapshot,
             src={"x": x},
@@ -234,15 +234,15 @@ def main() -> None:
 
     expected = torch_consume()
     torch.testing.assert_close(
-        graphforge_consume(), expected, rtol=3e-4, atol=3e-4)
+        tiga_consume(), expected, rtol=3e-4, atol=3e-4)
     consume_gf_samples, consume_torch_samples = paired_wall_samples_ms(
-        graphforge_consume, torch_consume, device, args.repeat
+        tiga_consume, torch_consume, device, args.repeat
     )
 
     dynamic_graph = tg.Graph.radius(positions, cutoff, periodic=periodic)
     dynamic_kernel = DistanceAggregation()
 
-    def graphforge_reuse():
+    def tiga_reuse():
         return dynamic_kernel(
             graph=dynamic_graph, src={"x": x}, dst={"x": x})
 
@@ -255,7 +255,7 @@ def main() -> None:
         return torch_csr_sum(
             baseline_row, baseline_col, baseline_distance, x)
 
-    def graphforge_logical_rebind():
+    def tiga_logical_rebind():
         graph = tg.Graph.radius(positions, cutoff, periodic=periodic)
         return dynamic_kernel(
             graph=graph, src={"x": x}, dst={"x": x})
@@ -281,7 +281,7 @@ def main() -> None:
     gf_rebuild_sign = [1.0]
     torch_rebuild_sign = [1.0]
 
-    def graphforge_topology_rebuild():
+    def tiga_topology_rebuild():
         gf_rebuild_positions.add_(rebuild_shift, alpha=gf_rebuild_sign[0])
         gf_rebuild_sign[0] = -gf_rebuild_sign[0]
         graph = tg.Graph.radius(
@@ -302,24 +302,24 @@ def main() -> None:
             current_row, current_col, current_distance, x)
 
     torch.testing.assert_close(
-        graphforge_reuse(), expected, rtol=3e-4, atol=3e-4)
+        tiga_reuse(), expected, rtol=3e-4, atol=3e-4)
     torch.testing.assert_close(
         torch_reuse(), expected, rtol=3e-4, atol=3e-4)
     torch.testing.assert_close(
-        graphforge_logical_rebind(), expected, rtol=3e-4, atol=3e-4)
+        tiga_logical_rebind(), expected, rtol=3e-4, atol=3e-4)
     torch.testing.assert_close(
         torch_logical_rebind(), expected, rtol=3e-4, atol=3e-4)
     torch.testing.assert_close(
-        graphforge_topology_rebuild(), torch_topology_rebuild(),
+        tiga_topology_rebuild(), torch_topology_rebuild(),
         rtol=3e-4, atol=3e-4)
     reuse_gf_samples, reuse_torch_samples = paired_wall_samples_ms(
-        graphforge_reuse, torch_reuse, device, args.repeat
+        tiga_reuse, torch_reuse, device, args.repeat
     )
     rebind_gf_samples, rebind_torch_samples = paired_wall_samples_ms(
-        graphforge_logical_rebind, torch_logical_rebind, device, args.repeat
+        tiga_logical_rebind, torch_logical_rebind, device, args.repeat
     )
     rebuild_gf_samples, rebuild_torch_samples = paired_wall_samples_ms(
-        graphforge_topology_rebuild, torch_topology_rebuild,
+        tiga_topology_rebuild, torch_topology_rebuild,
         device, args.repeat
     )
 

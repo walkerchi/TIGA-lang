@@ -1,6 +1,6 @@
-#include "graphforge/Dialect/Control/ControlDialect.h"
-#include "graphforge/Dialect/Tensor/TensorDialect.h"
-#include "graphforge/Transforms/Passes.h"
+#include "tiga/Dialect/Control/ControlDialect.h"
+#include "tiga/Dialect/Tensor/TensorDialect.h"
+#include "tiga/Transforms/Passes.h"
 
 #include "llvm/ADT/DenseSet.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
@@ -12,14 +12,14 @@
 #include "mlir/Dialect/Vector/IR/VectorOps.h"
 #include "mlir/IR/BuiltinOps.h"
 
-namespace mlir::graphforge {
+namespace mlir::tiga {
 
 #define GEN_PASS_DEF_GFLOWERTENSORTOCPU
-#include "graphforge/Transforms/Passes.h.inc"
+#include "tiga/Transforms/Passes.h.inc"
 
 namespace {
-namespace gfc = mlir::graphforge::control;
-namespace gft = mlir::graphforge::tensor;
+namespace gfc = mlir::tiga::control;
+namespace gft = mlir::tiga::tensor;
 
 static int64_t elementCount(RankedTensorType type) {
   return type.hasStaticShape() ? type.getNumElements() : -1;
@@ -1465,4 +1465,4 @@ public:
 };
 
 } // namespace
-} // namespace mlir::graphforge
+} // namespace mlir::tiga

@@ -1,11 +1,11 @@
-#include "graphforge/Target/Triton/Translate.h"
+#include "tiga/Target/Triton/Translate.h"
 
-#include "graphforge/Dialect/Control/ControlDialect.h"
-#include "graphforge/Dialect/Domain/DomainDialect.h"
-#include "graphforge/Dialect/Kernel/KernelDialect.h"
-#include "graphforge/Dialect/Storage/StorageDialect.h"
-#include "graphforge/Dialect/Task/TaskDialect.h"
-#include "graphforge/Dialect/Tensor/TensorDialect.h"
+#include "tiga/Dialect/Control/ControlDialect.h"
+#include "tiga/Dialect/Domain/DomainDialect.h"
+#include "tiga/Dialect/Kernel/KernelDialect.h"
+#include "tiga/Dialect/Storage/StorageDialect.h"
+#include "tiga/Dialect/Task/TaskDialect.h"
+#include "tiga/Dialect/Tensor/TensorDialect.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/SmallSet.h"
@@ -30,11 +30,11 @@
 #include <string>
 #include <type_traits>
 
-namespace mlir::graphforge {
+namespace mlir::tiga {
 namespace {
 
 static LogicalResult reject(Operation *operation, const Twine &reason) {
-  operation->emitError() << "cannot lower GraphForge Kernel op to TTIR: "
+  operation->emitError() << "cannot lower Tiga Kernel op to TTIR: "
                          << reason;
   return failure();
 }
@@ -132,7 +132,7 @@ static StringRef reducerKind(Operation *operation, Attribute attribute) {
 /// Serialize target-independent scalar algebra into the provider TTIR module.
 /// This is deliberately an IR-to-IR emitter: it keys on operations and types,
 /// never on Python reducer or workload names.  Text exists only at the pinned
-/// GraphForge MLIR -> provider MLIR process boundary.
+/// Tiga MLIR -> provider MLIR process boundary.
 class ScalarAlgebraEmitter {
 public:
   ScalarAlgebraEmitter(Operation *owner, llvm::raw_ostream &output,
@@ -3652,7 +3652,7 @@ static LogicalResult translateKernelToTriton(Operation *root,
           rankedLaunches.size() !=
       1) {
     root->emitError() << "gf-kernel-to-ttir requires exactly one "
-                         "GraphForge Kernel launch, found "
+                         "Tiga Kernel launch, found "
                       << launches.size() + generatedLaunches.size() +
                              denseLaunches.size() + rankedLaunches.size();
     return failure();
@@ -3927,10 +3927,10 @@ static LogicalResult translateKernelToTriton(Operation *root,
 void registerKernelToTritonTranslation() {
   TranslateFromMLIRRegistration(
       "gf-kernel-to-ttir",
-      "lower a supported GraphForge Kernel module to serialized Triton IR",
+      "lower a supported Tiga Kernel module to serialized Triton IR",
       translateKernelToTriton, [](DialectRegistry &registry) {
-        registry.insert<GraphForgeDomainDialect,
-                        kernel::GraphForgeKernelDialect,
+        registry.insert<TigaDomainDialect,
+                        kernel::TigaKernelDialect,
                         arith::ArithDialect, func::FuncDialect,
                         math::MathDialect, vector::VectorDialect>();
       });
@@ -5133,10 +5133,10 @@ void registerTaskToBundleTranslation() {
       "gf-task-to-bundle",
       "serialize verified gf_task IR to a provider-neutral bundle plan",
       translateTaskToBundle, [](DialectRegistry &registry) {
-        registry.insert<GraphForgeDomainDialect,
-                        kernel::GraphForgeKernelDialect,
-                        storage::GraphForgeStorageDialect,
-                        task::GraphForgeTaskDialect,
+        registry.insert<TigaDomainDialect,
+                        kernel::TigaKernelDialect,
+                        storage::TigaStorageDialect,
+                        task::TigaTaskDialect,
                         arith::ArithDialect, func::FuncDialect,
                         math::MathDialect, vector::VectorDialect>();
       });
@@ -8803,10 +8803,10 @@ void registerTensorToTritonTranslation() {
       "gf-tensor-to-ttir",
       "lower a supported canonical gf_tensor module to serialized Triton IR",
       translateTensorToTriton, [](DialectRegistry &registry) {
-        registry.insert<control::GraphForgeControlDialect,
-                        tensor::GraphForgeTensorDialect,
+        registry.insert<control::TigaControlDialect,
+                        tensor::TigaTensorDialect,
                         func::FuncDialect>();
       });
 }
 
-} // namespace mlir::graphforge
+} // namespace mlir::tiga

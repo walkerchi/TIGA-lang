@@ -129,7 +129,7 @@ docs/assets/charts/
   物化的前提下分发到这些库，本身就是合法且优先的 lowering；
 - 自定义融合和生成的关系，必须拿可运行的最佳 Triton、TileLang 或目标
   平台原生手写 kernel 作对照；
-- 一个桶通过的条件是 `best_baseline_median / graphforge_median >= 1.00×`，
+- 一个桶通过的条件是 `best_baseline_median / tiga_median >= 1.00×`，
   且 bootstrap 95% 置信区间下界也达到 1.00×；[几何平均值](https://baike.baidu.com/item/几何平均数)补不了失败的桶，
   统计不确定性一律按未通过处理；
 - 热态复用、冷缓存复用、冷态 JIT、磁盘缓存命中和摊销端到端分开评判，

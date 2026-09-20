@@ -1,11 +1,11 @@
-#include "graphforge/Dialect/Tensor/TensorDialect.h"
+#include "tiga/Dialect/Tensor/TensorDialect.h"
 
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/STLExtras.h"
 #include "mlir/IR/BuiltinTypes.h"
 
 using namespace mlir;
-using namespace mlir::graphforge::tensor;
+using namespace mlir::tiga::tensor;
 
 namespace {
 
@@ -499,4 +499,4 @@ LogicalResult GradOp::verify() {
 }
 
 #define GET_OP_CLASSES
-#include "graphforge/Dialect/Tensor/TensorOps.cpp.inc"
+#include "tiga/Dialect/Tensor/TensorOps.cpp.inc"

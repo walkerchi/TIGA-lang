@@ -1,4 +1,4 @@
-#include "graphforge/Dialect/Kernel/KernelDialect.h"
+#include "tiga/Dialect/Kernel/KernelDialect.h"
 
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/StringSet.h"
@@ -7,7 +7,7 @@
 #include <cmath>
 
 using namespace mlir;
-using namespace mlir::graphforge::kernel;
+using namespace mlir::tiga::kernel;
 
 static LogicalResult verifyVocabulary(Operation *operation, StringRef name,
                                       ArrayAttr values,
@@ -431,4 +431,4 @@ LogicalResult YieldOp::verify() {
 }
 
 #define GET_OP_CLASSES
-#include "graphforge/Dialect/Kernel/KernelOps.cpp.inc"
+#include "tiga/Dialect/Kernel/KernelOps.cpp.inc"

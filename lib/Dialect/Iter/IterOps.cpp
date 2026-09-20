@@ -1,10 +1,10 @@
-#include "graphforge/Dialect/Iter/IterDialect.h"
+#include "tiga/Dialect/Iter/IterDialect.h"
 
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/StringSwitch.h"
 
 using namespace mlir;
-using namespace mlir::graphforge::iter;
+using namespace mlir::tiga::iter;
 
 LogicalResult TraverseOp::verify() {
   StringRef hierarchy =
@@ -133,4 +133,4 @@ LogicalResult YieldOp::verify() {
 }
 
 #define GET_OP_CLASSES
-#include "graphforge/Dialect/Iter/IterOps.cpp.inc"
+#include "tiga/Dialect/Iter/IterOps.cpp.inc"

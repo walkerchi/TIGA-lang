@@ -394,7 +394,7 @@ def main() -> None:
         "cutoff": cutoff,
         "mlp": {"in": IN_DIM, "hidden": HID, "out": F_OUT},
         "topology_ms": {
-            "graphforge_csr_snapshot": gf_topology_ms,
+            "tiga_csr_snapshot": gf_topology_ms,
             "warp_hash_grid": warp_topology_ms,
         },
         "results": [

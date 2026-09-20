@@ -1,13 +1,13 @@
-#include "graphforge/Dialect/Iter/IterDialect.h"
+#include "tiga/Dialect/Iter/IterDialect.h"
 
-#include "graphforge/Dialect/Iter/IterOpsDialect.cpp.inc"
+#include "tiga/Dialect/Iter/IterOpsDialect.cpp.inc"
 
 using namespace mlir;
-using namespace mlir::graphforge::iter;
+using namespace mlir::tiga::iter;
 
-void GraphForgeIterDialect::initialize() {
+void TigaIterDialect::initialize() {
   addOperations<
 #define GET_OP_LIST
-#include "graphforge/Dialect/Iter/IterOps.cpp.inc"
+#include "tiga/Dialect/Iter/IterOps.cpp.inc"
       >();
 }

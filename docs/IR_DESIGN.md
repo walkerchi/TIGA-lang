@@ -1,7 +1,8 @@
 # Tiga IR implementation notes
 
 !!! note "Non-normative implementation notes"
-    The only normative design document is `PROJECT.md` at the repository root; it takes precedence in case of any conflict.
+    This historical research note is not a support contract. The API reference,
+    support matrix and regression tests define current behavior.
 
 Status: architecture draft  
 Date: 2026-08-14

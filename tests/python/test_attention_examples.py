@@ -26,7 +26,7 @@ def test_full_attention_example_matches_sdpa():
     # The compiled dense-relation online softmax must match mask-free PyTorch
     # SDPA (exact same math).
     module = _load_module(
-        "graphforge_example_full_attention", EXAMPLES / "full_attention.py")
+        "tiga_example_full_attention", EXAMPLES / "full_attention.py")
     query, key, value = (  # (N, H, D) -> (H, N, D) for the SDPA oracle
         getattr(module, name).permute(1, 0, 2)
         for name in ("query", "key", "value"))
@@ -39,7 +39,7 @@ def test_full_attention_example_matches_sdpa():
 def test_causal_dense_relation_example_matches_causal_sdpa():
     # The triangular-graph causal reducer must match causal PyTorch SDPA.
     module = _load_module(
-        "graphforge_example_causal_dense_relation",
+        "tiga_example_causal_dense_relation",
         EXAMPLES / "causal_dense_relation.py")
     output, query, key, value = (  # example tensors are (N, H, D)
         item.permute(1, 0, 2) if item.ndim == 3 else item
@@ -55,7 +55,7 @@ def test_varlen_causal_attention_example_matches_per_sequence_sdpa():
     # exact eager oracle; compare against per-sequence causal SDPA
     # concatenated along the packed axis.
     module = _load_module(
-        "graphforge_example_varlen_causal",
+        "tiga_example_varlen_causal",
         EXAMPLES / "varlen_causal_attention.py")
     expected = torch.cat(
         [
@@ -76,7 +76,7 @@ def test_tile_pruned_attention_example_output_is_well_formed():
     # The block-pruned approximate attention must produce a fully finite
     # (N, H, D) output.
     module = _load_module(
-        "graphforge_example_tile_pruned_attention",
+        "tiga_example_tile_pruned_attention",
         EXAMPLES / "tile_pruned_attention.py")
     assert module.output.shape == (module.nodes, module.heads, module.width)
     assert torch.isfinite(module.output).all()

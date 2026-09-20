@@ -10,7 +10,7 @@ from ..tensor.core import _Expr, _Region
 
 
 _STAGING: ContextVar[bool] = ContextVar(
-    "graphforge_control_staging", default=False
+    "tiga_control_staging", default=False
 )
 
 

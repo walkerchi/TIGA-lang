@@ -45,7 +45,7 @@ def main() -> None:
     # col_idx.
     graph.resolve_csr()
 
-    def graphforge_run():
+    def tiga_run():
         return graph.resolve_csr()
 
     def torch_matched():
@@ -59,7 +59,7 @@ def main() -> None:
             device=device, dtype=torch.int64)
         return rows, columns
 
-    row_ptr, col_idx = graphforge_run()
+    row_ptr, col_idx = tiga_run()
     expected_row_ptr, expected = torch_matched()
     if not torch.equal(row_ptr, expected_row_ptr):
         raise RuntimeError("Tiga kNN row pointer differs from matched peer")
@@ -88,7 +88,7 @@ def main() -> None:
         + edges * 8 + (args.nodes + 1) * 8)
     intensity = useful_flops / common_bytes
     providers = (
-        ("tiga.procedural_knn", graphforge_run),
+        ("tiga.procedural_knn", tiga_run),
         ("torch.cdist_topk", torch_matched),
     )
     results = []

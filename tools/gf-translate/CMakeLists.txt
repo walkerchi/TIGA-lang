@@ -1,10 +1,10 @@
 add_mlir_tool(gf-translate gf-translate.cpp)
 
 set_target_properties(gf-translate PROPERTIES
-  INSTALL_RPATH "${GRAPHFORGE_TOOL_RPATH}")
+  INSTALL_RPATH "${TIGA_TOOL_RPATH}")
 
 target_link_libraries(gf-translate PRIVATE
-  GraphForgeTargetTriton
+  TigaTargetTriton
   MLIRTranslateLib
 )
 

@@ -1,7 +1,7 @@
 # Tiga GPU Graph Hardware Optimization Survey and Experiment Plan
 
-> Non-normative research and experiment candidates. Implementation and release
-> gates are defined by `PROJECT.md` at the repository root.
+> Historical research and experiment candidates. Current implementation and
+> release gates are defined by the support matrix, tests and CI configuration.
 
 Date: 2026-08-06
 

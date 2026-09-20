@@ -53,7 +53,7 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    graph_path = args.cache_dir / f"graphforge_paged_bench_{args.grid}.gfg"
+    graph_path = args.cache_dir / f"tiga_paged_bench_{args.grid}.gfg"
     if not graph_path.exists():
         started = time.perf_counter()
         tg.save(

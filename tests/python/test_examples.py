@@ -27,7 +27,7 @@ def _load_module(name: str, path: Path):
 
 
 def _load(name: str, filename: str):
-    return _load_module(f"graphforge_example_{name}", EXAMPLES / filename)
+    return _load_module(f"tiga_example_{name}", EXAMPLES / filename)
 
 
 # --- Tensor and GPU kernels -------------------------------------------------

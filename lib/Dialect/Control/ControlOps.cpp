@@ -1,9 +1,9 @@
-#include "graphforge/Dialect/Control/ControlDialect.h"
+#include "tiga/Dialect/Control/ControlDialect.h"
 
 #include "llvm/ADT/STLExtras.h"
 
 using namespace mlir;
-using namespace mlir::graphforge::control;
+using namespace mlir::tiga::control;
 
 namespace {
 
@@ -114,4 +114,4 @@ LogicalResult ControlYieldOp::verify() {
 }
 
 #define GET_OP_CLASSES
-#include "graphforge/Dialect/Control/ControlOps.cpp.inc"
+#include "tiga/Dialect/Control/ControlOps.cpp.inc"

@@ -84,7 +84,7 @@ def main() -> None:
         for parameter in attn.parameters():
             parameter.grad = None
 
-    def graphforge_step() -> None:
+    def tiga_step() -> None:
         zero_grads()
         out = program(graph=graph, src={"x": x}, dst={"x": x})
         (out * cotangent).sum().backward()
@@ -113,7 +113,7 @@ def main() -> None:
     # Cross-check gradients once before timing.  Field grads reduce over
     # <=degree terms; weight grads reduce over all E edges, so their
     # accumulation-order noise floor is looser.
-    graphforge_step()
+    tiga_step()
     fused = [x.grad.clone(), positions.grad.clone()]
     fused += [p.grad.clone() for p in attn.parameters()]
     eager_step()
@@ -124,7 +124,7 @@ def main() -> None:
                                    msg=lambda e, name=name: f"{name}: {e}")
 
     providers = {
-        "tiga.fused_online_softmax": graphforge_step,
+        "tiga.fused_online_softmax": tiga_step,
         "torch.eager_autograd": eager_step,
     }
     results = {}

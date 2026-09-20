@@ -102,6 +102,37 @@ class ProjectBoundaryTest(unittest.TestCase):
             r"LIBRARY DESTINATION tiga/lib\s+COMPONENT TigaWheel",
         )
 
+    def test_native_sources_and_headers_use_tiga_names(self):
+        self.assertTrue((ROOT / "include/tiga/Dialect/Domain/DomainOps.td").is_file())
+        self.assertFalse((ROOT / "include" / ("graph" + "forge")).exists())
+        for directory in ("include", "lib", "python/tiga", "python_bindings"):
+            for path in (ROOT / directory).rglob("*"):
+                if path.is_file() and (path.suffix in (".h", ".td", ".cpp", ".py")
+                                       or path.name == "CMakeLists.txt"):
+                    self.assertNotIn("graph" + "forge", path.read_text().lower(), str(path))
+        binding = (ROOT / "python_bindings/CMakeLists.txt").read_text()
+        self.assertIn("Python3_add_library(_tiga_compiler", binding)
+        runtime = (ROOT / "lib/Runtime/CMakeLists.txt").read_text()
+        self.assertIn("OUTPUT_NAME tiga_runtime", runtime)
+
+    def test_tools_use_the_defined_install_rpath(self):
+        root_cmake = (ROOT / "CMakeLists.txt").read_text()
+        self.assertIn('set(TIGA_TOOL_RPATH "$ORIGIN/../lib")', root_cmake)
+        for name in ("gf-opt", "gf-translate"):
+            source = (ROOT / "tools" / name / "CMakeLists.txt").read_text()
+            self.assertIn('INSTALL_RPATH "${TIGA_TOOL_RPATH}"', source)
+
+    def test_dependency_notices_and_design_archives_have_clear_boundaries(self):
+        self.assertEqual(
+            {p.name for p in (ROOT / "third_party").iterdir()},
+            {"README.md", "licenses"},
+        )
+        self.assertFalse((ROOT / ".gitmodules").exists())
+        for name in ("PROJECT.md", "DESIGN_DECISION_TIMELINE.md"):
+            self.assertFalse((ROOT / name).exists())
+            self.assertTrue((ROOT / "docs/archive" / name).is_file())
+        self.assertIn("archive/**", (ROOT / "mkdocs.yml").read_text())
+
     def test_major_subsystems_are_packages_not_flat_modules(self):
         subsystems = (
             "autograd",

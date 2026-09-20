@@ -14,7 +14,7 @@ from ..tensor import complex64, complex128, float16, float32, float64
 
 
 _ACTIVE: ContextVar[Any] = ContextVar(
-    "graphforge_active_program", default=None
+    "tiga_active_program", default=None
 )
 
 
