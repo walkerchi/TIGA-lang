@@ -391,7 +391,7 @@ def _apply_additive_reducer(reducer, message, row_ptr, num_dst):
     if binding is not None and binding.reducer is not reducer:
         raise ValueError("edge() returned a binding for a different reducer")
     if not messages or any(not isinstance(item, Tensor) for item in messages):
-        raise TypeError("native reducer messages must be gf.Tensor values")
+        raise TypeError("native reducer messages must be tg.Tensor values")
     descriptor = capture_reducer(
         reducer, message_dtypes=tuple(item.dtype for item in messages))
     if _stable_weighted_state_reducer(descriptor):
@@ -423,7 +423,7 @@ def _apply_additive_reducer(reducer, message, row_ptr, num_dst):
 def _apply_stable_weighted_tensors(score, value, row_ptr, num_dst):
     """Expand proven stable weighted algebra to differentiable primitives."""
     if not isinstance(score, Tensor) or not isinstance(value, Tensor):
-        raise TypeError("online_softmax score/value must be gf.Tensor values")
+        raise TypeError("online_softmax score/value must be tg.Tensor values")
     if score.shape != value.shape[:1]:
         raise ValueError("online_softmax score must have one scalar per edge")
     row_max = score._csr_segment_max_stop_gradient(row_ptr, num_dst)
@@ -489,7 +489,7 @@ def _native_csr_forward(
     if isinstance(kernel.reducer, SumReducer):
         if not isinstance(message, Tensor):
             raise TypeError(
-                "native sum MessagePassing edge() must return one gf.Tensor")
+                "native sum MessagePassing edge() must return one tg.Tensor")
         aggregate = message.csr_segment_sum(
             row_ptr,
             graph.schema.num_dst,
@@ -536,7 +536,7 @@ def _native_csr_forward(
             kernel.node, (SimpleNamespace(**dict(dst)), aggregate), params)
     )
     if not isinstance(output, Tensor):
-        raise TypeError("native MessagePassing node() must return a gf.Tensor")
+        raise TypeError("native MessagePassing node() must return a tg.Tensor")
     return output, reducer_lowering
 
 
@@ -718,14 +718,18 @@ class MessagePassing(Kernel):
         )
         key = (
             "native-differentiable-relation", graph.planning_key(),
-            tuple((name, value.shape, value.dtype.name, value.requires_grad)
+            tuple((name, value.shape, value.strides, value.offset,
+                   value.dtype.name, value.requires_grad)
                   for name, value in src.items()),
-            tuple((name, value.shape, value.dtype.name, value.requires_grad)
+            tuple((name, value.shape, value.strides, value.offset,
+                   value.dtype.name, value.requires_grad)
                   for name, value in dst.items()),
-            tuple((name, value.shape, value.dtype.name, value.requires_grad)
+            tuple((name, value.shape, value.strides, value.offset,
+                   value.dtype.name, value.requires_grad)
                   for name, value in edge.items()),
             tuple(
-                (name, value.shape, value.dtype.name, value.requires_grad)
+                (name, value.shape, value.strides, value.offset,
+                 value.dtype.name, value.requires_grad)
                 for name, value in params.items() if isinstance(value, Tensor)
             ),
             self.reducer.specialization_key(),
@@ -753,6 +757,8 @@ class MessagePassing(Kernel):
             ),
             remarks=(
                 "edge/node UDFs remain in the differentiable Tensor DAG",
+                "variant cache tracks capture bindings; realized Tensor.execution "
+                "reports the execution backend and executable cache",
                 "gf-tensor-vjp generates CSR gather/segment-sum adjoints",
                 f"reducer lowering: {reducer_lowering}",
             ),

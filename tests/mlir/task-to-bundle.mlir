@@ -39,6 +39,6 @@ func.func @skewed(%row: tensor<?xi64>, %col: tensor<?xi64>,
 // CHECK: "capacity_bytes": 1096
 // CHECK: "layout": "degree-row-worklist"
 // CHECK: "name": "row_worklist"
-// CHECK: "schema": "graphforge.executable-bundle-plan.v1"
+// CHECK: "schema": "tiga.executable-bundle-plan.v1"
 // CHECK: "terminals": [
 // CHECK-NEXT: {{ *}}"join:0"

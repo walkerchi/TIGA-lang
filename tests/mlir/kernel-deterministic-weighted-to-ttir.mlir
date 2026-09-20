@@ -18,6 +18,6 @@ func.func @strict(%row: tensor<?xi64>, %col: tensor<?xi64>,
   return %out : tensor<?xf32>
 }
 
-// CHECK: graphforge.launch entry=gf_csr_weighted_sum block_rows=1
+// CHECK: tiga.launch entry=gf_csr_weighted_sum block_rows=1
 // CHECK: %sum = scf.for
 // CHECK-NOT: "tt.reduce"

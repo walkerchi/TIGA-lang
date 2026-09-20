@@ -2,23 +2,23 @@
 
 from __future__ import annotations
 
-import tiga as gf
+import tiga as tg
 
 
 def run(iterations: int = 20, damping: float = 0.85):
     # Incoming CSR for 0 <- 2, 1 <- 0, 2 <- 1 and dangling vertex 3.
-    row_ptr = gf.tensor([0, 1, 2, 3, 3], dtype=gf.int64)      # (N+1,)
-    col_idx = gf.tensor([2, 0, 1], dtype=gf.int64)            # (E,)
-    graph = gf.Graph.from_csr(
+    row_ptr = tg.tensor([0, 1, 2, 3, 3], dtype=tg.int64)      # (N+1,)
+    col_idx = tg.tensor([2, 0, 1], dtype=tg.int64)            # (E,)
+    graph = tg.Graph.from_csr(
         row_ptr, col_idx, num_src=4, validate="full")
 
-    rank = gf.tensor([0.25] * 4, dtype=gf.float32)            # (N,)
-    inverse_out_degree = gf.tensor([1.0, 1.0, 1.0], dtype=gf.float32)  # (E,)
-    dangling = gf.tensor([0.0, 0.0, 0.0, 1.0], dtype=gf.float32)       # (N,)
+    rank = tg.tensor([0.25] * 4, dtype=tg.float32)            # (N,)
+    inverse_out_degree = tg.tensor([1.0, 1.0, 1.0], dtype=tg.float32)  # (E,)
+    dangling = tg.tensor([0.0, 0.0, 0.0, 1.0], dtype=tg.float32)       # (N,)
 
     # --8<-- [start:core]
-    class PageRankStep(gf.MessagePassing):
-        reducer = gf.sum()
+    class PageRankStep(tg.MessagePassing):
+        reducer = tg.sum()
 
         def edge(self, src, dst, edge):
             return src.rank * edge.inverse_out_degree
@@ -28,7 +28,7 @@ def run(iterations: int = 20, damping: float = 0.85):
 
     step = PageRankStep()
 
-    @gf.jit
+    @tg.jit
     def iterate(rank, inverse_out_degree, dangling, damping, iterations):
         for _ in range(iterations):
             dangling_mass = (rank * dangling).sum()

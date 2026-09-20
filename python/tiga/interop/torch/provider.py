@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import sys
-
 from ...runtime import ImmediateCompletion
 
 
@@ -171,47 +169,33 @@ class _PreparedImmediateInvocation:
 
 def reusable_empty_like(current, reference):
     import torch
+    # Public results own their storage. Python/TensorImpl reference counts
+    # cannot detect detach(), DLPack or storage-based aliases. Let the Torch
+    # allocator recycle storage only after every storage owner releases it.
+    return torch.empty_like(reference)
 
-    # At this call site the owning plan and this function argument account for
-    # two strong references; getrefcount() contributes the third temporary
-    # reference.  Four or more therefore proves that a caller still owns a
-    # previously returned output and that overwriting it would be observable.
-    if current is None or sys.getrefcount(current) > 3:
-        return torch.empty_like(reference)
-    return current
+
+def reusable_row_output(current, reference, *, rows: int):
+    """Allocate destination rows with independent public-result storage."""
+    import torch
+
+    shape = (rows, *reference.shape[1:])
+    return torch.empty(shape, device=reference.device, dtype=reference.dtype)
 
 
 def reusable_dense_output(current, lhs, *, lanes: int, rows: int, width: int):
     import torch
 
-    # Dense plans return a permuted view rather than ``current`` itself.
-    # Holding that view increments TensorImpl's storage ownership but need not
-    # add a Python reference to the base tensor, so check both ownership layers.
-    has_live_view = (
-        current is not None
-        and hasattr(current, "_use_count")
-        and current._use_count() > 1
+    current = torch.empty(
+        (lanes, rows, width), device=lhs.device, dtype=lhs.dtype
     )
-    if current is None or sys.getrefcount(current) > 3 or has_live_view:
-        current = torch.empty(
-            (lanes, rows, width), device=lhs.device, dtype=lhs.dtype
-        )
     return current, current.permute(1, 0, 2)
 
 
 def reusable_vector_output(current, reference, *, rows: int):
     import torch
 
-    if (
-        current is None
-        or sys.getrefcount(current) > 3
-        or current.shape != (rows,)
-        or current.device != reference.device
-        or current.dtype != reference.dtype
-    ):
-        current = torch.empty((rows,), device=reference.device,
-                              dtype=reference.dtype)
-    return current
+    return torch.empty((rows,), device=reference.device, dtype=reference.dtype)
 
 
 __all__ = [
@@ -223,5 +207,6 @@ __all__ = [
     "current_cuda_stream",
     "reusable_dense_output",
     "reusable_empty_like",
+    "reusable_row_output",
     "reusable_vector_output",
 ]

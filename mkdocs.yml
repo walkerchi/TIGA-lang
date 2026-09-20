@@ -1,17 +1,25 @@
 site_name: Tiga Compiler
-site_description: Relation-oriented compilation for sparse, dense, and generated graph computations
-site_url: https://graphforge-docs.app.walkerchi.com/
+site_description: A differentiable JIT compiler for graph message-passing programs
+site_url: !ENV [READTHEDOCS_CANONICAL_URL, 'https://graphforge-docs.app.walkerchi.com/']
 repo_url: https://github.com/walkerchi/TIGA-lang
 repo_name: walkerchi/TIGA-lang
 copyright: Copyright &copy; 2026 Tiga contributors
 docs_dir: docs
 site_dir: site
+hooks:
+  - docs/hooks/api_navigation.py
+  - docs/hooks/mlir_highlight.py
+validation:
+  links:
+    anchors: warn
 theme:
   name: material
   language: en
   font: false
   logo: assets/tiga-mark.svg
   favicon: assets/tiga-mark.svg
+  icon:
+    repo: fontawesome/brands/github
   palette:
     - media: "(prefers-color-scheme: light)"
       scheme: default
@@ -52,6 +60,7 @@ markdown_extensions:
   - pymdownx.details
   - pymdownx.highlight:
       anchor_linenums: true
+      pygments_lang_class: true
   - pymdownx.inlinehilite
   - pymdownx.tabbed:
       alternate_style: true
@@ -80,13 +89,22 @@ plugins:
           site_name: Tiga 编译器
           nav_translations:
             Overview: 概览
-            Guide: 指南
+            User guide: 使用指南
+            Execution and troubleshooting: 执行与排错
+            Memory and storage: 内存与存储
+            Runnable API examples: 可运行 API 例子
+            Reproduce the charts: 复现图表
+            Compiler development: 编译器开发
+            Compiler introduction: 编译器入门
+            IR by example: 用实例读懂 IR
+            Build and contribute: 构建与贡献
             Start here: 快速上手
             Programming model: 编程模型
             Message passing: 消息传递
             Reducers: Reducer
             How Tiga compares: 对比与定位
             Examples: 示例
+            Visualization: 可视化
             Attention and dense relations: 注意力与稠密关系
             Message passing and graph algorithms: 消息传递与图算法
             Dynamic and generated relations: 动态与生成式关系
@@ -101,9 +119,11 @@ plugins:
             Memory & distributed: 内存与分布式
             Benchmark: 基准测试
             Measured results: 实测结果
+            Performance and scalability: 性能与扩展性
             Benchmark suite: 基准套件
             Methodology and protocol: 方法论与协议
             Reference: 参考
+            Troubleshooting and reporting bugs: 排错与问题反馈
             Python API: Python API
             Current status & roadmap: 当前状态与路线图
             Development: 开发
@@ -118,12 +138,13 @@ extra:
   generator: false
 nav:
   - Overview: index.md
-  - Guide:
+  - User guide:
       - Start here: getting-started.md
       - Programming model: programming-model.md
       - Message passing: message-passing.md
       - Reducers: reducers.md
-      - How Tiga compares: comparison.md
+      - Execution and troubleshooting: execution.md
+      - Memory and storage: memory.md
   - Examples:
       - examples.md
       - Message passing and graph algorithms: examples/message-passing.md
@@ -133,20 +154,26 @@ nav:
       - Visualization: examples/visualization.md
       - Linear solvers and control flow: examples/solvers.md
       - Attention and dense relations: examples/attention.md
-  - Compiler:
-      - Pipeline and IR: compiler-pipeline.md
+  - Compiler development:
+      - Compiler introduction: compiler-pipeline.md
+      - IR by example: ir-walkthrough.md
+      - Build and contribute: development.md
       - Dynamic relations: dynamic-graphs.md
       - Linear solvers and implicit VJP: linear-solvers.md
       - Tensor runtime & autograd: runtime-and-autograd.md
       - Memory & distributed: memory-and-distributed.md
   - Benchmark:
+      - Performance and scalability: experiments.md
       - Measured results: benchmark-results.md
+      - Reproduce the charts: benchmark-reproducibility.md
       - Benchmark suite: benchmark-suite.md
       - Methodology and protocol: performance.md
   - Reference:
       - Python API: api.md
+      - Runnable API examples: api-examples.md
+      - Troubleshooting and reporting bugs: support.md
       - Current status & roadmap: roadmap.md
-      - Development: development.md
+      - How Tiga compares: comparison.md
 exclude_docs: |
   design-notes.md
   IR_DESIGN.md

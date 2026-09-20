@@ -14,7 +14,7 @@ module {
 }
 
 // DOMAIN: "gf_tensor.reduce_sum"
-// TTIR: graphforge.tensor entry=gf_tensor_fused_reduce block_rows=1 block_elements=8
+// TTIR: tiga.tensor entry=gf_tensor_fused_reduce block_rows=1 block_elements=8
 // TTIR: %row = arith.extsi %row_i32
 // TTIR: %row_product{{[0-9]+}} = arith.muli %row
 // TTIR: %column_offset{{[0-9]+}} = arith.muli %lane

@@ -2,15 +2,15 @@
 
 from __future__ import annotations
 
-import tiga as gf
+import tiga as tg
 from solvers import linear_solve, vector_norm
 
 
 # --8<-- [start:core]
-class ShiftedRadiusLaplacian(gf.MessagePassing):
+class ShiftedRadiusLaplacian(tg.MessagePassing):
     """Apply ``mass * u + sum_neighbour(u_dst - u_src)``."""
 
-    reducer = gf.sum()
+    reducer = tg.sum()
 
     def edge(self, src, dst, edge):
         return dst.u - src.u
@@ -29,19 +29,19 @@ def solve(
     if points < 2:
         raise ValueError("points must be at least two")
     spacing = 1.0 / (points - 1)
-    positions = gf.tensor(
+    positions = tg.tensor(
         [[index * spacing, 0.0] for index in range(points)],
-        dtype=gf.float32,
+        dtype=tg.float32,
     )  # (N, 2)
     # The logical relation remains procedural. Its current physical snapshot
     # may be built, streamed, cached, or rebuilt by the selected provider.
-    graph = gf.Graph.radius(positions, cutoff=1.01 * spacing)
+    graph = tg.Graph.radius(positions, cutoff=1.01 * spacing)
     # A MessagePassing kernel bound to a Graph is the linear operator; the
     # solver binds the iterated vector to the "u" field each iteration.
     apply_laplacian = ShiftedRadiusLaplacian()
-    rhs = gf.tensor(
+    rhs = tg.tensor(
         [1.0 + float(index % 3) for index in range(points)],
-        dtype=gf.float32,
+        dtype=tg.float32,
     )  # (N,)
     solution = linear_solve(
         apply_laplacian,

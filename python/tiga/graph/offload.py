@@ -38,6 +38,8 @@ _counter = itertools.count()
 
 
 def _parse_bytes(value: object, name: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, (int, str)):
+        raise ValueError(f"{name} must be an integer byte count")
     try:
         result = int(value)  # type: ignore[arg-type]
     except (TypeError, ValueError):
@@ -67,6 +69,10 @@ def current_budget() -> int | None:
     budget = _BUDGET_BYTES.get()
     if budget is not None:
         return budget
+    from ..runtime.memory import current_execution
+    active = current_execution()
+    if active is not None and "ram" in active.budgets:
+        return active.budgets["ram"]
     override = os.environ.get(_BUDGET_ENV)
     if override is None:
         return None
@@ -76,6 +82,12 @@ def current_budget() -> int | None:
 def _offload_root() -> Path:
     """Per-process offload directory (or the shared spill store)."""
     global _offload_dir
+    from ..runtime.memory import current_execution
+    active = current_execution()
+    if active is not None and active.spill_dir is not None:
+        path = active.spill_dir / "graphs"
+        path.mkdir(parents=True, exist_ok=True)
+        return path
     override = os.environ.get("TIGA_SPILL_DIR")
     if override is not None:
         path = Path(override) / "graphs"

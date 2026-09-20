@@ -1,0 +1,25 @@
+name: Performance regression
+description: Report matched, reproducible performance measurements.
+title: "[Performance] "
+body:
+  - type: textarea
+    id: workload
+    attributes:
+      label: Workload and command / 工作负载与命令
+      description: Synthetic inputs, seed, topology, dimensions, dtype/layout, build/reuse, exact/approximate algorithm and threshold.
+    validations:
+      required: true
+  - type: textarea
+    id: timing
+    attributes:
+      label: Raw timings and correctness / 原始耗时与正确性
+      description: Baseline, warmup/repeats, synchronization, cache state, compilation/transfers/backward scope and numerical checks.
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Versions and hardware / 版本与硬件
+      description: python -m tiga, commit/wheel, Torch/Triton, GPU/driver, CPU, clocks/power and selected provider.
+    validations:
+      required: true

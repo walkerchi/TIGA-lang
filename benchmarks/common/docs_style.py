@@ -4,8 +4,8 @@ The documentation site is mkdocs-material with an indigo accent and an
 automatic light/slate palette.  Figures are embedded bare on the page
 (``docs/benchmark-results.md``) or on the light ``.gf-figure`` card
 (homepage showcase, report fallback), so every figure ships with a
-transparent background and mid-tone slate ink that stays legible on both
-white and dark slate surfaces.
+light background and dark slate ink that remains readable independently of
+the surrounding page theme.
 
 Usage::
 
@@ -36,8 +36,8 @@ GF_SOFT = "#A5B4FC"  # indigo-300: Tiga alternative / oracle-class peer
 SLATE = "#94A3B8"    # slate-400: matched peers, parity reference lines
 BASE = "#CBD5E1"     # slate-200: eager/baseline series
 
-# Dual-mode-safe ink: legible on white and on dark slate page backgrounds.
-TEXT = "#64748B"     # slate-500: titles, labels, value annotations
+# Explicit white surfaces keep chart contrast independent of the page theme.
+TEXT = "#334155"     # dark text on an explicit light chart surface
 GRID = "#94A3B8"     # rendered at low alpha, subtle on both surfaces
 GRID_ALPHA = 0.30
 
@@ -63,10 +63,10 @@ FONT_STACK = [
 def apply() -> None:
     """Install the shared rcParams; call once before building any figure."""
     plt.rcParams.update({
-        "figure.facecolor": "none",
-        "axes.facecolor": "none",
-        "savefig.facecolor": "none",
-        "savefig.transparent": True,
+        "figure.facecolor": "#ffffff",
+        "axes.facecolor": "#ffffff",
+        "savefig.facecolor": "#ffffff",
+        "savefig.transparent": False,
         "font.family": "sans-serif",
         "font.sans-serif": FONT_STACK,
         "font.size": 9.5,
@@ -74,7 +74,7 @@ def apply() -> None:
         "axes.edgecolor": SLATE,
         "axes.labelcolor": TEXT,
         "axes.titlesize": 11,
-        "axes.titleweight": "semibold",
+        "axes.titleweight": "bold",
         "axes.titlelocation": "left",
         "xtick.color": TEXT,
         "ytick.color": TEXT,
@@ -87,6 +87,7 @@ def apply() -> None:
         "legend.frameon": False,
         "legend.fontsize": 8.5,
         "svg.fonttype": "none",
+        "svg.hashsalt": "tiga-docs",
     })
 
 
@@ -112,17 +113,19 @@ def subtitle(fig, text: str, y: float = 0.915) -> None:
 def headline(fig, title: str, subtitle_text: str) -> None:
     """Two-line left-aligned figure header that never collides."""
     fig.text(0.065, 0.955, title, color=TEXT, fontsize=11,
-             fontweight="semibold")
+             fontweight="bold")
     fig.text(0.065, 0.885, subtitle_text, color=TEXT, fontsize=8.5)
 
 
 def save(fig, stem: Path) -> None:
-    """Write transparent SVG + PNG fallback with reproducible SVG bytes."""
+    """Write light-surface SVG + PNG with reproducible SVG bytes."""
     stem.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(stem.with_suffix(".svg"), bbox_inches="tight", pad_inches=0.06)
+    fig.savefig(stem.with_suffix(".svg"), bbox_inches="tight", pad_inches=0.12, metadata={"Date": None})
     fig.savefig(
         stem.with_suffix(".png"), bbox_inches="tight", pad_inches=0.06, dpi=220)
     plt.close(fig)
+    svg = stem.with_suffix(".svg")
+    svg.write_text("\n".join(line.rstrip() for line in svg.read_text().splitlines()) + "\n")
     print(f"wrote {stem.with_suffix('.svg')}")
 
 

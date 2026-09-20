@@ -1,5 +1,10 @@
 # 消息传递与图算法 { #message-passing-and-graph-algorithms }
 
+输入和输出默认使用 Torch Tensor，通过 `torch.autograd.grad` 求导。
+自定义 reducer 与 PageRank 控制流探针仍使用原生 Tensor，原因是当前 Torch
+路径尚未覆盖这两类能力。以下“实测编译产物”是历史原生路径记录，
+不是当前 Torch 示例运行必然生成的产物；实际计划以 `kernel.explain()` 为准。
+
 静态拓扑的 MessagePassing 程序，以及一个固定迭代次数的图算法探针。
 编译器生成关系遍历及其 VJP；用户只需编写 UDF。
 [消息传递指南](../message-passing.md)介绍了该接口。每节只展示最核心的
@@ -11,7 +16,7 @@
 - [`python examples/custom_reducer.py`](https://github.com/walkerchi/TIGA-lang/blob/main/examples/custom_reducer.py)
 - [`python examples/compiler_probes/pagerank.py`](https://github.com/walkerchi/TIGA-lang/blob/main/examples/compiler_probes/pagerank.py)
 
-### 基础聚合 { #basic-aggregation }
+<span id="basic-aggregation"></span>
 
 ## GCN 聚合 { #gcn-aggregation }
 
@@ -27,7 +32,7 @@ $$
 \text{out}_{i,f} \;=\; \sum_{e\,=\,(j \to i)} w_e \cdot x_{j,f}
 $$
 
-原生支持多特征聚合、边广播和自动梯度，张量形状与 GCN 一致。GCN 层是
+Torch 示例支持多特征聚合、边广播和自动梯度，张量形状与 GCN 一致。GCN 层是
 用户代码，而不是库算子。
 
 ```python
@@ -53,7 +58,7 @@ $$
         remark: [planning] edge/node UDFs remain in the differentiable Tensor DAG
         remark: [planning] gf-tensor-vjp generates CSR gather/segment-sum adjoints
         remark: [planning] reducer lowering: builtin-additive-state
-        executable cache: hits=0, misses=1
+        variant cache: hits=0, misses=1
         ```
 
     === "CUDA"
@@ -67,7 +72,7 @@ $$
         remark: [planning] edge/node UDFs remain in the differentiable Tensor DAG
         remark: [planning] gf-tensor-vjp generates CSR gather/segment-sum adjoints
         remark: [planning] reducer lowering: builtin-additive-state
-        executable cache: hits=0, misses=1
+        variant cache: hits=0, misses=1
         ```
 
 ## 定向扩散 { #directional-diffusion }
@@ -111,7 +116,7 @@ $$
         remark: [planning] edge/node UDFs remain in the differentiable Tensor DAG
         remark: [planning] gf-tensor-vjp generates CSR gather/segment-sum adjoints
         remark: [planning] reducer lowering: builtin-additive-state
-        executable cache: hits=0, misses=1
+        variant cache: hits=0, misses=1
         ```
 
     === "CUDA"
@@ -125,10 +130,10 @@ $$
         remark: [planning] edge/node UDFs remain in the differentiable Tensor DAG
         remark: [planning] gf-tensor-vjp generates CSR gather/segment-sum adjoints
         remark: [planning] reducer lowering: builtin-additive-state
-        executable cache: hits=0, misses=1
+        variant cache: hits=0, misses=1
         ```
 
-### 自定义 UDF 与 reducer { #custom-udfs-and-reducers }
+<span id="custom-udfs-and-reducers"></span>
 
 ## 可微分的 MessagePassing UDF { #differentiable-messagepassing-udf }
 
@@ -144,10 +149,9 @@ $$
 \text{out}_i \;=\; b_i \;+\; \sum_{e\,=\,(j \to i)} c_e \cdot T_j
 $$
 
-然后对全部三个输入求 `sum(out)` 的导数。编译器从同一份 [IR](https://en.wikipedia.org/wiki/Intermediate_representation) 生成关系
-gather 和段归约原语，以及 VJP；只有 UDF 是用户代码。示例还展示了显式的
-`save` checkpoint；在 [CUDA](https://en.wikipedia.org/wiki/CUDA) 上，`auto` 会在保存关系 gather 结果与重新
-计算之间做选择。
+然后通过 `torch.autograd.grad` 对三个 Torch 输入求 `sum(out)` 的导数。
+仅原生接口支持的 checkpoint 策略检查独立放在
+[`python examples/native_checkpoint.py`](https://github.com/walkerchi/TIGA-lang/blob/main/examples/native_checkpoint.py)。
 
 ```python
 --8<-- "examples/message_passing_autograd.py:core"
@@ -172,7 +176,7 @@ gather 和段归约原语，以及 VJP；只有 UDF 是用户代码。示例还�
         remark: [planning] edge/node UDFs remain in the differentiable Tensor DAG
         remark: [planning] gf-tensor-vjp generates CSR gather/segment-sum adjoints
         remark: [planning] reducer lowering: builtin-additive-state
-        executable cache: hits=0, misses=1
+        variant cache: hits=0, misses=1
         ```
 
     === "CUDA"
@@ -186,7 +190,7 @@ gather 和段归约原语，以及 VJP；只有 UDF 是用户代码。示例还�
         remark: [planning] edge/node UDFs remain in the differentiable Tensor DAG
         remark: [planning] gf-tensor-vjp generates CSR gather/segment-sum adjoints
         remark: [planning] reducer lowering: builtin-additive-state
-        executable cache: hits=0, misses=1
+        variant cache: hits=0, misses=1
         ```
 
 ## 用户自定义 reducer { #user-defined-reducer }
@@ -212,7 +216,7 @@ $$
 for i in range(num_dst):                 # per destination node
     state = identity()                   # (0.0, 0.0) — before its edges
     for e in edges_into(i):
-        message = edge(src, dst, edge)   # your edge() UDF, here src.value
+        message = edge(src, dst, edge)   # the edge() UDF, here src.value
         state = combine(state, lift(message))
     out[i] = finalize(state)             # s / n — after its edges
 
@@ -249,7 +253,7 @@ for i in range(num_dst):                 # per destination node
         remark: [planning] edge/node UDFs remain in the differentiable Tensor DAG
         remark: [planning] gf-tensor-vjp generates CSR gather/segment-sum adjoints
         remark: [planning] reducer lowering: proved-componentwise-additive-udf
-        executable cache: hits=0, misses=1
+        variant cache: hits=0, misses=1
         ```
 
     === "CUDA"
@@ -263,10 +267,10 @@ for i in range(num_dst):                 # per destination node
         remark: [planning] edge/node UDFs remain in the differentiable Tensor DAG
         remark: [planning] gf-tensor-vjp generates CSR gather/segment-sum adjoints
         remark: [planning] reducer lowering: proved-componentwise-additive-udf
-        executable cache: hits=0, misses=1
+        variant cache: hits=0, misses=1
         ```
 
-### 迭代控制流 { #iterative-control-flow }
+<span id="iterative-control-flow"></span>
 
 ## 固定迭代的 PageRank 探针 { #fixed-iteration-pagerank-probe }
 
@@ -284,7 +288,7 @@ $$
 \text{rank}'_i = \text{base} + d \sum_{e\,=\,(j \to i)} \frac{\text{rank}_j}{\mathrm{deg}^{\text{out}}_j}
 $$
 
-迭代是 `@gf.jit` 之下的普通 Python `for` 循环；20 次迭代被一次性捕获
+迭代是 `@tg.jit` 之下的普通 Python `for` 循环；20 次迭代被一次性捕获
 为单个 `gf_control.repeat` 算子——循环保持卷起，不做展开（测试会对照
 一个框架无关的参考实现，验证这一 IR 形状和 rank 数值）。这是编译器
 探针，不是面向特定负载的核心算子，也不构成性能声明。
@@ -312,7 +316,7 @@ $$
         remark: [planning] edge/node UDFs remain in the differentiable Tensor DAG
         remark: [planning] gf-tensor-vjp generates CSR gather/segment-sum adjoints
         remark: [planning] reducer lowering: builtin-additive-state
-        executable cache: hits=0, misses=1
+        variant cache: hits=0, misses=1
         ```
 
     === "CUDA"
@@ -326,5 +330,5 @@ $$
         remark: [planning] edge/node UDFs remain in the differentiable Tensor DAG
         remark: [planning] gf-tensor-vjp generates CSR gather/segment-sum adjoints
         remark: [planning] reducer lowering: builtin-additive-state
-        executable cache: hits=0, misses=1
+        variant cache: hits=0, misses=1
         ```

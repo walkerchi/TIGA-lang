@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-import tiga as gf
+import tiga as tg
 from solvers import linear_solve
 
 
 # --8<-- [start:core]
-class StiffnessApply(gf.MessagePassing):
-    reducer = gf.sum()
+class StiffnessApply(tg.MessagePassing):
+    reducer = tg.sum()
 
     def edge(self, src, dst, edge):
         return edge.value * src.u
@@ -27,8 +27,8 @@ def solve(
     for a fixed ``gf_control.repeat`` loop instead.
     """
     kernel, graph, stiffness, spacing = poisson_operator(interior_nodes)
-    load = gf.tensor(
-        [spacing] * interior_nodes, dtype=gf.float32, requires_grad=True)  # (N,)
+    load = tg.tensor(
+        [spacing] * interior_nodes, dtype=tg.float32, requires_grad=True)  # (N,)
     if iterations is not None:  # fixed repeat and bounded while are exclusive
         tolerance = max_iterations = None
     solution = linear_solve(
@@ -54,7 +54,7 @@ def poisson_operator(interior_nodes: int):
     if interior_nodes < 1:
         raise ValueError("interior_nodes must be positive")
     spacing = 1.0 / (interior_nodes + 1)
-    graph = gf.Graph.stencil((interior_nodes,), ((-1,), (0,), (1,)))
+    graph = tg.Graph.stencil((interior_nodes,), ((-1,), (0,), (1,)))
     row_ptr, col_idx = graph.resolve_csr()     # (N+1,), (E,) CSR, boundary-truncated
     destination = graph.destination_index(row_ptr)
     values = [                                 # edge values follow the CSR order:
@@ -62,7 +62,7 @@ def poisson_operator(interior_nodes: int):
         for source, target in zip(
             col_idx.tolist(), destination.tolist(), strict=True)
     ]
-    stiffness = gf.tensor(values, dtype=gf.float32, requires_grad=True)  # (E,)
+    stiffness = tg.tensor(values, dtype=tg.float32, requires_grad=True)  # (E,)
     return StiffnessApply(), graph, stiffness, spacing
 # --8<-- [end:core]
 
@@ -70,8 +70,8 @@ def poisson_operator(interior_nodes: int):
 def load_gradient(interior_nodes: int = 4):
     """Differentiate sum(u) w.r.t. the load through the captured iterations."""
     kernel, graph, stiffness, spacing = poisson_operator(interior_nodes)
-    load = gf.tensor(
-        [spacing] * interior_nodes, dtype=gf.float32, requires_grad=True)  # (N,)
+    load = tg.tensor(
+        [spacing] * interior_nodes, dtype=tg.float32, requires_grad=True)  # (N,)
     solution = linear_solve(
         kernel,
         load,
@@ -81,7 +81,7 @@ def load_gradient(interior_nodes: int = 4):
         edge={"value": stiffness},
         iterations=(interior_nodes + 1) // 2,
     )  # (N,)
-    return gf.autograd.grad(solution.sum(), load)                          # (N,)
+    return tg.autograd.grad(solution.sum(), load)                          # (N,)
 
 
 # Inspect: solve()[0].mlir() (bounded gf_control.while loop),

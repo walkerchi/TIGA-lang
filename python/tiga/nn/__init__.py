@@ -1,6 +1,6 @@
 """nn-module capture for MessagePassing edge UDFs.
 
-``gf.nn.trace(module)`` wraps a ``torch.nn`` module so it can be called
+``tg.nn.trace(module)`` wraps a ``torch.nn`` module so it can be called
 inside an edge UDF with either Torch tensors (eager/reference execution,
 inputs concatenated along the feature dimension) or compiler capture
 expressions (building a capturable subgraph for the fused edge-NN tile

@@ -344,6 +344,14 @@ class Buffer:
         self.device = Device.parse(device)
         if pinned and self.device.type != DeviceType.CPU:
             raise ValueError("pinned buffers are host allocations")
+        from .memory import reserve, current_execution
+
+        self._reservation = reserve(
+            "host-pinned" if pinned else "ram" if self.device.type == DeviceType.CPU else "device", bytes)
+        # Scope-owned allocations must really be released, not moved into an
+        # unaccounted process-global pool when their reservation is released.
+        if current_execution() is not None:
+            _pooled = False
         self.pinned = bool(pinned)
         self._pool_key = (
             (self.device, bytes, alignment)
@@ -363,7 +371,12 @@ class Buffer:
             status = _library().gfrt_buffer_allocate(
                 _c_device(self.device), bytes, alignment, ctypes.byref(handle)
             )
-        _check(status, "pinned buffer allocation" if pinned else "buffer allocation")
+        try:
+            _check(status, "pinned buffer allocation" if pinned else "buffer allocation")
+        except BaseException:
+            if self._reservation is not None:
+                self._reservation.close()
+            raise
         self._handle = handle
 
     @classmethod
@@ -499,6 +512,9 @@ class Buffer:
                 _library().gfrt_buffer_release(handle)
             self._handle = None
             self._external_owner = None
+        reservation = getattr(self, "_reservation", None)
+        if reservation is not None:
+            reservation.close()
 
     def _require_open(self) -> None:
         if not getattr(self, "_handle", None):

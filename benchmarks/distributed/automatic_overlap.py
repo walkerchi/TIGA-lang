@@ -1,4 +1,4 @@
-"""Two-process automatic MessagePassing overlap benchmark.
+"""Historical internal MessagePassing overlap regression benchmark.
 
 This benchmark exercises the public ``Graph.halo()`` path rather than timing
 pack/exchange primitives in isolation.  Every rank owns interior rows and a
@@ -16,12 +16,12 @@ from pathlib import Path
 import statistics
 import time
 
-import tiga as gf
+import tiga as tg
 from tiga.distributed import DistributedRuntime, PipeTransport, owned_range
 
 
-class NeighborSum(gf.MessagePassing):
-    reducer = gf.sum()
+class NeighborSum(tg.MessagePassing):
+    reducer = tg.sum()
 
     def edge(self, src, dst, edge):
         del dst, edge
@@ -73,12 +73,12 @@ def _worker(
     os.environ["TIGA_TENSOR_BACKEND"] = "native"
     rows, columns = _topology(entities, degree, boundary_fraction)
     begin, end = owned_range(entities, 2, rank)
-    graph = gf.Graph.from_csr(
-        gf.tensor(rows, dtype=gf.int64),
-        gf.tensor(columns, dtype=gf.int64),
+    graph = tg.Graph.from_csr(
+        tg.tensor(rows, dtype=tg.int64),
+        tg.tensor(columns, dtype=tg.int64),
         num_src=entities, validate="full",
-    ).halo(gf.DeviceMesh("cpu", 2), depth=1)
-    source = gf.tensor([1.0] * ((end - begin) * features)).reshape(
+    ).halo(tg.DeviceMesh("cpu", 2), depth=1)
+    source = tg.tensor([1.0] * ((end - begin) * features)).reshape(
         end - begin, features)
     transport = DelayedPipeTransport(
         rank, 2, {1 - rank: endpoint}, delay_ms=transport_delay_ms)
@@ -94,7 +94,7 @@ def _worker(
             )
             for method in order:
                 runtime._force_serialized = (
-                    True if method == "tiga.serialized" else None)
+                    None if method == "tiga.serialized" else False)
                 barrier.wait()
                 started = time.perf_counter_ns()
                 output = kernel(graph=graph, src={"x": source}, dst={})

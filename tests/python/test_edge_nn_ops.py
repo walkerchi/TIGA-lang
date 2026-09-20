@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import unittest
 
-import tiga as gf
+import tiga as tg
 import torch
 from torch import nn
 
@@ -21,10 +21,10 @@ def _cuda_available() -> bool:
     return torch.cuda.is_available()
 
 
-class EdgeMLP(gf.MessagePassing):
+class EdgeMLP(tg.MessagePassing):
     def __init__(self, module, **trace_kwargs):
         super().__init__()
-        self.mlp = gf.nn.trace(module, **trace_kwargs)
+        self.mlp = tg.nn.trace(module, **trace_kwargs)
 
     def edge(self, src, dst, edge):
         return self.mlp(edge.displacement, src.x)
@@ -36,7 +36,7 @@ def _problem(nodes=128, dim=3, width=8, cutoff=0.35, seed=7, device="cuda"):
         nodes, dim, device=device, generator=generator, requires_grad=True)
     x = torch.randn(
         nodes, width, device=device, generator=generator, requires_grad=True)
-    graph = gf.Graph.radius(positions, cutoff=cutoff)
+    graph = tg.Graph.radius(positions, cutoff=cutoff)
     return graph, positions, x
 
 
@@ -187,17 +187,17 @@ class EdgeNNOpsTest(unittest.TestCase):
 
     def test_invalid_launch_geometry_rejected(self):
         with self.assertRaises(ValueError):
-            gf.nn.trace(nn.Linear(4, 4), block_e=100)
+            tg.nn.trace(nn.Linear(4, 4), block_e=100)
         with self.assertRaises(ValueError):
-            gf.nn.trace(nn.Linear(4, 4), block_e=8)
+            tg.nn.trace(nn.Linear(4, 4), block_e=8)
         with self.assertRaises(ValueError):
-            gf.nn.trace(nn.Linear(4, 4), num_warps=3)
+            tg.nn.trace(nn.Linear(4, 4), num_warps=3)
 
     def test_unsupported_ops_rejected_at_trace(self):
         with self.assertRaises(NotImplementedError):
-            gf.nn.trace(nn.Sequential(nn.Linear(11, 16), nn.BatchNorm1d(16)))
+            tg.nn.trace(nn.Sequential(nn.Linear(11, 16), nn.BatchNorm1d(16)))
         with self.assertRaises(NotImplementedError):
-            gf.nn.trace(nn.Sequential(
+            tg.nn.trace(nn.Sequential(
                 nn.Linear(11, 16), nn.GELU(approximate="tanh")))
 
 

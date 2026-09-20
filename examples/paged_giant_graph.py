@@ -7,12 +7,12 @@ import tempfile
 import time
 from pathlib import Path
 
-import tiga as gf
+import tiga as tg
 
 
 # --8<-- [start:core]
-class Smoothing(gf.MessagePassing):
-    reducer = gf.sum()
+class Smoothing(tg.MessagePassing):
+    reducer = tg.sum()
 
     def edge(self, src, dst, edge):
         del dst, edge
@@ -27,8 +27,8 @@ def main(grid=(1000, 1000)):
     # Phase 1 — ingest: build the 1000x1000 four-neighbor stencil once and
     # persist it as a versioned .gfg (1M nodes, ~4M edges on NVMe).
     graph_path = Path(tempfile.mkdtemp()) / "giant.gfg"
-    gf.save(
-        gf.Graph.stencil(grid, ((-1, 0), (1, 0), (0, -1), (0, 1))),
+    tg.save(
+        tg.Graph.stencil(grid, ((-1, 0), (1, 0), (0, -1), (0, 1))),
         graph_path,
     )
 
@@ -36,8 +36,8 @@ def main(grid=(1000, 1000)):
     # on disk) and run the unchanged kernel. The executor streams destination
     # row pages of 100k rows, prefetching page k+1 while page k computes;
     # node/edge fields stay in RAM — only the topology is paged.
-    paged = gf.load(graph_path)
-    x = gf.tensor([float(node % 977) for node in range(paged.schema.num_dst)])
+    paged = tg.load(graph_path)
+    x = tg.tensor([float(node % 977) for node in range(paged.schema.num_dst)])
     started = time.perf_counter()
     out = Smoothing()(graph=paged, src={"x": x}, dst={})  # (1_000_000,)
     elapsed = time.perf_counter() - started
@@ -46,7 +46,7 @@ def main(grid=(1000, 1000)):
     # it the way another process would. The checksum survives the round trip.
     checksum = math.fsum(out.tolist())
     out.disk(name="giant-smoothed")
-    reattached = gf.from_disk("giant-smoothed")  # lazy payload, loads on read
+    reattached = tg.from_disk("giant-smoothed")  # lazy payload, loads on read
     assert math.fsum(reattached.tolist()) == checksum
     print(
         f"paged {paged.schema.num_dst:,} nodes / {paged.num_edges:,} edges "
@@ -55,7 +55,7 @@ def main(grid=(1000, 1000)):
 
 
 # Inspect:
-#   gf.load(graph_path).explain()            # realization=paged_csr, backing=nvme
+#   tg.load(graph_path).explain()            # realization=paged_csr, backing=nvme
 #   Smoothing().variants[-1].remarks          # per-page native lowering record
 #   TIGA_PAGED_PAGE_ROWS=250000 python examples/paged_giant_graph.py
 

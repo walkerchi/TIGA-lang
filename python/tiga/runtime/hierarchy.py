@@ -41,7 +41,8 @@ class MemoryTier(str, Enum):
             "distributed": cls.REMOTE,
         }
         try:
-            return aliases.get(value.lower(), cls(value.lower()))
+            normalized = value.lower()
+            return aliases[normalized] if normalized in aliases else cls(normalized)
         except ValueError as error:
             raise ValueError(f"unknown memory tier {value!r}") from error
 
@@ -80,6 +81,8 @@ class PhysicalInstance:
     _runtime: "HierarchyRuntime | None" = field(default=None, repr=False)
     _instance_id: int = field(default=-1, repr=False)
     _closed: bool = field(default=False, init=False, repr=False)
+    _readers: list = field(default_factory=list, repr=False)
+    _reservation: object | None = field(default=None, repr=False)
 
     @property
     def ready(self) -> bool:
@@ -92,14 +95,24 @@ class PhysicalInstance:
     def close(self) -> None:
         if self._closed:
             return
-        self.wait()
+        failure = None
+        for completion in [self.completion, *self._readers]:
+            if completion is not None:
+                try:
+                    completion.wait()
+                except Exception as exc:
+                    failure = failure or exc
         if self.buffer is not None:
             self.buffer.close()
         if self.path is not None:
             self.path.unlink(missing_ok=True)
         self._closed = True
+        if self._reservation is not None:
+            self._reservation.close()
         if self._runtime is not None:
             self._runtime._released(self)
+        if failure is not None:
+            raise failure
 
     def __enter__(self) -> "PhysicalInstance":
         return self
@@ -177,6 +190,7 @@ class HierarchyRuntime:
             self._next_instance_id += 1
         buffer = None
         path = None
+        reservation = None
         try:
             if resolved == MemoryTier.DEVICE:
                 buffer = Buffer(capacity_bytes, device=device)
@@ -185,18 +199,26 @@ class HierarchyRuntime:
             elif resolved == MemoryTier.RAM:
                 buffer = Buffer(capacity_bytes, device="cpu")
             elif resolved == MemoryTier.NVME:
-                path = self.nvme_directory / f"{logical_name}.v{version}.{instance_id}.bin"
+                from .memory import reserve
+                import uuid
+                reservation = reserve("nvme", capacity_bytes)
+                path = self.nvme_directory / f"{uuid.uuid4().hex}.v{version}.{instance_id}.bin"
                 with path.open("wb") as stream:
                     stream.truncate(capacity_bytes)
             instance = PhysicalInstance(
                 logical_name, version, resolved, capacity_bytes, device, layout,
                 buffer=buffer, path=path, _runtime=self,
                 _instance_id=instance_id,
+                _reservation=reservation,
             )
             with self._lock:
                 self._instances[instance_id] = instance
             return instance
         except BaseException:
+            if reservation is not None:
+                reservation.close()
+            if path is not None:
+                path.unlink(missing_ok=True)
             with self._lock:
                 self.live_bytes[resolved] -= capacity_bytes
             raise
@@ -210,6 +232,10 @@ class HierarchyRuntime:
     ) -> HierarchyCompletion:
         from . import Stream
 
+        if source._closed or destination._closed:
+            raise RuntimeError("cannot transfer a closed physical instance")
+        if source is destination:
+            raise ValueError("source and destination must be distinct instances")
         if source.version != destination.version or source.logical_name != destination.logical_name:
             raise ValueError("transfer must preserve logical identity and version")
         if source.capacity_bytes != destination.capacity_bytes:
@@ -218,6 +244,9 @@ class HierarchyRuntime:
         # Preserve write-after-write ordering when a physical instance is
         # reused by a later compiler-planned transfer.
         destination.wait()
+        for reader in destination._readers:
+            reader.wait()
+        destination._readers.clear()
         if source.buffer is not None and destination.buffer is not None:
             owns_stream = stream is None
             if stream is None:
@@ -229,24 +258,27 @@ class HierarchyRuntime:
             future = self._executor.submit(self._file_transfer, source, destination)
             completion = HierarchyCompletion(future, retained=(source, destination))
         destination.completion = completion
+        source._readers = [reader for reader in source._readers if not reader.ready]
+        source._readers.append(completion)
         return completion
 
     @staticmethod
     def _file_transfer(source: PhysicalInstance, destination: PhysicalInstance) -> None:
-        if source.path is not None:
-            payload = source.path.read_bytes()
-        elif source.buffer is not None:
-            payload = source.buffer.read(bytes=source.capacity_bytes)
-        else:
-            raise RuntimeError("source instance has no physical storage")
-        if len(payload) != destination.capacity_bytes:
+        from .storage_io import CHUNK_BYTES, buffer_to_file, file_to_buffer
+        import shutil
+        if source.path is not None and source.path.stat().st_size != source.capacity_bytes:
             raise RuntimeError("short hierarchical transfer")
-        if destination.path is not None:
-            destination.path.write_bytes(payload)
-        elif destination.buffer is not None:
-            destination.buffer.write(payload)
+        if source.path is not None and destination.path is not None:
+            with source.path.open("rb") as src, destination.path.open("wb") as dst:
+                shutil.copyfileobj(src, dst, CHUNK_BYTES)
+        elif source.path is not None and destination.buffer is not None:
+            with source.path.open("rb") as src:
+                file_to_buffer(src, destination.buffer, destination.capacity_bytes)
+        elif source.buffer is not None and destination.path is not None:
+            with destination.path.open("wb") as dst:
+                buffer_to_file(source.buffer, dst, source.capacity_bytes)
         else:
-            raise RuntimeError("destination instance has no physical storage")
+            raise RuntimeError("invalid hierarchical file transfer")
 
     def latest(self, logical_name: str, *, tier: MemoryTier | str | None = None) -> PhysicalInstance:
         resolved = None if tier is None else (
@@ -267,11 +299,18 @@ class HierarchyRuntime:
             self.live_bytes[instance.tier] -= instance.capacity_bytes
 
     def close(self) -> None:
+        failure = None
         for instance in list(self._instances.values()):
-            instance.close()
+            try:
+                instance.close()
+            except Exception as exc:
+                failure = failure or exc
         self._executor.shutdown(wait=True)
         if self._owned_directory:
-            self.nvme_directory.rmdir()
+            if self.nvme_directory.exists():
+                self.nvme_directory.rmdir()
+        if failure is not None:
+            raise failure
 
     def __enter__(self) -> "HierarchyRuntime":
         return self

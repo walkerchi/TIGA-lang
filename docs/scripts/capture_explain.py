@@ -2,9 +2,9 @@
 
 Each (example, mode) pair runs in a subprocess for isolation. The runner
 patches device defaults so the SAME example source executes on the requested
-device, then prints the explain() text of every kernel instance that compiled
+device, then prints the explain() text of every kernel instance that recorded a variant
 during the run. Output files land in output/inspection/<stem>.<mode>.txt and
-are meant to be embedded into the docs as measured inspection blocks.
+are meant to be embedded into the docs as inspection snapshots, not proof of compilation or measured performance.
 
 Usage:
     python docs/scripts/capture_explain.py [example.py ...]
@@ -19,7 +19,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 OUT = ROOT / "output" / "inspection"
-PY = "/home/walkerchi/Code/ComfyUI/.venv/bin/python3.12"
+PY = sys.executable
 
 # mode: "both" (default), "asis" (single run, no device forcing)
 SPECIAL = {
@@ -45,10 +45,10 @@ sys.argv = [path]
 
 import torch
 
-import tiga as gf
+import tiga as tg
 
 seen = []
-_orig_record = gf.Kernel._record_variant
+_orig_record = tg.Kernel._record_variant
 
 
 def _record(self, variant):
@@ -57,7 +57,7 @@ def _record(self, variant):
     return _orig_record(self, variant)
 
 
-gf.Kernel._record_variant = _record
+tg.Kernel._record_variant = _record
 
 
 def _remap_device(kwargs, target):
@@ -82,23 +82,23 @@ if mode == "cpu":
 
         setattr(torch, name, make(original))
     for name in ("dense", "triangular"):
-        original = getattr(gf.Graph, name)
+        original = getattr(tg.Graph, name)
 
         def make(fn):
             def wrapper(*args, **kwargs):
                 return fn(*args, **_remap_device(kwargs, "cpu"))
             return classmethod(wrapper)
 
-        setattr(gf.Graph, name, make(original))
+        setattr(tg.Graph, name, make(original))
 elif mode == "cuda":
     torch.set_default_device("cuda")
-    _orig_gf_tensor = gf.tensor
+    _orig_gf_tensor = tg.tensor
 
     def _gf_tensor_cuda(*args, **kwargs):
         kwargs.setdefault("device", "cuda")
         return _orig_gf_tensor(*args, **kwargs)
 
-    gf.tensor = _gf_tensor_cuda
+    tg.tensor = _gf_tensor_cuda
 
 with contextlib.redirect_stdout(io.StringIO()):
     namespace = runpy.run_path(path, run_name="__main__")
@@ -143,7 +143,7 @@ with open(out_path, "w", encoding="utf-8") as handle:
             if name.startswith("_"):
                 continue
             explain = getattr(type(value), "explain", None)
-            if explain is not None and not isinstance(value, gf.Kernel):
+            if explain is not None and not isinstance(value, tg.Kernel):
                 try:
                     handle.write(f"### {name}: {type(value).__name__}\n")
                     handle.write(value.explain() + "\n\n")

@@ -1,0 +1,36 @@
+name: Bug / numerical correctness
+description: Report a reproducible failure or incorrect result (no security details).
+title: "[Bug] "
+body:
+  - type: markdown
+    attributes:
+      value: "Vulnerabilities follow SECURITY.md. Remove private data and credentials. English and Chinese reports are welcome."
+  - type: textarea
+    id: behavior
+    attributes:
+      label: Expected and actual behavior / 期望与实际行为
+      description: Include the full exception or expected values and numerical tolerances.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Minimal reproduction / 最小复现
+      description: Standalone synthetic inputs, fixed seed, no private files. Include the oracle and loss for gradient bugs.
+      render: python
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment / 环境
+      description: python -m tiga, OS, install command, commit/wheel, Torch/Triton versions, GPU and driver when relevant.
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Execution diagnostics / 执行诊断
+      description: Graph kind, sizes, dtype/device, forward/backward, program.explain() and available IR.
+      render: text

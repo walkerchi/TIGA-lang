@@ -11,7 +11,7 @@ import time
 
 import torch
 
-import tiga as gf
+import tiga as tg
 from benchmarks.common.hardware_roofline import measure_roofs, samples_ms
 from benchmarks.common.output_layout import operation_dir
 from benchmarks.common.perf_protocol import evaluate_sota_gates
@@ -41,11 +41,11 @@ def main() -> None:
         (args.height, args.width), device="cuda", dtype=torch.float32,
         generator=torch.Generator(device="cuda").manual_seed(20260813),
     )
-    gf_source = gf.from_torch(source)
+    gf_source = tg.from_torch(source)
     low = torch.tensor(LOW, device="cuda", dtype=torch.float32).reshape(1, 3)
     high = torch.tensor(HIGH, device="cuda", dtype=torch.float32).reshape(1, 3)
 
-    raster = gf.visualize.heatmap(gf_source)
+    raster = tg.visualize.heatmap(gf_source)
 
     @torch.compile(fullgraph=True)
     def inductor_render(value):

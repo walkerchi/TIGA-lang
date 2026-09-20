@@ -66,7 +66,7 @@ def export_ply(
 ) -> Path:
     """Dump positions (and optional faces/colors) as binary_little_endian PLY.
 
-    ``positions`` accepts gf.Tensor / torch / NumPy with shape (N, 2) or
+    ``positions`` accepts tg.Tensor / torch / NumPy with shape (N, 2) or
     (N, 3) — planar input gets ``z = 0``. Vertices carry ``x y z`` float32;
     when ``values`` is given, each vertex additionally carries
     ``red green blue`` uint8 (colored with ``cmap``, defaulting to the

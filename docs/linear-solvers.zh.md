@@ -8,12 +8,12 @@ MessagePassing 调用列表：局部算子、循环状态、收敛判据、归�
 
 求解器是语法糖，而非核心 API：`examples/solvers.py` 用普通 Python 组合 Tensor
 代数、关系应用与 `gf_control` 控制，求解循环以自然的 `for`/`while` 书写在
-`@gf.jit` 之下，并被 staged 进相同的控制 op。绑定到 `Graph` 的 MessagePassing
+`@tg.jit` 之下，并被 staged 进相同的控制 op。绑定到 `Graph` 的 MessagePassing
 kernel 本身就是无矩阵算子，因此直接传给求解器即可——无需构造任何包装对象：
 
 ```python
-class StiffnessApply(gf.MessagePassing):
-    reducer = gf.sum()
+class StiffnessApply(tg.MessagePassing):
+    reducer = tg.sum()
 
     def edge(self, src, dst, edge):
         return edge.value * src.u
@@ -148,9 +148,9 @@ flowchart LR
 }
 ```
 
-即使条件提前退出，`max_iterations` 仍是特化/资源规划的一部分。在分布式
-图上，点积变成显式的集合通信任务；只有当依赖分析证明合法时，规划器才可以
-选择流水线化 [CG](https://en.wikipedia.org/wiki/Conjugate_gradient_method) 并将归约与 halo/内部工作重叠。
+即使条件提前退出，`max_iterations` 仍是特化/资源规划的一部分。
+求解器级分布式点积与集合通信任务属于计划扩展；当前求解器不调度
+流水线化 CG，也不将归约与 halo 交换重叠。
 
 ## 反向传播有两种不同的契约 { #backward-has-two-distinct-contracts }
 
@@ -219,8 +219,8 @@ $$
 
 不存在独立的面向用户的 `autofuse` 或 `jit` 模块。调用求解器与调用
 kernel 创建的是同一种惰性程序边界。全程序 pass 可以融合逐点更新与算子尾声、复用
-关系快照、规划乒乓缓冲区，并重叠 halo/集合通信任务。`@gf.jit` 自动捕获
-平级的 kernel 调用；`@gf.program` 保留为无源码直线代码的兼容入口，
+关系快照、规划乒乓缓冲区，并重叠 halo/集合通信任务。`@tg.jit` 自动捕获
+平级的 kernel 调用；`@tg.program` 保留为无源码直线代码的兼容入口，
 而不是优化提示。
 
 同样，`gf.variant` 不应是数值原语。编译变体是基于图统计信息、形状、dtype、

@@ -14,7 +14,7 @@ from pathlib import Path
 import statistics
 import time
 
-import tiga as gf
+import tiga as tg
 from tiga.distributed import DeviceBufferSlice, create_transport, nccl_unique_id
 
 
@@ -36,12 +36,12 @@ def main() -> None:
         "nccl", rank=0, world_size=1,
         communicator_id=nccl_unique_id(), device=args.device,
     )
-    stream = gf.runtime.Stream(args.device)
+    stream = tg.runtime.Stream(args.device)
     cases = []
     try:
         for byte_count in args.sizes:
-            source = gf.runtime.Buffer(byte_count, device=args.device)
-            destination = gf.runtime.Buffer(byte_count, device=args.device)
+            source = tg.runtime.Buffer(byte_count, device=args.device)
+            destination = tg.runtime.Buffer(byte_count, device=args.device)
             payload = bytes(index % 251 for index in range(byte_count))
             source.write(payload)
             send = ((0, DeviceBufferSlice(source, 0, byte_count)),)

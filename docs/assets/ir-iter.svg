@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="274" viewBox="0 0 760 274" role="img" aria-labelledby="title desc">
+<title id="title">Iter: one destination selects one CSR edge range</title>
+<desc id="desc">Row pointers zero, two, three, three give destination zero the edges zero and one. Source indices zero and one select values two and three; weights four and five produce messages eight and fifteen. Their sum is twenty-three. Destination one uses edge two; destination two has no edges.</desc>
+<style>text{font:16px sans-serif;fill:#334155}.small{font-size:14px}.focus{font-weight:700;fill:#4338ca}@media(prefers-color-scheme:dark){text{fill:#d7deec}.focus{fill:#c7d2fe}.bg{fill:#232936}.band{fill:#303e63}.line{stroke:#97a6bf}}</style>
+<rect class="bg" width="760" height="274" rx="12" fill="#f8fafc"/>
+<text x="28" y="34">Iter · compressed-row</text>
+<text x="28" y="77">row_ptr = [0, 2, 3, 3]</text>
+<text x="28" y="99" class="focus">dst 0 → edges [0, 2)</text>
+<rect class="band" x="300" y="55" width="216" height="160" rx="8" fill="#e0e7ff"/>
+<text x="333" y="80" class="small">edge 0</text><text x="439" y="80" class="small">edge 1</text><text x="557" y="80" class="small">edge 2</text>
+<text x="183" y="119">col_idx[e]</text><text x="354" y="119">0</text><text x="460" y="119">1</text><text x="578" y="119">1</text>
+<text x="183" y="158">x[col_idx[e]]</text><text x="354" y="158">2</text><text x="460" y="158">3</text><text x="578" y="158">3</text>
+<text x="183" y="197">weight[e]</text><text x="354" y="197">4</text><text x="460" y="197">5</text><text x="578" y="197">2</text>
+<path class="line" d="M320 221V230H496V221" fill="none" stroke="#6366f1" stroke-width="2"/>
+<text x="320" y="256" class="focus">out[0] = 2 × 4 + 3 × 5 = 23</text>
+<text x="28" y="239" class="small">dst 1 → [2, 3)</text><text x="28" y="261" class="small">dst 2 → [3, 3): empty</text>
+</svg>

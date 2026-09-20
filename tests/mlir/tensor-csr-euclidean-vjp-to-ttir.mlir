@@ -43,7 +43,7 @@ module {
 // DOMAIN: "gf_tensor.csr_euclidean_distance_sum_vjp"
 // DOMAIN-SAME: dimensions = 3 : i64
 // DOMAIN-SAME: periodic = true
-// TTIR: graphforge.tensor entry=gf_tensor_csr_euclidean_distance_sum_vjp block_rows=256 block_elements=256 num_warps=8
+// TTIR: tiga.tensor entry=gf_tensor_csr_euclidean_distance_sum_vjp block_rows=256 block_elements=256 num_warps=8
 // TTIR: tt.func public @gf_tensor_csr_euclidean_distance_sum_vjp
 // TTIR: math.floor
 // TTIR: tt.atomic_rmw fadd

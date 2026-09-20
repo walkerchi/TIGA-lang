@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import importlib.util
+import inspect
 import os
 import unittest
 from unittest import mock
 
-import tiga as gf
+import tiga as tg
 import torch
 from tiga.codegen import compile_ttir, prepare_ttir_task_primitive
 from tiga.compiler.toolchain import find_gf_opt, find_gf_translate
@@ -17,15 +18,15 @@ from tiga.interop.torch.compiler_bridge import (
 from tiga.interop.torch.provider import TorchCudaSubmissionProvider
 
 
-class WeightedAggregation(gf.MessagePassing):
-    reducer = gf.sum()
+class WeightedAggregation(tg.MessagePassing):
+    reducer = tg.sum()
 
     def edge(self, src, dst, edge):
         return edge.weight * src.x
 
 
-class RadiusDistanceAggregation(gf.MessagePassing):
-    reducer = gf.sum()
+class RadiusDistanceAggregation(tg.MessagePassing):
+    reducer = tg.sum()
 
     def edge(self, src, dst, edge):
         return edge.distance * src.x
@@ -60,7 +61,7 @@ class TTIRProviderTest(unittest.TestCase):
         col_idx = torch.arange(
             int(row_ptr[-1]), device="cuda", dtype=torch.int64
         ) % degrees.numel()
-        graph = gf.Graph.from_csr(row_ptr, col_idx, num_src=degrees.numel())
+        graph = tg.Graph.from_csr(row_ptr, col_idx, num_src=degrees.numel())
         x = torch.randn(degrees.numel(), device="cuda")
         weight = torch.randn(col_idx.numel(), device="cuda")
         module = message_passing_domain_mlir(
@@ -70,7 +71,7 @@ class TTIRProviderTest(unittest.TestCase):
         )
         stages = lower_mlir_stages(module, gf_opt=str(gf_opt))
         assert stages.task is not None
-        plan = gf.compiler.translate_task_bundle(
+        plan = tg.compiler.translate_task_bundle(
             stages.task, gf_translate=str(gf_translate)
         )
         primitives = {
@@ -163,7 +164,7 @@ class TTIRProviderTest(unittest.TestCase):
         )
         x = torch.randn(nodes, device="cuda")
         weight = torch.randn(nodes * degree, device="cuda")
-        graph = gf.Graph.from_csr(row_ptr, col_idx, num_src=nodes)
+        graph = tg.Graph.from_csr(row_ptr, col_idx, num_src=nodes)
         kernel = WeightedAggregation()
         with mock.patch.dict(os.environ, {"TIGA_CUDA_LAUNCHER": "driver"}):
             actual = kernel(
@@ -175,7 +176,7 @@ class TTIRProviderTest(unittest.TestCase):
         )
         torch.testing.assert_close(actual, expected, rtol=3e-4, atol=3e-4)
         executor = kernel._torch_executor
-        plan = executor._last_executable.runner.__self__
+        plan = inspect.unwrap(executor._last_executable.runner).__self__
         self.assertIsNotNone(plan.result.driver_launcher)
         self.assertEqual(kernel.last_variant.lowering,
                          "gf-kernel-to-ttir-fixed-csr-weighted-sum")
@@ -203,7 +204,7 @@ class TTIRProviderTest(unittest.TestCase):
         x = torch.randn(nodes, device="cuda", generator=generator)
         weight = torch.randn(
             col_idx.numel(), device="cuda", generator=generator)
-        graph = gf.Graph.from_csr(row_ptr, col_idx, num_src=nodes)
+        graph = tg.Graph.from_csr(row_ptr, col_idx, num_src=nodes)
         module = message_passing_domain_mlir(
             kernel=WeightedAggregation(), graph=graph,
             src={"x": x}, dst={}, edge={"weight": weight}, params={},
@@ -211,7 +212,7 @@ class TTIRProviderTest(unittest.TestCase):
         )
         stages = lower_mlir_stages(module, gf_opt=str(gf_opt))
         assert stages.task is not None
-        plan = gf.compiler.translate_task_bundle(
+        plan = tg.compiler.translate_task_bundle(
             stages.task, gf_translate=str(gf_translate)
         )
         buckets = tuple(
@@ -286,7 +287,7 @@ class TTIRProviderTest(unittest.TestCase):
         x = torch.randn(nodes, device="cuda", generator=generator)
         weight = torch.randn(
             col_idx.numel(), device="cuda", generator=generator)
-        graph = gf.Graph.from_csr(row_ptr, col_idx, num_src=nodes)
+        graph = tg.Graph.from_csr(row_ptr, col_idx, num_src=nodes)
         module = message_passing_domain_mlir(
             kernel=WeightedAggregation(), graph=graph,
             src={"x": x}, dst={}, edge={"weight": weight}, params={},
@@ -294,7 +295,7 @@ class TTIRProviderTest(unittest.TestCase):
         )
         stages = lower_mlir_stages(module, gf_opt=str(gf_opt))
         assert stages.task is not None
-        plan = gf.compiler.translate_task_bundle(
+        plan = tg.compiler.translate_task_bundle(
             stages.task, gf_translate=str(gf_translate)
         )
         self.assertEqual(
@@ -360,7 +361,7 @@ class TTIRProviderTest(unittest.TestCase):
         nodes = 256
         positions = torch.rand(nodes, 3, device="cuda", generator=generator)
         x = torch.randn(nodes, device="cuda", generator=generator)
-        graph = gf.Graph.radius(positions, cutoff=0.2)
+        graph = tg.Graph.radius(positions, cutoff=0.2)
         kernel = RadiusDistanceAggregation()
         with mock.patch.dict(
             "os.environ",
@@ -398,7 +399,7 @@ class TTIRProviderTest(unittest.TestCase):
         nodes = 128
         positions = torch.rand(nodes, 3, device="cuda", generator=generator)
         x = torch.randn(nodes, device="cuda", generator=generator)
-        graph = gf.Graph.radius(positions, cutoff=0.25)
+        graph = tg.Graph.radius(positions, cutoff=0.25)
         directory = graph.generated_cell_directory()
         self.assertIsNotNone(directory)
         domain = message_passing_domain_mlir(
@@ -438,7 +439,7 @@ class TTIRProviderTest(unittest.TestCase):
 
         torch.testing.assert_close(actual, expected, rtol=3e-4, atol=3e-4)
         self.assertEqual(plan.entry, "gf_generated_radius_distance_sum")
-        self.assertEqual(plan.block_rows, 1)
+        self.assertEqual(plan.block_rows, 32 if directory.hash_grid else 1)
         self.assertIn("ptx", direct.artifacts)
 
     def test_periodic_generated_radius_uses_minimum_image_for_box_and_skew(self):
@@ -458,7 +459,7 @@ class TTIRProviderTest(unittest.TestCase):
         for periodic in lattices:
             lattice = torch.diag(periodic) if periodic.ndim == 1 else periodic
             positions = fractional @ lattice
-            graph = gf.Graph.radius(
+            graph = tg.Graph.radius(
                 positions, cutoff=0.18, periodic=periodic)
             directory = graph.generated_cell_directory()
             self.assertIsNotNone(directory)
@@ -494,7 +495,7 @@ class TTIRProviderTest(unittest.TestCase):
         source = torch.randn(
             nodes, device="cuda", generator=generator, requires_grad=True)
         cotangent = torch.randn(nodes, device="cuda", generator=generator)
-        graph = gf.Graph.radius(
+        graph = tg.Graph.radius(
             positions, cutoff=0.18, periodic=lattice)
         kernel = RadiusDistanceAggregation()
 
@@ -543,7 +544,7 @@ class TTIRProviderTest(unittest.TestCase):
         nodes = 512
         positions = torch.rand(nodes, 3, device="cuda", generator=generator)
         x = torch.randn(nodes, device="cuda", generator=generator)
-        graph = gf.Graph.radius(positions, cutoff=0.20)
+        graph = tg.Graph.radius(positions, cutoff=0.20)
         kernel = RadiusDistanceAggregation()
         environment = {
             "TIGA_OPT": str(gf_opt),
@@ -583,7 +584,7 @@ class TTIRProviderTest(unittest.TestCase):
             device="cuda", dtype=torch.int64)
         col_idx = torch.arange(
             nodes * degree, device="cuda", dtype=torch.int64) % nodes
-        graph = gf.Graph.from_csr(row_ptr, col_idx, num_src=nodes)
+        graph = tg.Graph.from_csr(row_ptr, col_idx, num_src=nodes)
         x = torch.randn(nodes, device="cuda")
         weight = torch.randn(nodes * degree, device="cuda")
         kernel = WeightedAggregation()
@@ -620,7 +621,7 @@ class TTIRProviderTest(unittest.TestCase):
             device="cuda", dtype=torch.int64)
         col_idx = torch.randint(
             nodes, (nodes * degree,), device="cuda", dtype=torch.int64)
-        graph = gf.Graph.from_csr(row_ptr, col_idx, num_src=nodes)
+        graph = tg.Graph.from_csr(row_ptr, col_idx, num_src=nodes)
         x = torch.randn(nodes, features, device="cuda")
         weight = torch.randn(nodes * degree, device="cuda")
         kernel = WeightedAggregation()
@@ -664,7 +665,7 @@ class TTIRProviderTest(unittest.TestCase):
         edges = int(row_ptr[-1])
         col_idx = torch.arange(
             edges, device="cuda", dtype=torch.int64) % nodes
-        graph = gf.Graph.from_csr(row_ptr, col_idx, num_src=nodes)
+        graph = tg.Graph.from_csr(row_ptr, col_idx, num_src=nodes)
         x = torch.randn(nodes, device="cuda")
         weight = torch.randn(edges, device="cuda")
         kernel = WeightedAggregation()
@@ -702,7 +703,7 @@ class TTIRProviderTest(unittest.TestCase):
             device="cuda", dtype=torch.int64)
         col_idx = torch.arange(
             nodes * degree, device="cuda", dtype=torch.int64) % nodes
-        graph = gf.Graph.from_csr(row_ptr, col_idx, num_src=nodes)
+        graph = tg.Graph.from_csr(row_ptr, col_idx, num_src=nodes)
         x = torch.randn(nodes, device="cuda")
         weight = torch.randn(nodes * degree, device="cuda")
         domain = message_passing_domain_mlir(
@@ -744,7 +745,7 @@ class TTIRProviderTest(unittest.TestCase):
             device="cuda", dtype=torch.int64)
         col_idx = torch.arange(
             nodes * degree, device="cuda", dtype=torch.int64) % nodes
-        graph = gf.Graph.from_csr(row_ptr, col_idx, num_src=nodes)
+        graph = tg.Graph.from_csr(row_ptr, col_idx, num_src=nodes)
         x = torch.randn(nodes, device="cuda")
         weight = torch.randn(nodes * degree, device="cuda")
         kernel = WeightedAggregation()
@@ -798,7 +799,7 @@ class TTIRProviderTest(unittest.TestCase):
             nodes, 3, device="cuda", generator=generator)
         source = torch.rand(nodes, device="cuda", generator=generator)
         weight = torch.ones(nodes * degree, device="cuda")
-        graph = gf.Graph.knn(positions, degree)
+        graph = tg.Graph.knn(positions, degree)
         kernel = WeightedAggregation()
 
         for step in range(2):
@@ -837,7 +838,7 @@ class TTIRProviderTest(unittest.TestCase):
         source = torch.rand(candidates, device="cuda", generator=generator)
         weight = torch.rand(
             queries * degree, device="cuda", generator=generator)
-        graph = gf.Graph.knn(query, degree, candidates=candidate)
+        graph = tg.Graph.knn(query, degree, candidates=candidate)
         kernel = WeightedAggregation()
 
         actual = kernel(
@@ -862,7 +863,7 @@ class TTIRProviderTest(unittest.TestCase):
         positions = torch.zeros(nodes, 2, device="cuda")
         source = torch.arange(nodes, dtype=torch.float32, device="cuda")
         weight = torch.ones(nodes * degree, device="cuda")
-        graph = gf.Graph.knn(positions, degree)
+        graph = tg.Graph.knn(positions, degree)
         kernel = WeightedAggregation()
 
         actual = kernel(
@@ -890,7 +891,7 @@ class TTIRProviderTest(unittest.TestCase):
         source = torch.rand(nodes, device="cuda", generator=generator)
         weight = torch.rand(
             nodes * degree, device="cuda", generator=generator)
-        graph = gf.Graph.knn(positions, degree)
+        graph = tg.Graph.knn(positions, degree)
         kernel = WeightedAggregation()
 
         actual = kernel(

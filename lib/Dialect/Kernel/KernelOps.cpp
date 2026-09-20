@@ -48,7 +48,7 @@ static LogicalResult verifyScheduleABI(LaunchOp launch) {
            .Cases({"fixed-row-neighbor-feature",
                    "bounded-ragged-row-neighbor-feature", "provider-deferred",
                    "fixed-row-neighbor", "bounded-ragged-row-neighbor",
-                   "scalar-row-loop", "generated-cell-neighbor",
+                   "scalar-row-loop", "generated-cell-neighbor", "generated-hash-query-lanes",
                    "dense-query-key-tile", "ranked-candidate-select"}, true)
            .Default(false))
     return launch.emitOpError("unknown schedule_kind '")
@@ -75,12 +75,12 @@ static LogicalResult verifyScheduleABI(LaunchOp launch) {
           launch, "execution_roles", launch.getExecutionRolesAttr(),
           {"workgroup.destination-rows", "workgroup.destination-queries",
            "subgroup.neighbor-reduction", "subgroup.key-reduction",
-           "subgroup.ranked-selection",
-           "lane.feature", "lane.scalar"})))
+           "subgroup.ranked-selection", "subgroup.query-traversal",
+           "lane.feature", "lane.scalar", "lane.query"})))
     return failure();
   if (failed(verifyVocabulary(
           launch, "schedule_handoffs", launch.getScheduleHandoffsAttr(),
-          {"load.global-to-register", "reduce.subgroup",
+          {"load.global-to-register", "reduce.subgroup", "loop.active-any",
            "store.register-to-global"})))
     return failure();
   return verifyVocabulary(
@@ -261,6 +261,8 @@ LogicalResult LaunchOp::verify() {
 }
 
 LogicalResult GeneratedLaunchOp::verify() {
+  if (getHashGrid() && getPeriodic())
+    return emitOpError("hash buckets do not imply periodic geometry; combined mode is unsupported");
   if (getNumRowsAttr().getInt() < 0)
     return emitOpError("requires a non-negative physical row count");
   if (getCutoffAttr().getValueAsDouble() <= 0.0)

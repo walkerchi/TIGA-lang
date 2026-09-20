@@ -1,17 +1,17 @@
-"""Run and differentiate a Torch-free tuple-state reducer kernel."""
+"""Advanced custom reducer: this algebra currently needs the native runtime."""
 
-import tiga as gf
+import tiga as tg
 
 
 # 3 nodes, 5 edges: 0→0, 2→0, 1→1, 0→2, 1→2
-row_ptr = gf.tensor([0, 2, 3, 5], dtype=gf.int64)    # (N+1,)
-col_idx = gf.tensor([0, 2, 1, 0, 1], dtype=gf.int64)  # (E,)
-graph = gf.Graph.from_csr(row_ptr, col_idx, num_src=3, validate="full")
-values = gf.tensor([1.0, 2.0, 4.0], requires_grad=True)          # (N,)
+row_ptr = tg.tensor([0, 2, 3, 5], dtype=tg.int64)    # (N+1,)
+col_idx = tg.tensor([0, 2, 1, 0, 1], dtype=tg.int64)  # (E,)
+graph = tg.Graph.from_csr(row_ptr, col_idx, num_src=3, validate="full")
+values = tg.tensor([1.0, 2.0, 4.0], requires_grad=True)          # (N,)
 
 
 # --8<-- [start:core]
-class Mean(gf.Reducer):
+class Mean(tg.Reducer):
     associative = True
     commutative = True
 
@@ -28,7 +28,7 @@ class Mean(gf.Reducer):
         return state[0] / state[1]
 
 
-class NeighborMean(gf.MessagePassing):
+class NeighborMean(tg.MessagePassing):
     reducer = Mean()
 
     def edge(self, src, dst, edge):
@@ -40,13 +40,10 @@ kernel = NeighborMean()
 output = kernel(graph=graph, src={"value": values}, dst={})  # (N,)
 # --8<-- [end:core]
 
-gradient = gf.autograd.grad(output.sum(), values)
+gradient = tg.autograd.grad(output.sum(), values)
 # d values[j] = Σ 1/degree(dst(e)) over edges e out of j
 
-# Inspect the captured reducer algebra and the generated backward:
-#   kernel.reducer.mlir(message_dtypes=(gf.float32,), symbol="user_mean")
-#   gf.autograd.grad_mlir(output.sum(), values)
-#   kernel.explain()
+# Inspect the selected plan: kernel.explain()
 
 
 def main() -> None:

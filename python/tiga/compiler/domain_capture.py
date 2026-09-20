@@ -55,6 +55,7 @@ class DomainGraph:
     neighbor_count: int | None = None
     cutoff: float | None = None
     periodic: bool = False
+    hash_grid: bool = False
     dense_boundary: str = "full"
     k: int | None = None
     metric: str | None = None
@@ -303,6 +304,7 @@ def capture_message_passing(
         ),
         cutoff=None if directory is None else float(directory.cutoff),
         periodic=False if directory is None else bool(directory.periodic),
+        hash_grid=False if directory is None else bool(directory.hash_grid),
         dense_boundary=getattr(graph, "_dense_boundary", "full"),
         k=int(graph._k) if ranked else None,
         metric="squared_euclidean" if ranked else None,

@@ -4,6 +4,11 @@
 /triton-cache/
 /cuda-library-cache/
 
+# Local agent instructions and collaboration notes
+/AGENTS.md
+/LOCAL_REVIEW.md
+/KIMI_HANDOFF.md
+
 # Native/CMake/MLIR build trees
 /build/
 /build-*/
@@ -39,6 +44,7 @@ __pycache__/
 
 # Packaging and generated documentation
 /dist/
+/dist-release/
 /site/
 /.buildinfo
 

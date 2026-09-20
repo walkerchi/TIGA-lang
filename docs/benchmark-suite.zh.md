@@ -4,6 +4,8 @@
 可执行证据库，按**负载语义**分组，绝不按 provider 分组：Triton、Torch、
 厂商库与 Tiga 生成的代码在同一用例内是平级参与者，而非顶层分类。
 
+历史图使用已提交的输入存档；原始 revision/环境不完整，不能用本页运行命令声称精确复测。先阅读[复现图表](benchmark-reproducibility.zh.md)，区分重画和新测量。
+
 ## 目录布局 { #layout }
 
 | 目录 | 范围 | 入口点 |
@@ -24,7 +26,12 @@
 
 ## 运行用例 { #running-cases }
 
-入口点以模块方式从仓库根目录运行，因此导入与当前工作目录无关。
+benchmark 模块不随库 wheel 安装，需要源码 checkout。先按[安装指南](getting-started.md)
+安装 Tiga，再从仓库根目录运行下列命令。`benchmarks` extra 包含 Torch 与 Matplotlib；
+CUDA 用例另需 `cuda` extra 与受支持的硬件，先单独安装匹配的 Torch。
+缺少 SciPy、PyG、Warp 等可选对标实现时须记录为 skipped，不能算作胜出。
+
+入口点以模块方式从仓库根目录运行。
 大多数入口支持 `--quick`（减少采样数量）和 `--fail-on-gate`
 （验收门禁不通过时以非零码退出）：
 

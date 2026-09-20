@@ -1,10 +1,10 @@
 """Orchestration-level AST capture of Python loops into gf_control ops.
 
-``@gf.jit`` rewrites ``for i in range(k)`` and bare ``while cond:`` loops in
+``@tg.jit`` rewrites ``for i in range(k)`` and bare ``while cond:`` loops in
 the decorated function into :func:`tiga.control.repeat` /
 :func:`tiga.control.while_loop` calls at capture time, and activates an
 automatic :class:`tiga.GraphProgram` context so sibling kernel calls in
-the straight-line body fuse without an explicit ``@gf.program``. It is a
+the straight-line body fuse without an explicit ``@tg.program``. It is a
 spelling layer only: the same primitives, lowering, VJP and fail-closed
 contracts apply, and MessagePassing UDF regions are never AST-transformed.
 
@@ -13,7 +13,7 @@ Supported subset (every violation fails closed with a source location):
 - ``for i in range(...)`` with Python-int bounds lowers to ``gf_control.repeat``.
   Reading ``i`` desugars it into an extra carried rank-zero int64 state.
 - ``while <tensor condition>`` lowers to ``gf_control.while`` and requires the
-  decorator resource bound ``@gf.jit(max_iterations=k)``.
+  decorator resource bound ``@tg.jit(max_iterations=k)``.
 - ``if <cond>: break`` as the *first* statement of a ``for`` body is an early
   exit and lowers to ``gf_control.while`` bounded by the range length.
 - Loop-carried variables must be Tensors assigned before the loop; variables
@@ -35,11 +35,11 @@ from .tensor import tensor as _make_tensor
 
 
 class _Unsupported(SyntaxError):
-    """One unsupported construct inside an @gf.jit function."""
+    """One unsupported construct inside an @tg.jit function."""
 
 
 def _fail(node: ast.AST, message: str) -> None:
-    raise _Unsupported(f"gf.jit: line {node.lineno}: {message}")
+    raise _Unsupported(f"tg.jit: line {node.lineno}: {message}")
 
 
 def _reads(stmts: list[ast.stmt]) -> set[str]:
@@ -163,7 +163,7 @@ class _LoopRewriter:
         if is_while:
             if self.max_iterations is None:
                 _fail(stmt, "while loops require "
-                      "@gf.jit(max_iterations=...) as a resource bound")
+                      "@tg.jit(max_iterations=...) as a resource bound")
             if isinstance(stmt.test, ast.Constant) and stmt.test.value is True:
                 _fail(stmt, "while True is not supported; put the exit "
                       "condition in the while test")
@@ -311,8 +311,8 @@ class _LoopRewriter:
 def jit(function=None, *, max_iterations: int | None = None):
     """Capture Python loops in the decorated function as gf_control ops.
 
-    Usable as ``@gf.jit`` (only ``for i in range(k)`` loops) or as
-    ``@gf.jit(max_iterations=k)`` (also bare ``while cond:`` loops, where the
+    Usable as ``@tg.jit`` (only ``for i in range(k)`` loops) or as
+    ``@tg.jit(max_iterations=k)`` (also bare ``while cond:`` loops, where the
     decorator argument is the mandatory per-loop resource bound). See the
     module docstring for the supported subset.
     """
@@ -321,21 +321,21 @@ def jit(function=None, *, max_iterations: int | None = None):
     if max_iterations is not None and (
             not isinstance(max_iterations, int)
             or isinstance(max_iterations, bool) or max_iterations < 0):
-        raise TypeError("gf.jit max_iterations must be a non-negative integer")
-    # @gf.jit may sit outside another capture decorator (e.g. @gf.program);
+        raise TypeError("tg.jit max_iterations must be a non-negative integer")
+    # @tg.jit may sit outside another capture decorator (e.g. @tg.program);
     # unwrap to the source-owning function so globals and source line up.
     function = inspect.unwrap(function)
     if not inspect.isfunction(function):
-        raise TypeError("gf.jit expects a plain Python function")
+        raise TypeError("tg.jit expects a plain Python function")
     try:
         source = textwrap.dedent(inspect.getsource(function))
     except (OSError, TypeError) as error:
         raise TypeError(
-            "gf.jit needs source access; lambdas, REPL and exec-defined "
+            "tg.jit needs source access; lambdas, REPL and exec-defined "
             "functions are not supported") from error
     tree = ast.parse(source)
     if len(tree.body) != 1 or not isinstance(tree.body[0], ast.FunctionDef):
-        raise TypeError("gf.jit expects a single function definition")
+        raise TypeError("tg.jit expects a single function definition")
     definition = tree.body[0]
     definition.decorator_list = []
     _LoopRewriter(max_iterations).rewrite_function(definition)
@@ -352,12 +352,12 @@ def jit(function=None, *, max_iterations: int | None = None):
         "__gf_while": _control.while_loop,
         "__gf_index_state": _index_state,
     })
-    filename = inspect.getsourcefile(function) or "<gf.jit>"
+    filename = inspect.getsourcefile(function) or "<tg.jit>"
     exec(compile(tree, filename, "exec"), env)  # noqa: S102 - staging by design
     transformed = env[definition.name]
-    # @gf.jit is also the composition boundary: kernel calls in the
+    # @tg.jit is also the composition boundary: kernel calls in the
     # straight-line body capture into an automatic GraphProgram (fusion),
-    # exactly as an explicit @gf.program would. With no kernel calls the
+    # exactly as an explicit @tg.program would. With no kernel calls the
     # boundary is a no-op and behavior is unchanged.
     from .program import capture_boundary
 

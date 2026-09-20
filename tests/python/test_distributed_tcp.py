@@ -10,7 +10,7 @@ import time
 import unittest
 from pathlib import Path
 
-import tiga as gf
+import tiga as tg
 from tiga.distributed import (
     DistributedRuntime,
     TCPTransport,
@@ -22,8 +22,8 @@ from tiga.distributed import (
 )
 
 
-class NeighborSum(gf.MessagePassing):
-    reducer = gf.sum()
+class NeighborSum(tg.MessagePassing):
+    reducer = tg.sum()
 
     def edge(self, src, dst, edge):
         del dst, edge
@@ -39,9 +39,9 @@ def _unused_port() -> int:
 
 
 def _tcp_halo_worker(rank, port, graph_path, result_dir):
-    graph = gf.load(graph_path).halo(gf.DeviceMesh("cpu", 2), depth=1)
+    graph = tg.load(graph_path).halo(tg.DeviceMesh("cpu", 2), depth=1)
     begin, end = owned_range(graph.schema.num_dst, 2, rank)
-    local_x = gf.tensor(
+    local_x = tg.tensor(
         [float(entity) for entity in range(begin, end)], requires_grad=True)
     if rank == 0:
         transport = create_transport(
@@ -53,7 +53,7 @@ def _tcp_halo_worker(rank, port, graph_path, result_dir):
     try:
         with DistributedRuntime(transport):
             output = NeighborSum()(graph=graph, src={"x": local_x}, dst={})
-            gradient = gf.autograd.grad(output.sum(), local_x)
+            gradient = tg.autograd.grad(output.sum(), local_x)
             payload = {
                 "output": output.tolist(),
                 "gradient": gradient.tolist(),
@@ -65,6 +65,32 @@ def _tcp_halo_worker(rank, port, graph_path, result_dir):
 
 
 class TCPTransportTest(unittest.TestCase):
+    def test_invalid_timeout_rejected_before_connect(self):
+        for timeout in (0, -1, float("inf"), float("nan")):
+            for connect in (TCPTransport.host, TCPTransport.join):
+                with self.assertRaisesRegex(ValueError, "finite and positive"):
+                    connect(0, 2, host="127.0.0.1", port=1, timeout=timeout)
+
+    def test_data_plane_keeps_timeout(self):
+        port = _unused_port()
+        outcome = {}
+        def host():
+            outcome["host"] = TCPTransport.host(0, 2, host="127.0.0.1", port=port, timeout=1)
+        thread = threading.Thread(target=host)
+        thread.start()
+        joined = TCPTransport.join(1, 2, host="127.0.0.1", port=port, timeout=1)
+        thread.join(5)
+        self.assertFalse(thread.is_alive())
+        hosted = outcome["host"]
+        try:
+            self.assertEqual(hosted._connection(1).gettimeout(), 1)
+            self.assertEqual(joined._connection(0).gettimeout(), 1)
+            with self.assertRaises(TimeoutError):
+                hosted.receive_bytes(1, 1)
+        finally:
+            hosted.close()
+            joined.close()
+
     def test_tcp_provider_is_registered_and_conformant(self):
         self.assertIn("tcp", discover_transports())
         report = transport_conformance(TCPTransportProvider())
@@ -227,10 +253,10 @@ class TCPTransportTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             graph_path = root / "ring.gfg"
-            gf.save(
-                gf.Graph.from_csr(
-                    gf.tensor(row_ptr, dtype=gf.int64),
-                    gf.tensor(col_idx, dtype=gf.int64),
+            tg.save(
+                tg.Graph.from_csr(
+                    tg.tensor(row_ptr, dtype=tg.int64),
+                    tg.tensor(col_idx, dtype=tg.int64),
                     num_src=entities, validate="full"),
                 graph_path,
             )

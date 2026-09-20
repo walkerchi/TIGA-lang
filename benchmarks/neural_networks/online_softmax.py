@@ -14,14 +14,14 @@ import torch
 import triton
 import triton.language as tl
 
-import tiga as gf
+import tiga as tg
 from benchmarks.common.hardware_roofline import measure_roofs, samples_ms
 from benchmarks.common.output_layout import operation_dir
 from benchmarks.common.perf_protocol import evaluate_sota_gates
 from benchmarks.common.plotting import plot_latency, plot_roofline
 
 
-class StableWeightedMean(gf.Reducer):
+class StableWeightedMean(tg.Reducer):
     """User-defined stable (maximum, denominator, numerator) monoid."""
 
     name = "benchmark_stable_weighted_mean"
@@ -51,7 +51,7 @@ class StableWeightedMean(gf.Reducer):
         return numerator / denominator
 
 
-class SegmentedSoftmax(gf.MessagePassing):
+class SegmentedSoftmax(tg.MessagePassing):
     reducer = StableWeightedMean()
 
     def edge(self, src, dst, edge):
@@ -106,7 +106,7 @@ def main() -> None:
         generator=generator)
     score = torch.randn(args.nodes, device=device, generator=generator) + 1000
     value = torch.randn(args.nodes, device=device, generator=generator)
-    graph = gf.Graph.from_csr(row_ptr, col_idx, num_src=args.nodes)
+    graph = tg.Graph.from_csr(row_ptr, col_idx, num_src=args.nodes)
     kernel = SegmentedSoftmax()
     triton_output = torch.empty_like(score)
     block_d = triton.next_power_of_2(args.degree)

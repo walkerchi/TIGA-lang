@@ -15,7 +15,7 @@ import warnings
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
-import tiga as gf
+import tiga as tg
 import torch
 from tiga.interop.torch.relation_vjp import compile_source_vjp
 
@@ -32,8 +32,8 @@ from benchmarks.kernels.sparse_triton_oracles import (
 from benchmarks.sparse_compute.cases import TOPOLOGIES, make_graph
 
 
-class WeightedAggregation(gf.MessagePassing):
-    reducer = gf.sum()
+class WeightedAggregation(tg.MessagePassing):
+    reducer = tg.sum()
 
     def edge(self, src, dst, edge):
         del dst
@@ -110,22 +110,22 @@ def main() -> None:
                     requires_grad=True)
     weight.requires_grad_(True)
     cotangent = torch.randn(field_shape, device=device, generator=generator)
-    graph = gf.Graph.from_csr(row_ptr, col_idx, num_src=args.nodes)
+    graph = tg.Graph.from_csr(row_ptr, col_idx, num_src=args.nodes)
     kernel = WeightedAggregation()
 
     if args.gradient == "dx":
         generated = compile_source_vjp(
             kernel, graph=graph, src={"x": x}, edge={"weight": weight})
     else:
-        native_graph = gf.Graph.from_csr(
-            gf.from_torch(row_ptr), gf.from_torch(col_idx), num_src=args.nodes)
-        native_x = gf.from_torch(x, requires_grad=True)
-        native_weight = gf.from_torch(weight, requires_grad=True)
-        native_dy = gf.from_torch(cotangent)
+        native_graph = tg.Graph.from_csr(
+            tg.from_torch(row_ptr), tg.from_torch(col_idx), num_src=args.nodes)
+        native_x = tg.from_torch(x, requires_grad=True)
+        native_weight = tg.from_torch(weight, requires_grad=True)
+        native_dy = tg.from_torch(cotangent)
         native_output = kernel(
             graph=native_graph, src={"x": native_x}, dst={},
             edge={"weight": native_weight})
-        native_gradient = gf.autograd.grad(
+        native_gradient = tg.autograd.grad(
             native_output, native_weight, grad_output=native_dy,
             checkpoint=args.checkpoint)
         from tiga.compiler.gpu_tensor import compile_tensor

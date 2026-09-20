@@ -10,7 +10,7 @@ import statistics
 
 import torch
 
-import tiga as gf
+import tiga as tg
 from benchmarks.common.hardware_roofline import (
     interleaved_samples_ms,
     measure_roofs,
@@ -20,8 +20,8 @@ from benchmarks.common.perf_protocol import evaluate_sota_gates
 from benchmarks.common.plotting import plot_latency, plot_roofline
 
 
-class NeighborSum(gf.MessagePassing):
-    reducer = gf.sum()
+class NeighborSum(tg.MessagePassing):
+    reducer = tg.sum()
 
     def edge(self, src, dst, edge):
         del dst
@@ -52,7 +52,7 @@ def main() -> None:
     source = torch.rand(args.nodes, device=device, generator=generator)
     weight = torch.rand(
         args.nodes * args.k, device=device, generator=generator)
-    graph = gf.Graph.knn(positions, args.k)
+    graph = tg.Graph.knn(positions, args.k)
     kernel = NeighborSum()
 
     def graphforge_pipeline():

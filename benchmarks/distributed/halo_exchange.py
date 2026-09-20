@@ -10,7 +10,7 @@ import statistics
 import struct
 import time
 
-import tiga as gf
+import tiga as tg
 from tiga.distributed import (
     PipeTransport, exchange_packed, pack_halo, unpack_halo,
 )
@@ -70,7 +70,7 @@ def main() -> None:
         (destination + args.entities // 2) % args.entities
         for destination in range(args.entities)
     ]
-    halos = gf.collective_halo_maps(
+    halos = tg.collective_halo_maps(
         row_ptr, col_idx, num_entities=args.entities, world_size=2
     )
     context = multiprocessing.get_context("spawn")

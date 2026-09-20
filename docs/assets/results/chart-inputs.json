@@ -1,0 +1,150 @@
+{
+  "schema": "tiga.chart-inputs.v1",
+  "charts": {
+    "transformations": [
+      "roofline/pagerank/cuda_fp32_iter20/roofline.json",
+      "roofline/radius_graph_build/cuda_n32768_d3_degree32/roofline.json",
+      "roofline/weighted_aggregation/irregular_random_cuda_i32_n131072_degree16_f16_64/roofline.json",
+      "roofline/weighted_aggregation/regular_local_cuda_i64_n131072_degree16_f1_16_64/roofline.json"
+    ],
+    "cpu-relations": [
+      "roofline/cpu_relation/regular_permuted_i32_n131072_degree16_t16/roofline.json",
+      "roofline/cpu_relation/regular_permuted_i32_n16384_degree16_t16/roofline.json"
+    ],
+    "primitive-parity": [
+      "roofline/dense_attention/b1_h16_n4096_d64_fp16/roofline.json",
+      "roofline/dense_matmul_calibration/m2048_n2048_k2048_fp16/roofline.json",
+      "roofline/knn_graph/cuda_n8192_d3_k32_consume/roofline.json",
+      "roofline/linear_attention/l64_t512_k16_v16_fp32/roofline.json",
+      "roofline/sparse_attention/b1_h16_n4096_d64_fp16/roofline.json",
+      "roofline/visualization_heatmap/h2048_w2048_rgb_f32/roofline.json"
+    ],
+    "sparse-relations": [
+      "roofline/weighted_aggregation/exponential_random_cuda_i32_n131072_degree16_f1/roofline.json",
+      "roofline/weighted_aggregation/irregular_random_cuda_i32_n131072_degree16_f16_64/roofline.json",
+      "roofline/weighted_aggregation/lognormal_random_cuda_i32_n131072_degree16_f1/roofline.json",
+      "roofline/weighted_aggregation/powerlaw_random_cuda_i32_n131072_degree16_f1/roofline.json",
+      "roofline/weighted_aggregation/regular_local_cuda_i64_n131072_degree16_f1_16_64/roofline.json"
+    ],
+    "edge-nn-message-passing": [
+      "roofline/radius_edge_mlp/default/results.json",
+      "roofline/radius_edge_mlp/n262144/results.json",
+      "roofline/radius_edge_mlp/quick/results.json"
+    ],
+    "edge-nn-memory": [
+      "roofline/radius_edge_mlp/default/results.json",
+      "roofline/radius_edge_mlp/n262144/results.json",
+      "roofline/radius_edge_mlp/quick/results.json"
+    ],
+    "edge-nn-backward": [
+      "roofline/edge_nn_backward/cuda_n131072_degree32/roofline.json"
+    ],
+    "gat-attention": [
+      "roofline/gat_attention/cuda_n131072_degree32/roofline.json"
+    ],
+    "dynamic-boundaries": [
+      "roofline/radius_distance_aggregation/cuda_n32768_d3_degree32/pipeline.json"
+    ],
+    "attention": [
+      "roofline/dense_attention/b1_h16_n4096_d64_fp16/roofline.json",
+      "roofline/linear_attention/l64_t512_k16_v16_fp32/roofline.json",
+      "roofline/sparse_attention/b1_h16_n4096_d64_fp16/roofline.json"
+    ],
+    "distributed-overlap": [
+      "distributed/automatic_cpu_overlap/results.json"
+    ],
+    "spmm-provider-compare": [
+      "roofline/weighted_aggregation/irregular_random_cuda_i32_n131072_degree16_f16_64/roofline.json"
+    ]
+  },
+  "files": [
+    {
+      "path": "distributed/automatic_cpu_overlap/results.json",
+      "sha256": "2c637183728df256913a77dcd1b534da8ba0a6d7129ddb31fef1ccba7f4daea8"
+    },
+    {
+      "path": "roofline/cpu_relation/regular_permuted_i32_n131072_degree16_t16/roofline.json",
+      "sha256": "0787f43d6894891249b50ff393857ceecd01da6841777ad25a9ae53dbac7f32f"
+    },
+    {
+      "path": "roofline/cpu_relation/regular_permuted_i32_n16384_degree16_t16/roofline.json",
+      "sha256": "c2b25e51f67e45b166f614f947c345149e47ab428a396ab9f6ae90b129918795"
+    },
+    {
+      "path": "roofline/dense_attention/b1_h16_n4096_d64_fp16/roofline.json",
+      "sha256": "b2caeaedda327afe384591b74c9a604f880911b1cc4702bd7bad605ce537f532"
+    },
+    {
+      "path": "roofline/dense_matmul_calibration/m2048_n2048_k2048_fp16/roofline.json",
+      "sha256": "73533f492596a88fdccb2aa39593b07164989fbcb26e5ce2dfe9334d7f6757b5"
+    },
+    {
+      "path": "roofline/edge_nn_backward/cuda_n131072_degree32/roofline.json",
+      "sha256": "c22bf5c0a9ea6219d482edc3e72205e0f06086af9aa8e4f8d9ef17e6ff5ed753"
+    },
+    {
+      "path": "roofline/gat_attention/cuda_n131072_degree32/roofline.json",
+      "sha256": "e8bf4e932a020a5943ebc78e7001d59ec3685d98ec09447118909eac81913b81"
+    },
+    {
+      "path": "roofline/knn_graph/cuda_n8192_d3_k32_consume/roofline.json",
+      "sha256": "8aacfd3cfc2a8a0cc2bfdfb1831e0685e092d9587c967964b0041be8324cade3"
+    },
+    {
+      "path": "roofline/linear_attention/l64_t512_k16_v16_fp32/roofline.json",
+      "sha256": "94e3587405a58532d55b8400cc52f8d81c8abde723ed0a30e167ec5d21517526"
+    },
+    {
+      "path": "roofline/pagerank/cuda_fp32_iter20/roofline.json",
+      "sha256": "d9cec521c9ec00bbb5214fcfcb40fa63734818358d91ee91d1c3ed37e973a5a9"
+    },
+    {
+      "path": "roofline/radius_distance_aggregation/cuda_n32768_d3_degree32/pipeline.json",
+      "sha256": "370836ed557964d5fae27899076310783ec931fd1a12883e1562202fda3c6287"
+    },
+    {
+      "path": "roofline/radius_edge_mlp/default/results.json",
+      "sha256": "7a4a017d1dde591f154172ed5e7506f479511bfc67a9733d0f8352db30196e21"
+    },
+    {
+      "path": "roofline/radius_edge_mlp/n262144/results.json",
+      "sha256": "9f884ab129ba1f545df05d178246fcaf201a8b476da6bc1d80fd0231183aaff4"
+    },
+    {
+      "path": "roofline/radius_edge_mlp/quick/results.json",
+      "sha256": "ba57623937013750477aad69599894eb4eab3e54fc94561663cb8390b32d5683"
+    },
+    {
+      "path": "roofline/radius_graph_build/cuda_n32768_d3_degree32/roofline.json",
+      "sha256": "a9ccd136f02d09b9d366095d4562edd77a1c739170afbbd414620d14a8833e4a"
+    },
+    {
+      "path": "roofline/sparse_attention/b1_h16_n4096_d64_fp16/roofline.json",
+      "sha256": "2955ce4216251e0d2a1a87bb00299b55e048e6f947b52a4131095dbab0d6c503"
+    },
+    {
+      "path": "roofline/visualization_heatmap/h2048_w2048_rgb_f32/roofline.json",
+      "sha256": "bdeefb801be880bc6009035dfa2c62c48e59be1a90836c8747033d3cb1af56ef"
+    },
+    {
+      "path": "roofline/weighted_aggregation/exponential_random_cuda_i32_n131072_degree16_f1/roofline.json",
+      "sha256": "871643ea542176debab9677a68c249d3be1aa3a4afe71d82576d0524c6f220f4"
+    },
+    {
+      "path": "roofline/weighted_aggregation/irregular_random_cuda_i32_n131072_degree16_f16_64/roofline.json",
+      "sha256": "ae27a86106751684f1387d48c9bf96cc062aff8de1d35db09d2249e5cb9a099b"
+    },
+    {
+      "path": "roofline/weighted_aggregation/lognormal_random_cuda_i32_n131072_degree16_f1/roofline.json",
+      "sha256": "11cdd3c02c8fe4f1606dd70e4560fbfc03f8f2e6173478c5273fa09bc58351f7"
+    },
+    {
+      "path": "roofline/weighted_aggregation/powerlaw_random_cuda_i32_n131072_degree16_f1/roofline.json",
+      "sha256": "7bb6369b2a12bec4087b01de5450430a92a500a25e229b58b22fe7dcd9d9bae6"
+    },
+    {
+      "path": "roofline/weighted_aggregation/regular_local_cuda_i64_n131072_degree16_f1_16_64/roofline.json",
+      "sha256": "573df533857c9ce6060bbcf333e7f744943b66d43680e757d3c5d0d8dfa42808"
+    }
+  ]
+}

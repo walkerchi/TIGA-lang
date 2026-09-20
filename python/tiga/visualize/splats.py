@@ -47,7 +47,7 @@ def _wrap_rgb(image, height: int, width: int) -> Raster:
     return Raster(pixels=pixels, height=height, width=width)
 
 
-def splats(
+def gaussians(
     positions,
     colors,
     scales,
@@ -178,3 +178,7 @@ def splats(
 
     image += transmittance[:, :, None] * background_rgb
     return _wrap_rgb(np.clip(image, 0.0, 1.0), height, width)
+
+
+# Compatibility for pre-release callers; new code uses visualize.gaussians.
+splats = gaussians

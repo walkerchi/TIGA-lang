@@ -71,7 +71,7 @@
 
   <!-- bottom annotation -->
   <rect x="488" y="262" width="426" height="96" rx="12" class="hot"/>
-  <text x="701" y="288" text-anchor="middle" class="mono">x.disk() · x.cpu() · gf.from_disk(name)</text>
+  <text x="701" y="288" text-anchor="middle" class="mono">x.disk() · x.cpu() · tg.from_disk(name)</text>
   <text x="701" y="312" text-anchor="middle" class="body">anonymous spill: buffer freed, file deleted when the</text>
   <text x="701" y="330" text-anchor="middle" class="body">tensor is collected or the process exits</text>
   <text x="701" y="350" text-anchor="middle" class="body">named spill: survives, attach from another process</text>

@@ -1,0 +1,207 @@
+{
+  "schema": "tiga.chart-evidence.v1",
+  "files": [
+    {
+      "path": "output/distributed/automatic_cpu_overlap/results.json",
+      "sha256": "2c637183728df256913a77dcd1b534da8ba0a6d7129ddb31fef1ccba7f4daea8"
+    },
+    {
+      "path": "output/roofline/cpu_pointwise_fusion/n4000000_f32_t16/roofline.json",
+      "sha256": "b527251cc95d8298149a7ac7f3a9607a2537c91f4f09893cde202b82ed12070e"
+    },
+    {
+      "path": "output/roofline/cpu_relation/regular_permuted_i32_n131072_degree16_t16/roofline.json",
+      "sha256": "0787f43d6894891249b50ff393857ceecd01da6841777ad25a9ae53dbac7f32f"
+    },
+    {
+      "path": "output/roofline/cpu_relation/regular_permuted_i32_n16384_degree16_t16/roofline.json",
+      "sha256": "c2b25e51f67e45b166f614f947c345149e47ab428a396ab9f6ae90b129918795"
+    },
+    {
+      "path": "output/roofline/dense_attention/b1_h16_n4096_d64_fp16/roofline.json",
+      "sha256": "b2caeaedda327afe384591b74c9a604f880911b1cc4702bd7bad605ce537f532"
+    },
+    {
+      "path": "output/roofline/dense_attention/b1_h16_n4096_d64_fp16_causal/roofline.json",
+      "sha256": "109db2b665833d7ac01cbd7cd2b988bf69531cf48ae6df58c57409fb006e1d3d"
+    },
+    {
+      "path": "output/roofline/dense_attention/b1_h16_n4096_d64_fp16_kvh4/roofline.json",
+      "sha256": "2d3d36c8d8e351181b502c43168f811711dbfd759cc0add8d84df111d503bd28"
+    },
+    {
+      "path": "output/roofline/dense_matmul_calibration/m2048_n2048_k2048_fp16/roofline.json",
+      "sha256": "73533f492596a88fdccb2aa39593b07164989fbcb26e5ce2dfe9334d7f6757b5"
+    },
+    {
+      "path": "output/roofline/diffusion/irregular_local_cuda_i64_n131072_degree16/roofline.json",
+      "sha256": "2dc023972dd77c5e49eef066faa65931c42d55bc40067e3e235deaf92de08adb"
+    },
+    {
+      "path": "output/roofline/diffusion/regular_local_cuda_i64_n131072_degree16/roofline.json",
+      "sha256": "61bb98fd65532fbd84c541b998828e321df8af7bddee04ec627e36b9b30908e6"
+    },
+    {
+      "path": "output/roofline/diffusion/regular_local_cuda_i64_n131072_degree2/roofline.json",
+      "sha256": "be2aa4ab6fe2d151beff8d3b870d5010a54430a06395fd74c91b5cd47a27360e"
+    },
+    {
+      "path": "output/roofline/diffusion/regular_local_cuda_i64_n131072_degree32/roofline.json",
+      "sha256": "fb3f510bbd2d2bc04cebd3512e337f2735de81331ae17f8765135b125dd62d5d"
+    },
+    {
+      "path": "output/roofline/diffusion/regular_local_cuda_i64_n131072_degree4/roofline.json",
+      "sha256": "6e6c3b158cea395bfe00f919969be5a7f0074e7512b5262375b58e287cab4e94"
+    },
+    {
+      "path": "output/roofline/diffusion/regular_local_cuda_i64_n131072_degree64/roofline.json",
+      "sha256": "54844ab127427520807f5d6d44b85cab524be141502b7fd1b9603060e3a3f67f"
+    },
+    {
+      "path": "output/roofline/diffusion/regular_local_cuda_i64_n131072_degree8/roofline.json",
+      "sha256": "8fbe810ca7a8f47e2ee8bf174cdbed01f48c15317cb55549ed1c6300595ddbe4"
+    },
+    {
+      "path": "output/roofline/diffusion/regular_random_cuda_i64_n8192_degree16/roofline.json",
+      "sha256": "0d7ed15dc6398a76776123502c663c78752ef2e0ca55cadfb02c3d16178a6ea1"
+    },
+    {
+      "path": "output/roofline/diffusion/skewed_local_cuda_i64_n131072_degree16/roofline.json",
+      "sha256": "7f47cb6265fc435a64db8223cce1e0f8afdd309eb7b2bb838d3832f9581aa986"
+    },
+    {
+      "path": "output/roofline/edge_nn_backward/cuda_n131072_degree32/roofline.json",
+      "sha256": "c22bf5c0a9ea6219d482edc3e72205e0f06086af9aa8e4f8d9ef17e6ff5ed753"
+    },
+    {
+      "path": "output/roofline/gat_attention/cuda_n131072_degree32/roofline.json",
+      "sha256": "e8bf4e932a020a5943ebc78e7001d59ec3685d98ec09447118909eac81913b81"
+    },
+    {
+      "path": "output/roofline/horizontal_fusion/cuda_n131072_degree16_i64/roofline.json",
+      "sha256": "de89c1da093feb9db060773a1376794823b02b2f697f129aaf118be9b389c20c"
+    },
+    {
+      "path": "output/roofline/knn_graph/cuda_n4096_d5_k13_consume/roofline.json",
+      "sha256": "677bb6b4e9366e641b9269d9e233230def76ece7aa5b816df0364cef676a245f"
+    },
+    {
+      "path": "output/roofline/knn_graph/cuda_n4096_d5_k16_consume/roofline.json",
+      "sha256": "d6fa552a36565ee0d73349ed3ed48609edf8ee25900e586b8c7ea822e2e4960a"
+    },
+    {
+      "path": "output/roofline/knn_graph/cuda_n8192_d3_k32_consume/roofline.json",
+      "sha256": "8aacfd3cfc2a8a0cc2bfdfb1831e0685e092d9587c967964b0041be8324cade3"
+    },
+    {
+      "path": "output/roofline/linear_attention/l64_t512_k16_v16_fp32/roofline.json",
+      "sha256": "94e3587405a58532d55b8400cc52f8d81c8abde723ed0a30e167ec5d21517526"
+    },
+    {
+      "path": "output/roofline/message_passing_backward/powerlaw_random_cuda_i64_n131072_degree16_dweight_f16/roofline.json",
+      "sha256": "b371880d6124642e9acb4596df9f055ba2cd09c2afec3455640a8e8093f0775f"
+    },
+    {
+      "path": "output/roofline/message_passing_backward/powerlaw_random_cuda_i64_n131072_degree16_dx/roofline.json",
+      "sha256": "83d69f08944049282ff1a0f434a1a0b4371854c7c06399837ae10c809643d8b0"
+    },
+    {
+      "path": "output/roofline/message_passing_backward/radius_fixed_snapshot_cuda_n32768_d3_degree32/roofline.json",
+      "sha256": "3c2ef9aec71d5379893fc1baead6f9fd047505a80ce5ff619f44592c61d2e17a"
+    },
+    {
+      "path": "output/roofline/message_passing_backward/regular_edge_local_cuda_i64_n131072_degree16_product/roofline.json",
+      "sha256": "61babaa69b9e49062ffbdf39cba0d8746aa13d4f6d9206b1fa8b0556b789091c"
+    },
+    {
+      "path": "output/roofline/message_passing_backward/regular_random_cuda_i64_n131072_degree16_dweight/roofline.json",
+      "sha256": "3c4026ede891f88b306895b954887472aeba91b6206fc48cf18f0617856d2851"
+    },
+    {
+      "path": "output/roofline/message_passing_backward/regular_random_cuda_i64_n131072_degree16_dweight_f16/roofline.json",
+      "sha256": "fb01a9a5a35e638c70f748a5d5e1b952323802af8ed61b0ddf36b461c435cc5c"
+    },
+    {
+      "path": "output/roofline/message_passing_backward/regular_random_cuda_i64_n131072_degree16_dweight_f64/roofline.json",
+      "sha256": "063d3ab1b717a4c6b4e83b698a4b6405dd56b8f98bebea1966211692f755844b"
+    },
+    {
+      "path": "output/roofline/message_passing_backward/regular_random_cuda_i64_n131072_degree16_dx/roofline.json",
+      "sha256": "e0ed6d48d2fbc3789fdf241aefccd31a9246e22d6aa777a9120c7459e66687de"
+    },
+    {
+      "path": "output/roofline/online_softmax/cuda_n131072_degree32_f1/roofline.json",
+      "sha256": "12a31e3fa8fecf55e8cb58c1c959488f702c7b694ec8b2bd4d756ad5d7ac79f8"
+    },
+    {
+      "path": "output/roofline/pagerank/cuda_fp32_iter20/roofline.json",
+      "sha256": "d9cec521c9ec00bbb5214fcfcb40fa63734818358d91ee91d1c3ed37e973a5a9"
+    },
+    {
+      "path": "output/roofline/radius_distance_aggregation/cuda_n32768_d3_degree32/pipeline.json",
+      "sha256": "370836ed557964d5fae27899076310783ec931fd1a12883e1562202fda3c6287"
+    },
+    {
+      "path": "output/roofline/radius_distance_aggregation/cuda_n32768_d3_degree32/roofline.json",
+      "sha256": "46cfcb662a880f4c10ace467ce07b9f60fe944f79b0542565a185f5cea75c83f"
+    },
+    {
+      "path": "output/roofline/radius_edge_mlp/default/results.json",
+      "sha256": "7a4a017d1dde591f154172ed5e7506f479511bfc67a9733d0f8352db30196e21"
+    },
+    {
+      "path": "output/roofline/radius_edge_mlp/n262144/results.json",
+      "sha256": "9f884ab129ba1f545df05d178246fcaf201a8b476da6bc1d80fd0231183aaff4"
+    },
+    {
+      "path": "output/roofline/radius_edge_mlp/quick/results.json",
+      "sha256": "ba57623937013750477aad69599894eb4eab3e54fc94561663cb8390b32d5683"
+    },
+    {
+      "path": "output/roofline/radius_graph_build/cuda_n32768_d3_degree32/roofline.json",
+      "sha256": "a9ccd136f02d09b9d366095d4562edd77a1c739170afbbd414620d14a8833e4a"
+    },
+    {
+      "path": "output/roofline/sparse_attention/b1_h16_n4096_d64_fp16/roofline.json",
+      "sha256": "2955ce4216251e0d2a1a87bb00299b55e048e6f947b52a4131095dbab0d6c503"
+    },
+    {
+      "path": "output/roofline/visualization_heatmap/h2048_w2048_rgb_f32/roofline.json",
+      "sha256": "bdeefb801be880bc6009035dfa2c62c48e59be1a90836c8747033d3cb1af56ef"
+    },
+    {
+      "path": "output/roofline/weighted_aggregation/exponential_random_cuda_i32_n131072_degree16_f1/roofline.json",
+      "sha256": "871643ea542176debab9677a68c249d3be1aa3a4afe71d82576d0524c6f220f4"
+    },
+    {
+      "path": "output/roofline/weighted_aggregation/irregular_random_cuda_i32_n131072_degree16_f16_64/roofline.json",
+      "sha256": "ae27a86106751684f1387d48c9bf96cc062aff8de1d35db09d2249e5cb9a099b"
+    },
+    {
+      "path": "output/roofline/weighted_aggregation/lognormal_random_cuda_i32_n131072_degree16_f1/roofline.json",
+      "sha256": "11cdd3c02c8fe4f1606dd70e4560fbfc03f8f2e6173478c5273fa09bc58351f7"
+    },
+    {
+      "path": "output/roofline/weighted_aggregation/powerlaw_local_cuda_i32_n131072_degree16_f1/roofline.json",
+      "sha256": "219a9c776315c2aedf6ff3bf625f513696ebd61f944e50b352ba1a00ee36fdb3"
+    },
+    {
+      "path": "output/roofline/weighted_aggregation/powerlaw_local_cuda_i64_n131072_degree16_f1/roofline.json",
+      "sha256": "27456a847d277d3b262772c80fc8fa95d65db20de9f0b5d429801c3ccebabc3d"
+    },
+    {
+      "path": "output/roofline/weighted_aggregation/powerlaw_random_cuda_i32_n131072_degree16_f1/roofline.json",
+      "sha256": "7bb6369b2a12bec4087b01de5450430a92a500a25e229b58b22fe7dcd9d9bae6"
+    },
+    {
+      "path": "output/roofline/weighted_aggregation/powerlaw_random_cuda_i64_n131072_degree16_f1/roofline.json",
+      "sha256": "34bd16b00e5760c0e03f4822dfb3b2878a12ede161fd7c8787cb13114f2bf4b8"
+    },
+    {
+      "path": "output/roofline/weighted_aggregation/regular_local_cuda_i64_n131072_degree16_f1_16_64/roofline.json",
+      "sha256": "573df533857c9ce6060bbcf333e7f744943b66d43680e757d3c5d0d8dfa42808"
+    }
+  ],
+  "provenance": "Historical local measurements; original revision/environment may be missing. Not measurements of the current checkout.",
+  "render_command": "python -m benchmarks.common.plot_docs_results --root benchmarks/evidence_snapshot/output"
+}

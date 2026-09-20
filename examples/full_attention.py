@@ -2,7 +2,7 @@
 
 import torch
 
-import tiga as gf
+import tiga as tg
 
 torch.manual_seed(0)
 nodes, heads, width = 1024, 4, 64
@@ -13,8 +13,8 @@ value = torch.randn(heads, nodes, width, device="cuda", dtype=torch.float16).per
 
 
 # --8<-- [start:core]
-class FullAttention(gf.MessagePassing):
-    reducer = gf.online_softmax()
+class FullAttention(tg.MessagePassing):
+    reducer = tg.online_softmax()
 
     def edge(self, src, dst, edge, scale):
         score = (src.key * dst.query).sum(dim=-1) * scale
@@ -23,7 +23,7 @@ class FullAttention(gf.MessagePassing):
 
 program = FullAttention()
 output = program(  # (N, H, D)
-    graph=gf.Graph.dense(nodes, device="cuda"),
+    graph=tg.Graph.dense(nodes, device="cuda"),
     src={"key": key, "value": value},
     dst={"query": query},
     scale=width**-0.5,

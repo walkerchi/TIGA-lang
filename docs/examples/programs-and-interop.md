@@ -1,4 +1,25 @@
-### Tensor expressions and autograd { #tensor-expressions-and-autograd }
+# Program composition and advanced runtime examples
+
+Ordinary MessagePassing uses Torch directly; see [getting started](../getting-started.md).
+The matmul, complex VJP, recurrence and joint-plan examples inspect native Tensor IR
+or execution plans, and therefore currently use `tg.Tensor`. They are not a
+replacement for ordinary Torch math. Core snippets omit setup; each expanded
+full-source block includes imports and inputs.
+
+Run the source files:
+
+- [`python examples/tensor_matmul.py`](https://github.com/walkerchi/TIGA-lang/blob/main/examples/tensor_matmul.py)
+- [`python examples/complex_autograd.py`](https://github.com/walkerchi/TIGA-lang/blob/main/examples/complex_autograd.py)
+- [`python examples/linear_recurrence.py`](https://github.com/walkerchi/TIGA-lang/blob/main/examples/linear_recurrence.py)
+- [`python examples/graph_program.py`](https://github.com/walkerchi/TIGA-lang/blob/main/examples/graph_program.py)
+- [`python examples/joint_autograd.py`](https://github.com/walkerchi/TIGA-lang/blob/main/examples/joint_autograd.py)
+- [`python examples/torch_interop.py`](https://github.com/walkerchi/TIGA-lang/blob/main/examples/torch_interop.py)
+- [`python examples/torch_library.py`](https://github.com/walkerchi/TIGA-lang/blob/main/examples/torch_library.py)
+- [`python examples/edge_nn_message_passing.py`](https://github.com/walkerchi/TIGA-lang/blob/main/examples/edge_nn_message_passing.py)
+
+`linear_recurrence.py` requires CUDA; see each full source for device selection.
+
+<span id="tensor-expressions-and-autograd"></span>
 
 ## Matrix multiplication with derived gradients { #matrix-multiplication-with-derived-gradients }
 
@@ -11,10 +32,12 @@ output (the cotangent).
 
 ![Diagram of matrix multiplication: a 2-by-3 grid lhs times a 3-by-2 grid rhs yields a highlighted 2-by-2 output grid; a box shows the compiler-derived gradients d lhs = cotangent @ rhs transposed and d rhs = lhs transposed @ cotangent.](../assets/examples/tensor-matmul.svg)
 
-$$C = A\,B \quad\Longrightarrow\quad
+$$
+C = A\,B \quad\Longrightarrow\quad
 \frac{\partial L}{\partial A} = G\,B^{\top}, \qquad
 \frac{\partial L}{\partial B} = A^{\top}G, \qquad
-G = \frac{\partial L}{\partial C}$$
+G = \frac{\partial L}{\partial C}
+$$
 
 `gf_tensor.matmul` is a first-class rank-2 contraction. The example lowers it
 to CPU LLVM and FP16 GPU `tt.dot`, and the compiler derives the gradients of
@@ -74,9 +97,11 @@ convention the squared magnitude |y|² has gradient 2·x.
 
 ![Data-flow diagram: a 2-by-2 complex64 tensor x passes through a zero-copy transpose view and a materializing reshape into a length-4 vector y, then into the energy term conj(y) * y; a dashed violet arrow returns the conjugate-Wirtinger gradient 2x with unit cotangent.](../assets/examples/complex-autograd.svg)
 
-$$y = \operatorname{vec}\!\left(x^{\top}\right), \qquad
+$$
+y = \operatorname{vec}\!\left(x^{\top}\right), \qquad
 e = \overline{y} \odot y, \qquad
-\frac{\partial e}{\partial x} = 2x \;\; \text{(unit cotangent)}$$
+\frac{\partial e}{\partial x} = 2x \;\; \text{(unit cotangent)}
+$$
 
 The example exercises complex64 storage, strided zero-copy views and explicit
 conjugate-Wirtinger cotangents on the native CPU runtime.
@@ -134,8 +159,10 @@ and each output is a readout of the query against that state.
 
 ![Diagram of a causal linear recurrence: a timeline of steps where step t reads only steps up to t; per step the outer product k_t ⊗ v_t accumulates into a running state that stays on chip, and the output is q_t dotted with that state.](../assets/examples/linear-recurrence.svg)
 
-$$S_t = \sum_{s \le t} k_s \otimes v_s, \qquad
-\mathrm{out}_t = q_t^{\top} S_t$$
+$$
+S_t = \sum_{s \le t} k_s \otimes v_s, \qquad
+\mathrm{out}_t = q_t^{\top} S_t
+$$
 
 The expression is an ordinary Tensor map/cumsum/contract program — there is
 no core linear-attention operator. On the registered CUDA shape family the
@@ -265,9 +292,9 @@ recurrent kernel whose state remains on chip.
         artifacts: {'ttir', 'ttgir', 'llir', 'ptx', 'cubin'}  # ~80 KB of artifacts omitted; full text via kernel.code("ptx")
         ```
 
-### Cross-kernel compilation { #cross-kernel-compilation }
+<span id="cross-kernel-compilation"></span>
 
-## Cross-kernel SSA capture with `@gf.jit` { #gfprogram-ssa-capture }
+## Cross-kernel SSA capture with `@tg.jit` { #gfprogram-ssa-capture }
 
 **What it is.** A weighted graph sum, computed twice. A graph of N = 4096
 nodes with E = 16·N edges is stored in compressed sparse row (CSR) format —
@@ -276,30 +303,30 @@ incoming edges `e = (j→i)`, the source value `x[j]` times the edge weight. The
 program runs this twice with two different weight vectors `w0` and `w1`, and
 returns one `(N,)` result per weight vector.
 
-![Two MessagePassing leaves share one graph and feature vector; @gf.jit fuses both reducers into a single kernel launch that returns both outputs](../assets/examples/graph-program.svg)
+![Two MessagePassing leaves share one graph and feature vector; @tg.jit fuses both reducers into a single kernel launch that returns both outputs](../assets/examples/graph-program.svg)
 
 $$
 \mathrm{out}_k[i] = \sum_{e=(j\to i)} x[j]\, w_k[e], \qquad k \in \{0, 1\}
 $$
 
-Both `WeightedSum` calls read the same graph and features, so the `@gf.jit`
+Both `WeightedSum` calls read the same graph and features, so the `@tg.jit`
 capture registers them as typed static single assignment (SSA) leaves and
 fuses them horizontally into a single `gf_kernel.launch` carrying two
 reducers — `explain()` reports `applies=2, post_fusion=1`. There is no
 explicit compile call: the first observation triggers just-in-time (JIT)
 compilation, and the Kernel IR and PTX (NVIDIA GPU assembly) stay
-inspectable. This first executable provider example uses the optional Torch
+inspectable. This first executable provider example uses the Torch
 adapter for CUDA storage.
 
-Just `@gf.jit`: loop capture and cross-kernel fusion are both automatic.
-`@gf.jit` rewrites `for`/`while` loops into `gf_control.repeat` /
+Just `@tg.jit`: loop capture and cross-kernel fusion are both automatic.
+`@tg.jit` rewrites `for`/`while` loops into `gf_control.repeat` /
 `gf_control.while` regions *and* activates the program context, so every
 MessagePassing apply in the straight-line body becomes a typed SSA leaf
 that can fuse across kernel boundaries. Loop bodies keep per-iteration
 semantics: a kernel call inside a staged region inlines into the loop body
 instead of registering as a top-level leaf, and an SSA leaf participates in
 tensor arithmetic directly, so a Picard-style `state + apply(state)` loop
-composes under `@gf.jit` — stacked with `@gf.program` or not. `@gf.program`
+composes under `@tg.jit` — stacked with `@tg.program` or not. `@tg.program`
 remains as a compatibility entry point for straight-line code that cannot
 offer source access: it activates the same context without AST rewriting.
 
@@ -362,10 +389,10 @@ $$
 \frac{\partial\,\mathrm{loss}}{\partial x_i} = 2x_i = [4, 6]
 $$
 
-`gf.autograd.joint_plan` bundles the forward and the compiler-derived VJP into
+`tg.autograd.joint_plan` bundles the forward and the compiler-derived VJP into
 one inspectable dependency DAG with automatic checkpointing; a single
 `plan.run()` returns both value and gradient — no user-written backward.
-The plan is storage-agnostic: torch storage enters through `gf.from_torch`
+The plan is storage-agnostic: torch storage enters through `tg.from_torch`
 (zero-copy), and results return with `.to_torch(copy=True)` — one copy on
 the way out only, because the results are computed by Tiga rather than
 wrapped from torch.
@@ -430,18 +457,18 @@ wrapped from torch.
         native_error: None
         ```
 
-### Torch interop { #torch-interop }
+<span id="torch-interop"></span>
 
-## Optional Torch interoperability { #optional-torch-interoperability }
+## Default Torch interface and optional native storage bridge { #optional-torch-interoperability }
 
 **What it is.** Neighbor summation on a ring, plus storage sharing. Eight
 nodes form a ring: each node has exactly two incoming edges, one from each
 adjacent node, with unit weights — so every node's output is the sum of its
-two neighbors' values. Separately, a native `gf.Tensor` is created from the
+two neighbors' values. Separately, a native `tg.Tensor` is created from the
 Torch tensor and converted back, sharing the same underlying storage both
 ways.
 
-![Ring aggregation: each node sums its two ring neighbors; a torch.Tensor and a gf.Tensor share the same storage zero-copy in both directions](../assets/examples/torch-interop.svg)
+![Ring aggregation: each node sums its two ring neighbors; a torch.Tensor and a tg.Tensor share the same storage zero-copy in both directions](../assets/examples/torch-interop.svg)
 
 $$
 \mathrm{out}[i] = \sum_{e=(j\to i)} w[e]\, x[j]
@@ -449,14 +476,14 @@ $$
 $$
 
 Torch tensors call the `MessagePassing` UDF directly — no conversion, no
-copy; Tiga's compiler and runtime do not depend on Torch. The
-`gf.from_torch`/`to_torch` pair is only for the other direction — entering
-the native `gf.Tensor` system (deferred capture, compiler VJP) while still
-sharing torch storage — confirmed by an identical data pointer. Anything the
-compiler must capture also requires this direction: a `@gf.jit` loop and the
+copy; Torch is installed separately, not by the default Tiga installation. The low-level native compiler and runtime
+remain independently usable. The
+`tg.from_torch`/`to_torch` pair is only for the other direction — entering
+the native `tg.Tensor` system (deferred capture, compiler VJP) while still
+sharing torch storage — confirmed by an identical data pointer. Currently, native structured-control-flow capture requires this conversion: a `@tg.jit` loop and the
 `linear_solve` / `nonlinear_solve` drivers reify their iteration as
 `gf_control.repeat` / `gf_control.while`, so their vectors must be
-`gf.Tensor` (passing a torch tensor there raises `TypeError`). The lazy JIT
+`tg.Tensor` (passing a torch tensor there raises `TypeError`). The lazy JIT
 object exposes the verified, provider-neutral machine schedule selected by
 `gf.kernel`.
 
@@ -483,7 +510,7 @@ object exposes the verified, provider-neutral machine schedule selected by
         accepted: [machine-schedule] admitted fixed-row-neighbor
         unknown: [pipeline] no compiler-controlled asynchronous pipeline admitted
         remark: [planning] no profitable generated specialization was proven; dispatched native sparse library
-        executable cache: hits=0, misses=1
+        variant cache: hits=0, misses=1
         ```
 
     === "CUDA"
@@ -501,7 +528,7 @@ object exposes the verified, provider-neutral machine schedule selected by
         remark: [planning] TTIR was emitted from gf_kernel IR without a @triton.jit frontend
         remark: [planning] the direct candidate passed the SOTA runtime gate on this machine
         remark: [planning] frozen CSR indices remain bound to the compiled executable
-        executable cache: hits=0, misses=1
+        variant cache: hits=0, misses=1
         ```
 
 ## `torch.library` registration { #torchlibrary-registration }
@@ -551,10 +578,10 @@ automatically.
         accepted: [machine-schedule] admitted fixed-row-neighbor
         unknown: [pipeline] no compiler-controlled asynchronous pipeline admitted
         remark: [planning] no profitable generated specialization was proven; dispatched native sparse library
-        executable cache: hits=0, misses=1
+        variant cache: hits=0, misses=1
         ```
 
-### Neural networks on edges { #neural-networks-on-edges }
+<span id="neural-networks-on-edges"></span>
 
 ## Edge nn modules with a fused tile kernel { #edge-nn-modules-with-a-fused-tile-kernel }
 
@@ -573,7 +600,7 @@ $$
 \mathrm{MLP}\!\left([\,pos[j] - pos[i] \;\|\; x[j]\,]\right)
 $$
 
-`gf.nn.trace` wraps a `torch.nn` module so an edge UDF can call it: eager
+`tg.nn.trace` wraps a `torch.nn` module so an edge UDF can call it: eager
 execution concatenates the arguments and forwards them to the module, while
 the compiler proves the chain and emits one edge-centric tile kernel — no
 O(E) message tensor is materialized. Because the MLP reads the edge
@@ -606,7 +633,7 @@ for the contract and current limits.
         provider cache key: triton-nvidia | cuda:nvidia | 3.6.0 | 2.11.0+cu128 | af81e84448f193cc | cuda:120:warp32
         remark: [planning] Python emission backend (phase 2); the C++ gf-kernel-to-ttir emitter replaces it in a later phase
         remark: [planning] training path: backward recomputes per-edge activations inside the tile; no [E, ·] tensor is materialized in either direction
-        executable cache: hits=0, misses=2
+        variant cache: hits=0, misses=2
 
         ### EdgeMLPTorchExecutor
         backend: cuda
@@ -617,6 +644,5 @@ for the contract and current limits.
         remark: [planning] Python emission backend (phase 1); the C++ gf-kernel-to-ttir emitter replaces it in a later phase
         remark: [planning] edge messages are evaluated inside the tile; no O(E) message tensor is materialized
         remark: [planning] inference path; calls that could request gradients take the fused recompute VJP (gf-python-emit-edge-nn-tile-vjp)
-        executable cache: hits=0, misses=1
+        variant cache: hits=0, misses=1
         ```
-

@@ -17,7 +17,7 @@ from scipy.sparse import csr_matrix
 from scipy.sparse._sparsetools import csr_matvec
 import torch
 
-import tiga as gf
+import tiga as tg
 from tiga.compiler.cpu_tensor import compile_tensor
 from benchmarks.common.output_layout import operation_dir
 from benchmarks.common.perf_protocol import evaluate_sota_gates
@@ -25,8 +25,8 @@ from benchmarks.common.plotting import plot_latency, plot_roofline
 from benchmarks.compiler.cpu_pointwise import measure_roof, samples_ms
 
 
-class WeightedAggregation(gf.MessagePassing):
-    reducer = gf.sum()
+class WeightedAggregation(tg.MessagePassing):
+    reducer = tg.sum()
 
     def edge(self, src, dst, edge):
         return edge.weight * src.x
@@ -62,11 +62,11 @@ def main() -> None:
     weight_np = np.full(edges, 0.5, dtype=np.float32)
     x_np = np.full(nodes, 1.25, dtype=np.float32)
 
-    row_ptr = gf.tensor(row_ptr_np.tolist(), dtype=gf.int32)
-    col_idx = gf.tensor(col_idx_np.tolist(), dtype=gf.int32)
-    weight = gf.tensor(weight_np.tolist(), dtype=gf.float32)
-    x = gf.tensor(x_np.tolist(), dtype=gf.float32)
-    graph = gf.Graph.from_csr(row_ptr, col_idx, num_src=nodes)
+    row_ptr = tg.tensor(row_ptr_np.tolist(), dtype=tg.int32)
+    col_idx = tg.tensor(col_idx_np.tolist(), dtype=tg.int32)
+    weight = tg.tensor(weight_np.tolist(), dtype=tg.float32)
+    x = tg.tensor(x_np.tolist(), dtype=tg.float32)
+    graph = tg.Graph.from_csr(row_ptr, col_idx, num_src=nodes)
     kernel = WeightedAggregation()
     output = kernel(graph=graph, src={"x": x}, dst={}, edge={"weight": weight})
     cold_started = time.perf_counter_ns()

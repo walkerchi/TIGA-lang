@@ -4,11 +4,11 @@ import os
 import unittest
 from unittest.mock import patch
 
-import tiga as gf
+import tiga as tg
 
 
-class AffineAggregation(gf.MessagePassing):
-    reducer = gf.sum()
+class AffineAggregation(tg.MessagePassing):
+    reducer = tg.sum()
 
     def edge(self, src, dst, edge):
         del dst
@@ -18,7 +18,7 @@ class AffineAggregation(gf.MessagePassing):
         return flux + dst.bias
 
 
-class Mean(gf.Reducer):
+class Mean(tg.Reducer):
     associative = True
     commutative = True
 
@@ -35,7 +35,7 @@ class Mean(gf.Reducer):
         return state[0] / state[1]
 
 
-class MeanAggregation(gf.MessagePassing):
+class MeanAggregation(tg.MessagePassing):
     reducer = Mean()
 
     def edge(self, src, dst, edge):
@@ -43,15 +43,15 @@ class MeanAggregation(gf.MessagePassing):
         return self.reducer(src.x)
 
 
-class OnlineAttention(gf.MessagePassing):
-    reducer = gf.online_softmax()
+class OnlineAttention(tg.MessagePassing):
+    reducer = tg.online_softmax()
 
     def edge(self, src, dst, edge):
         del dst, edge
         return self.reducer(src.score, src.value)
 
 
-class UserStableWeightedMean(gf.Reducer):
+class UserStableWeightedMean(tg.Reducer):
     name = "deliberately_not_online_softmax"
     associative = True
     commutative = True
@@ -76,7 +76,7 @@ class UserStableWeightedMean(gf.Reducer):
         return state[2] / state[1]
 
 
-class UserStableAttention(gf.MessagePassing):
+class UserStableAttention(tg.MessagePassing):
     reducer = UserStableWeightedMean()
 
     def edge(self, src, dst, edge):
@@ -84,7 +84,7 @@ class UserStableAttention(gf.MessagePassing):
         return self.reducer(src.score, src.value)
 
 
-class Product(gf.Reducer):
+class Product(tg.Reducer):
     associative = True
     commutative = True
 
@@ -98,7 +98,7 @@ class Product(gf.Reducer):
         return left * right
 
 
-class ProductAggregation(gf.MessagePassing):
+class ProductAggregation(tg.MessagePassing):
     reducer = Product()
 
     def edge(self, src, dst, edge):
@@ -106,7 +106,7 @@ class ProductAggregation(gf.MessagePassing):
         return self.reducer(src.x)
 
 
-class EdgeProductAggregation(gf.MessagePassing):
+class EdgeProductAggregation(tg.MessagePassing):
     reducer = Product()
 
     def edge(self, src, dst, edge):
@@ -114,7 +114,7 @@ class EdgeProductAggregation(gf.MessagePassing):
         return self.reducer(edge.x)
 
 
-class AffineComposition(gf.Reducer):
+class AffineComposition(tg.Reducer):
     """Associative but non-commutative composition, right after left."""
 
     associative = True
@@ -133,7 +133,7 @@ class AffineComposition(gf.Reducer):
         return state[1]
 
 
-class CompositionAggregation(gf.MessagePassing):
+class CompositionAggregation(tg.MessagePassing):
     reducer = AffineComposition(deterministic=True)
 
     def edge(self, src, dst, edge):
@@ -143,14 +143,14 @@ class CompositionAggregation(gf.MessagePassing):
 
 class MessagePassingAutogradTest(unittest.TestCase):
     def setUp(self):
-        self.row_ptr = gf.tensor([0, 2, 3, 5], dtype=gf.int64)
-        self.col_idx = gf.tensor([0, 2, 1, 0, 1], dtype=gf.int64)
-        self.graph = gf.Graph.from_csr(
+        self.row_ptr = tg.tensor([0, 2, 3, 5], dtype=tg.int64)
+        self.col_idx = tg.tensor([0, 2, 1, 0, 1], dtype=tg.int64)
+        self.graph = tg.Graph.from_csr(
             self.row_ptr, self.col_idx, num_src=3, validate="full")
-        self.temperature = gf.tensor([1.0, 2.0, 3.0], requires_grad=True)
-        self.conductivity = gf.tensor(
+        self.temperature = tg.tensor([1.0, 2.0, 3.0], requires_grad=True)
+        self.conductivity = tg.tensor(
             [2.0, 3.0, 4.0, 5.0, 6.0], requires_grad=True)
-        self.bias = gf.tensor([0.1, 0.2, 0.3], requires_grad=True)
+        self.bias = tg.tensor([0.1, 0.2, 0.3], requires_grad=True)
 
     def _forward(self):
         kernel = AffineAggregation()
@@ -164,7 +164,7 @@ class MessagePassingAutogradTest(unittest.TestCase):
 
     def test_udf_forward_and_vjp_need_no_user_backward(self):
         kernel, output = self._forward()
-        d_temperature, d_conductivity, d_bias = gf.autograd.grad(
+        d_temperature, d_conductivity, d_bias = tg.autograd.grad(
             output.sum(),
             (self.temperature, self.conductivity, self.bias),
         )
@@ -178,9 +178,9 @@ class MessagePassingAutogradTest(unittest.TestCase):
         self.assertEqual(kernel.last_variant.lowering,
                          "gf-tensor-relation-autograd")
 
-    def test_repeated_calls_reuse_the_compiled_variant(self):
+    def test_repeated_calls_reuse_the_capture_binding_variant(self):
         kernel = AffineAggregation()
-        kernel(  # first call compiles the variant
+        kernel(  # first call records the capture bindings
             graph=self.graph,
             src={"temperature": self.temperature},
             dst={"bias": self.bias},
@@ -200,30 +200,80 @@ class MessagePassingAutogradTest(unittest.TestCase):
 
         kernel(  # structurally identical fresh tensors: still one variant
             graph=self.graph,
-            src={"temperature": gf.tensor([4.0, 5.0, 6.0], requires_grad=True)},
+            src={"temperature": tg.tensor([4.0, 5.0, 6.0], requires_grad=True)},
             dst={"bias": self.bias},
             edge={"conductivity": self.conductivity},
         ).tolist()
         self.assertEqual(kernel.cache_info["hits"], 2)
         self.assertEqual(kernel.cache_info["variants"], 1)
 
-        kernel(  # a dtype change compiles a new variant
+        kernel(  # a dtype change records new capture bindings
             graph=self.graph,
-            src={"temperature": gf.tensor(
-                [1.0, 2.0, 3.0], dtype=gf.float64, requires_grad=True)},
-            dst={"bias": gf.tensor(
-                [0.1, 0.2, 0.3], dtype=gf.float64, requires_grad=True)},
-            edge={"conductivity": gf.tensor(
-                [2.0, 3.0, 4.0, 5.0, 6.0], dtype=gf.float64,
+            src={"temperature": tg.tensor(
+                [1.0, 2.0, 3.0], dtype=tg.float64, requires_grad=True)},
+            dst={"bias": tg.tensor(
+                [0.1, 0.2, 0.3], dtype=tg.float64, requires_grad=True)},
+            edge={"conductivity": tg.tensor(
+                [2.0, 3.0, 4.0, 5.0, 6.0], dtype=tg.float64,
                 requires_grad=True)},
         ).tolist()
         self.assertEqual(kernel.cache_info["misses"], 2)
         self.assertEqual(kernel.cache_info["variants"], 2)
-        self.assertIn("executable cache: hits=2, misses=2", kernel.explain())
+        self.assertIn("variant cache: hits=2, misses=2", kernel.explain())
+
+    def test_capture_counts_are_separate_from_native_compilation(self):
+        from tiga.compiler import cpu_tensor
+
+        kernel = AffineAggregation()
+        with (
+            patch.dict(os.environ, {"TIGA_TENSOR_BACKEND": "native"}),
+            patch.dict(cpu_tensor._IDENTITY_EXECUTABLES, {}, clear=True),
+            patch.dict(cpu_tensor._STRUCTURE_EXECUTABLES, {}, clear=True),
+            patch.object(cpu_tensor, "compile_cpu", wraps=cpu_tensor.compile_cpu)
+            as compile_cpu,
+        ):
+            def capture(values):
+                return kernel(
+                    graph=self.graph,
+                    src={"temperature": tg.tensor(values, requires_grad=True)},
+                    dst={"bias": self.bias},
+                    edge={"conductivity": self.conductivity},
+                )
+
+            first = capture([1.0, 2.0, 3.0])
+            self.assertIsNone(first.execution)
+            self.assertEqual(compile_cpu.call_count, 0)
+            self.assertEqual(kernel.cache_info["misses"], 1)
+            first.tolist()
+            self.assertEqual(first.execution["backend"], "cpu-llvm-jit")
+            self.assertFalse(first.execution["cache_hit"])
+            self.assertEqual(compile_cpu.call_count, 1)
+
+            second = capture([4.0, 5.0, 6.0])
+            self.assertIsNone(second.execution)
+            self.assertEqual(kernel.cache_info["hits"], 1)
+            result = second.tolist()
+            for actual, expected in zip(result, [26.1, 20.2, 50.3]):
+                self.assertAlmostEqual(actual, expected, places=5)
+            self.assertTrue(second.execution["cache_hit"])
+            self.assertEqual(compile_cpu.call_count, 1)
+
+    def test_capture_binding_variant_distinguishes_strided_fields(self):
+        class SumFields(tg.MessagePassing):
+            def edge(self, src, dst, edge):
+                return src.x
+
+        kernel = SumFields()
+        contiguous = tg.tensor([[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]])
+        strided = tg.tensor([[1.0, 3.0, 5.0], [2.0, 4.0, 6.0]]).T
+        for value in (contiguous, strided):
+            result = kernel(graph=self.graph, src={"x": value}, dst={})
+            self.assertEqual(result.tolist(), [[6.0, 8.0], [3.0, 4.0], [4.0, 6.0]])
+        self.assertEqual(kernel.cache_info, {"hits": 0, "misses": 2, "variants": 2})
 
     def test_reverse_graph_preserves_csr_structure(self):
         _, output = self._forward()
-        gradient = gf.autograd.grad(output.sum(), self.temperature)
+        gradient = tg.autograd.grad(output.sum(), self.temperature)
         expression = gradient.expression()
 
         self.assertIn("csr_expand_rows", expression)
@@ -235,7 +285,7 @@ class MessagePassingAutogradTest(unittest.TestCase):
         os.environ["TIGA_TENSOR_BACKEND"] = "native"
         try:
             _, output = self._forward()
-            gradient = gf.autograd.grad(output.sum(), self.temperature)
+            gradient = tg.autograd.grad(output.sum(), self.temperature)
             self.assertEqual(output.tolist(), [11.100000381469727,
                                                8.199999809265137,
                                                17.299999237060547])
@@ -253,29 +303,29 @@ class MessagePassingAutogradTest(unittest.TestCase):
                 os.environ["TIGA_TENSOR_BACKEND"] = old
 
     def test_additive_tuple_udf_reducer_has_automatic_vjp(self):
-        x = gf.tensor([1.0, 2.0, 4.0], requires_grad=True)
+        x = tg.tensor([1.0, 2.0, 4.0], requires_grad=True)
         kernel = MeanAggregation()
 
         output = kernel(graph=self.graph, src={"x": x}, dst={})
-        dx = gf.autograd.grad(output.sum(), x)
+        dx = tg.autograd.grad(output.sum(), x)
 
         self.assertEqual(output.tolist(), [2.5, 2.0, 1.5])
         self.assertEqual(dx.tolist(), [1.0, 1.5, 0.5])
         self.assertIn("gf_tensor.div", output.mlir())
-        self.assertIn("gf_tensor.div", gf.autograd.grad_mlir(output.sum(), x))
+        self.assertIn("gf_tensor.div", tg.autograd.grad_mlir(output.sum(), x))
         self.assertIn("proved-componentwise-additive-udf", kernel.explain())
 
     def test_online_softmax_reducer_has_stable_native_forward_and_vjp(self):
         # Scores around 1000 overflow a naive exp/sum implementation.  The
         # reducer must use its detached row maximum only as a stable shift;
         # score/value gradients still come entirely from Tensor VJP.
-        score = gf.tensor([1000.0, 999.0, 998.0], requires_grad=True)
-        value = gf.tensor(
+        score = tg.tensor([1000.0, 999.0, 998.0], requires_grad=True)
+        value = tg.tensor(
             [[1.0, 0.0], [0.0, 2.0], [3.0, 1.0]], requires_grad=True)
         kernel = OnlineAttention()
         output = kernel(
             graph=self.graph, src={"score": score, "value": value}, dst={})
-        dscore, dvalue = gf.autograd.grad(output.sum(), (score, value))
+        dscore, dvalue = tg.autograd.grad(output.sum(), (score, value))
 
         expected_output = (
             (1.2384058, 0.1192029),
@@ -298,11 +348,11 @@ class MessagePassingAutogradTest(unittest.TestCase):
                 self.assertAlmostEqual(actual, expected, places=5)
         self.assertIn("csr_segment_max_stop_gradient", output.expression())
         self.assertIn("stable-online-softmax", kernel.explain())
-        self.assertIn("gf_tensor.exp", gf.autograd.grad_mlir(output.sum(), score))
+        self.assertIn("gf_tensor.exp", tg.autograd.grad_mlir(output.sum(), score))
 
     def test_user_stable_reducer_gets_structural_forward_and_vjp(self):
-        score = gf.tensor([1000.0, 999.0, 998.0], requires_grad=True)
-        value = gf.tensor([1.0, -2.0, 3.0], requires_grad=True)
+        score = tg.tensor([1000.0, 999.0, 998.0], requires_grad=True)
+        value = tg.tensor([1.0, -2.0, 3.0], requires_grad=True)
         user_kernel = UserStableAttention()
         builtin_kernel = OnlineAttention()
 
@@ -310,8 +360,8 @@ class MessagePassingAutogradTest(unittest.TestCase):
             graph=self.graph, src={"score": score, "value": value}, dst={})
         builtin_output = builtin_kernel(
             graph=self.graph, src={"score": score, "value": value}, dst={})
-        user_grad = gf.autograd.grad(user_output.sum(), (score, value))
-        builtin_grad = gf.autograd.grad(builtin_output.sum(), (score, value))
+        user_grad = tg.autograd.grad(user_output.sum(), (score, value))
+        builtin_grad = tg.autograd.grad(builtin_output.sum(), (score, value))
 
         self.assertEqual(user_output.tolist(), builtin_output.tolist())
         self.assertEqual(user_grad[0].tolist(), builtin_grad[0].tolist())
@@ -320,17 +370,17 @@ class MessagePassingAutogradTest(unittest.TestCase):
         self.assertIn("gf_tensor.exp", user_output.mlir())
 
     def test_user_stable_reducer_preserves_empty_ragged_row_semantics(self):
-        graph = gf.Graph.from_csr(
-            gf.tensor([0, 2, 2, 5], dtype=gf.int64),
-            gf.tensor([0, 1, 0, 1, 2], dtype=gf.int64),
+        graph = tg.Graph.from_csr(
+            tg.tensor([0, 2, 2, 5], dtype=tg.int64),
+            tg.tensor([0, 1, 0, 1, 2], dtype=tg.int64),
             num_src=3,
             validate="full",
         )
         output = UserStableAttention()(
             graph=graph,
             src={
-                "score": gf.tensor([1000.0, 999.0, 998.0]),
-                "value": gf.tensor([1.0, -2.0, 3.0]),
+                "score": tg.tensor([1000.0, 999.0, 998.0]),
+                "value": tg.tensor([1.0, -2.0, 3.0]),
             },
             dst={},
         )
@@ -340,17 +390,17 @@ class MessagePassingAutogradTest(unittest.TestCase):
         self.assertAlmostEqual(values[2], 0.4458758, places=5)
 
     def test_general_product_reducer_builds_automatic_reduction_tree_vjp(self):
-        graph = gf.Graph.from_csr(
-            gf.tensor([0, 2, 2, 5], dtype=gf.int64),
-            gf.tensor([0, 1, 0, 1, 2], dtype=gf.int64),
+        graph = tg.Graph.from_csr(
+            tg.tensor([0, 2, 2, 5], dtype=tg.int64),
+            tg.tensor([0, 1, 0, 1, 2], dtype=tg.int64),
             num_src=3,
             validate="full",
         )
-        x = gf.tensor([2.0, 3.0, 5.0], requires_grad=True)
+        x = tg.tensor([2.0, 3.0, 5.0], requires_grad=True)
         kernel = ProductAggregation()
         with patch.dict(os.environ, {"TIGA_TENSOR_BACKEND": "native"}):
             output = kernel(graph=graph, src={"x": x}, dst={})
-            gradient = gf.autograd.grad(output.sum(), x)
+            gradient = tg.autograd.grad(output.sum(), x)
             self.assertEqual(output.tolist(), [6.0, 1.0, 30.0])
             # row0=x0*x1; row2=x0*x1*x2
             self.assertEqual(gradient.tolist(), [18.0, 12.0, 6.0])
@@ -358,7 +408,7 @@ class MessagePassingAutogradTest(unittest.TestCase):
         self.assertEqual(gradient.execution["backend"], "cpu-llvm-jit")
         self.assertIn("proved-product-monoid", kernel.explain())
         self.assertIn("gf_tensor.csr_segment_product", output.mlir(verify=True))
-        self.assertIn("gf_tensor.segment_sum", gf.autograd.grad_mlir(
+        self.assertIn("gf_tensor.segment_sum", tg.autograd.grad_mlir(
             output.sum(), x))
 
     def test_general_reducer_tree_vjp_runs_on_native_cuda(self):
@@ -369,17 +419,17 @@ class MessagePassingAutogradTest(unittest.TestCase):
         if not torch.cuda.is_available():
             self.skipTest("CUDA is unavailable")
         device = "cuda:0"
-        graph = gf.Graph.from_csr(
-            gf.tensor([0, 2, 2, 5], dtype=gf.int64, device=device),
-            gf.tensor([0, 1, 0, 1, 2], dtype=gf.int64, device=device),
+        graph = tg.Graph.from_csr(
+            tg.tensor([0, 2, 2, 5], dtype=tg.int64, device=device),
+            tg.tensor([0, 1, 0, 1, 2], dtype=tg.int64, device=device),
             num_src=3, validate="full",
         )
-        x = gf.tensor(
+        x = tg.tensor(
             [2.0, 3.0, 5.0], device=device, requires_grad=True)
         with patch.dict(os.environ, {"TIGA_TENSOR_BACKEND": "native"}):
             output = ProductAggregation()(
                 graph=graph, src={"x": x}, dst={})
-            gradient = gf.autograd.grad(output.sum(), x)
+            gradient = tg.autograd.grad(output.sum(), x)
             self.assertEqual(output.tolist(), [6.0, 1.0, 30.0])
             self.assertEqual(gradient.tolist(), [18.0, 12.0, 6.0])
         self.assertEqual(output.execution["backend"], "cuda-ttir-triton")
@@ -394,19 +444,19 @@ class MessagePassingAutogradTest(unittest.TestCase):
         if not torch.cuda.is_available():
             self.skipTest("CUDA is unavailable")
         device = "cuda:0"
-        graph = gf.Graph.from_csr(
-            gf.tensor([0, 3, 5], dtype=gf.int64, device=device),
-            gf.tensor([0, 1, 2, 0, 1], dtype=gf.int64, device=device),
+        graph = tg.Graph.from_csr(
+            tg.tensor([0, 3, 5], dtype=tg.int64, device=device),
+            tg.tensor([0, 1, 2, 0, 1], dtype=tg.int64, device=device),
             num_src=3, validate="full",
         )
-        edge = gf.tensor(
+        edge = tg.tensor(
             [2.0, 0.0, 3.0, 4.0, 5.0], device=device,
             requires_grad=True)
-        cotangent = gf.tensor([7.0, 11.0], device=device)
+        cotangent = tg.tensor([7.0, 11.0], device=device)
         with patch.dict(os.environ, {"TIGA_TENSOR_BACKEND": "native"}):
             output = EdgeProductAggregation()(
                 graph=graph, src={}, dst={}, edge={"x": edge})
-            gradient = gf.autograd.grad(output, edge, grad_output=cotangent)
+            gradient = tg.autograd.grad(output, edge, grad_output=cotangent)
             self.assertEqual(output.tolist(), [0.0, 20.0])
             self.assertEqual(gradient.tolist(), [0.0, 42.0, 0.0, 55.0, 44.0])
         self.assertEqual(gradient.execution["backend"], "cuda-ttir-triton")
@@ -414,19 +464,19 @@ class MessagePassingAutogradTest(unittest.TestCase):
             "gf_tensor_csr_product_vjp", gradient.generated_code("ttir"))
 
     def test_general_vector_reducer_has_native_forward_and_vjp(self):
-        graph = gf.Graph.from_csr(
-            gf.tensor([0, 2, 2, 5], dtype=gf.int64),
-            gf.tensor([0, 1, 0, 1, 2], dtype=gf.int64),
+        graph = tg.Graph.from_csr(
+            tg.tensor([0, 2, 2, 5], dtype=tg.int64),
+            tg.tensor([0, 1, 0, 1, 2], dtype=tg.int64),
             num_src=3, validate="full",
         )
-        x = gf.tensor(
+        x = tg.tensor(
             [[2.0, 3.0], [5.0, 7.0], [11.0, 13.0]],
             requires_grad=True,
         )
         with patch.dict(os.environ, {"TIGA_TENSOR_BACKEND": "native"}):
             output = ProductAggregation()(
                 graph=graph, src={"x": x}, dst={})
-            gradient = gf.autograd.grad(output.sum(), x)
+            gradient = tg.autograd.grad(output.sum(), x)
             self.assertEqual(
                 output.tolist(), [[10.0, 21.0], [1.0, 1.0], [110.0, 273.0]])
             self.assertEqual(
@@ -442,19 +492,19 @@ class MessagePassingAutogradTest(unittest.TestCase):
         if not torch.cuda.is_available():
             self.skipTest("CUDA is unavailable")
         device = "cuda:0"
-        graph = gf.Graph.from_csr(
-            gf.tensor([0, 2, 2, 5], dtype=gf.int64, device=device),
-            gf.tensor([0, 1, 0, 1, 2], dtype=gf.int64, device=device),
+        graph = tg.Graph.from_csr(
+            tg.tensor([0, 2, 2, 5], dtype=tg.int64, device=device),
+            tg.tensor([0, 1, 0, 1, 2], dtype=tg.int64, device=device),
             num_src=3, validate="full",
         )
-        x = gf.tensor(
+        x = tg.tensor(
             [[2.0, 3.0], [5.0, 7.0], [11.0, 13.0]],
             device=device, requires_grad=True,
         )
         with patch.dict(os.environ, {"TIGA_TENSOR_BACKEND": "native"}):
             output = ProductAggregation()(
                 graph=graph, src={"x": x}, dst={})
-            gradient = gf.autograd.grad(output.sum(), x)
+            gradient = tg.autograd.grad(output.sum(), x)
             self.assertEqual(
                 output.tolist(), [[10.0, 21.0], [1.0, 1.0], [110.0, 273.0]])
             self.assertEqual(
@@ -464,25 +514,25 @@ class MessagePassingAutogradTest(unittest.TestCase):
         self.assertIn("gf_tensor_segment_sum", gradient.generated_code("ttir"))
 
     def test_noncommutative_tuple_reducer_preserves_deterministic_order(self):
-        graph = gf.Graph.from_csr(
-            gf.tensor([0, 2, 2, 5], dtype=gf.int64),
-            gf.tensor([0, 1, 0, 1, 2], dtype=gf.int64),
+        graph = tg.Graph.from_csr(
+            tg.tensor([0, 2, 2, 5], dtype=tg.int64),
+            tg.tensor([0, 1, 0, 1, 2], dtype=tg.int64),
             num_src=3, validate="full",
         )
-        scale = gf.tensor([2.0, 3.0, 5.0], requires_grad=True)
-        bias = gf.tensor([1.0, 4.0, 2.0], requires_grad=True)
+        scale = tg.tensor([2.0, 3.0, 5.0], requires_grad=True)
+        bias = tg.tensor([1.0, 4.0, 2.0], requires_grad=True)
         with patch.dict(os.environ, {"TIGA_TENSOR_BACKEND": "native"}):
             output = CompositionAggregation()(
                 graph=graph,
                 src={"scale": scale, "bias": bias}, dst={})
-            dscale, dbias = gf.autograd.grad(
+            dscale, dbias = tg.autograd.grad(
                 output.sum(), (scale, bias))
             self.assertEqual(output.tolist(), [7.0, 0.0, 37.0])
             self.assertEqual(dscale.tolist(), [0.0, 6.0, 7.0])
             self.assertEqual(dbias.tolist(), [18.0, 6.0, 1.0])
 
     def test_native_distributed_graph_fails_closed_before_local_execution(self):
-        graph = self.graph.halo(gf.DeviceMesh("cpu", 2), depth=1)
+        graph = self.graph.halo(tg.DeviceMesh("cpu", 2), depth=1)
         with self.assertRaisesRegex(
             NotImplementedError, "active DistributedRuntime"
         ):

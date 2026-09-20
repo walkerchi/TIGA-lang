@@ -9,7 +9,7 @@ from pathlib import Path
 import statistics
 import time
 
-import tiga as gf
+import tiga as tg
 
 
 def median_ms(operation, repeats: int) -> float:
@@ -35,7 +35,7 @@ def main() -> None:
     args = parser.parse_args()
     if args.quick:
         args.bytes, args.repeats = 4 << 20, 5
-    runtime = gf.runtime.HierarchyRuntime()
+    runtime = tg.runtime.HierarchyRuntime()
     try:
         host = runtime.allocate(
             "tile", 1, tier="host-pinned", capacity_bytes=args.bytes
@@ -48,7 +48,7 @@ def main() -> None:
             device="cuda:0",
         )
         ctypes.memset(host.buffer.host_address, 0x5A, args.bytes)
-        stream = gf.runtime.Stream("cuda:0")
+        stream = tg.runtime.Stream("cuda:0")
 
         def h2d():
             host.buffer.copy_to(device.buffer, stream=stream).wait()

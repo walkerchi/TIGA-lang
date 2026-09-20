@@ -1,6 +1,6 @@
 // RUN: gf-translate --gf-tensor-to-ttir %s | FileCheck %s
 
-// CHECK: graphforge.tensor entry=gf_tensor_pointwise
+// CHECK: tiga.tensor entry=gf_tensor_pointwise
 // CHECK: abi=arg0,arg1,arg2,out
 // CHECK: arith.divui
 // CHECK: tt.load

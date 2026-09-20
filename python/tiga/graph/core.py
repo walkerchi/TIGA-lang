@@ -18,6 +18,7 @@ from typing import Literal, Mapping
 
 from ..distributed import ByDestination, DeviceMesh, GraphPlacement
 from ..runtime import Device, DeviceType
+from ..stencil import Neighborhood, _resolve_offsets
 from ..tensor import DType, Tensor, int32, int64, tensor
 from .storage import PagedCSRStore
 
@@ -61,6 +62,7 @@ class DenseCellDirectory:
     inverse_lattice: Tensor
     cutoff: float
     periodic: bool = False
+    hash_grid: bool = False
 
 
 def _block_csr_lists(block: "Graph") -> tuple[list[int], list[int]]:
@@ -150,7 +152,7 @@ class Graph:
         if value.ndim != 1:
             raise ValueError(f"{name} must be one-dimensional")
         if value.dtype not in _INDEX_DTYPES:
-            raise TypeError(f"{name} must have gf.int32 or gf.int64 dtype")
+            raise TypeError(f"{name} must have tg.int32 or tg.int64 dtype")
 
     @classmethod
     def from_csr(
@@ -352,7 +354,7 @@ class Graph:
     def stencil(
         cls,
         dims: tuple[int, ...],
-        offsets: tuple[tuple[int, ...], ...],
+        offsets: tuple[tuple[int, ...], ...] | Neighborhood | None = None,
         *,
         periodic: bool = False,
         device: Device | str = "cpu",
@@ -362,17 +364,11 @@ class Graph:
         Nodes are row-major linearized grid coordinates; each destination
         gathers from ``coord(dst) + offset`` for every offset in ``offsets``,
         in offsets order.  Non-periodic boundaries truncate out-of-grid
-        sources; periodic boundaries wrap with modulo.
+        sources; periodic boundaries wrap with modulo. ``offsets`` accepts
+        a ``tg.stencil`` neighborhood macro; None uses ``von_neumann()``
+        (radius one, including the center). Macros infer D from ``dims``.
         """
-        if not isinstance(dims, tuple) or not dims or any(
-                not isinstance(extent, int) or extent < 1 for extent in dims):
-            raise ValueError("dims must be a non-empty tuple of positive integers")
-        if not isinstance(offsets, tuple) or not offsets or any(
-                not isinstance(offset, tuple) or len(offset) != len(dims) or
-                any(not isinstance(shift, int) for shift in offset)
-                for offset in offsets):
-            raise ValueError(
-                "offsets must be a non-empty tuple of length-D offset tuples")
+        offsets = _resolve_offsets(dims, offsets)
         if not isinstance(periodic, bool):
             raise TypeError("periodic must be bool")
         parsed = Device.parse(device)
@@ -468,7 +464,7 @@ class Graph:
                 periodic=native_periodic,
             )
         if positions.ndim != 2 or positions.dtype.kind != "float":
-            raise TypeError("positions must be a rank-two floating gf.Tensor")
+            raise TypeError("positions must be a rank-two floating tg.Tensor")
         if metric is not None and not callable(metric):
             raise TypeError("metric must be callable")
         if select is not None and not callable(select):
@@ -546,12 +542,12 @@ class Graph:
                 exclude_self=exclude_self,
             )
         if positions.ndim != 2 or positions.dtype.kind != "float":
-            raise TypeError("positions must be a rank-two floating gf.Tensor")
+            raise TypeError("positions must be a rank-two floating tg.Tensor")
         self_search = candidates is None
         source_positions = positions if self_search else candidates
         assert isinstance(source_positions, Tensor)
         if source_positions.ndim != 2 or source_positions.dtype.kind != "float":
-            raise TypeError("candidates must be a rank-two floating gf.Tensor")
+            raise TypeError("candidates must be a rank-two floating tg.Tensor")
         if source_positions.shape[1] != positions.shape[1]:
             raise ValueError("positions and candidates must share feature width")
         if source_positions.dtype is not positions.dtype:
@@ -611,7 +607,7 @@ class Graph:
         if not isinstance(num_dst, int) or num_dst < 0:
             raise ValueError("num_dst must be non-negative")
         if index_dtype not in _INDEX_DTYPES:
-            raise TypeError("index_dtype must be gf.int32 or gf.int64")
+            raise TypeError("index_dtype must be tg.int32 or tg.int64")
         schema = GraphSchema(
             num_src=num_src,
             num_dst=num_dst,
@@ -939,7 +935,7 @@ class Graph:
             )
             if not isinstance(distance, Tensor) or distance.shape != (len(sources),):
                 raise TypeError(
-                    f"metric must return gf.Tensor[{len(sources)}]")
+                    f"metric must return tg.Tensor[{len(sources)}]")
             distances = distance._evaluate_flat()
             selected = [value <= cutoff for value in distances]
             if self._select is not None:
@@ -955,7 +951,7 @@ class Graph:
                         selection.dtype.name != "bool" or \
                         selection.shape != (len(sources),):
                     raise TypeError(
-                        f"select must return gf.bool Tensor[{len(sources)}]")
+                        f"select must return tg.bool Tensor[{len(sources)}]")
                 selected = [
                     keep and bool(choice)
                     for keep, choice in zip(selected, selection._evaluate_flat())
@@ -1073,7 +1069,7 @@ class Graph:
             else self._metric(src_view, dst_view, edge_view)
         )
         if not isinstance(distance, Tensor) or distance.shape != (col_idx.numel,):
-            raise TypeError(f"metric must return gf.Tensor[{col_idx.numel}]")
+            raise TypeError(f"metric must return tg.Tensor[{col_idx.numel}]")
         return {"displacement": edge_view.displacement, "distance": distance}
 
     def degree_bounds(self) -> tuple[int, int]:
@@ -1167,12 +1163,13 @@ class Graph:
     def fields(self, role: str, *, requires_grad: bool | None = None) -> dict[str, Tensor]:
         """Disk-backed shells for fields persisted inside this ``.gfg``.
 
-        Each shell is a full-shape ``Tensor`` leaf with no in-RAM payload; the
+        Each shell is a full-shape ``Tensor`` leaf with no allocated payload; the
         paged MessagePassing executor materializes only the rows a destination
         page needs (contiguous dst/edge ranges via ``pread``, random src
         gathers through the store's mmap, so the OS page cache bounds
         residency).  An explicit ``realize()``/``tolist()`` on a shell reads
-        the whole field back into RAM.
+        the whole field onto the graph's logical device (through host staging
+        for CUDA). The shell retains its disk reader after the graph is released.
         """
         if self._paged_store is None:
             raise TypeError("only a persistent paged_csr Graph carries stored fields")
@@ -1182,12 +1179,13 @@ class Graph:
             shell = Tensor(
                 shape,
                 dtype=dtype,
-                device="cpu",
+                device=self.device,
                 requires_grad=bool(requires_grad),
+                _allocate=False,
             )
-            shell._buffer = None  # payload stays on disk; drop the shell allocation
-            shell.ready_event = None
             shell._paged_field = self._paged_store.field_reader(role, name)
+            # Escaped field handles remain valid after their Graph is released.
+            shell._paged_store_owner = self._paged_store
             shells[name] = shell
         return shells
 
@@ -1289,6 +1287,10 @@ class Graph:
         """Return one materialized snapshot with endpoint roles swapped."""
         row_ptr, col_idx = self.resolve_csr()
         destination = self.destination_index(row_ptr)
+        # Torch-backed CSR builds the destination vector through Torch. Keep
+        # both COO endpoints in that storage family (and on the same device).
+        if not self._is_native(destination) and self._is_native(col_idx):
+            col_idx = col_idx.to_torch()
         return type(self).from_coo(
             destination,
             col_idx,

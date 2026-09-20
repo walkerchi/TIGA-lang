@@ -15,7 +15,7 @@ import statistics
 
 import torch
 
-import tiga as gf
+import tiga as tg
 from benchmarks.common.hardware_roofline import measure_roofs, samples_ms
 from benchmarks.common.output_layout import artifact_path
 from benchmarks.common.perf_protocol import evaluate_sota_gates
@@ -23,7 +23,7 @@ from benchmarks.common.plotting import plot_latency, plot_roofline, write_report
 from benchmarks.kernels.sparse_triton_oracles import prepare_csr_product_vjp
 
 
-class Product(gf.Reducer):
+class Product(tg.Reducer):
     associative = True
     commutative = True
 
@@ -37,7 +37,7 @@ class Product(gf.Reducer):
         return left * right
 
 
-class EdgeProduct(gf.MessagePassing):
+class EdgeProduct(tg.MessagePassing):
     reducer = Product()
 
     def edge(self, src, dst, edge):
@@ -101,13 +101,13 @@ def main() -> None:
     message.requires_grad_(True)
     cotangent = torch.randn(args.nodes, device=device, generator=generator)
 
-    graph = gf.Graph.from_csr(
-        gf.from_torch(row_ptr), gf.from_torch(col_idx), num_src=args.nodes)
-    native_message = gf.from_torch(message, requires_grad=True)
-    native_cotangent = gf.from_torch(cotangent)
+    graph = tg.Graph.from_csr(
+        tg.from_torch(row_ptr), tg.from_torch(col_idx), num_src=args.nodes)
+    native_message = tg.from_torch(message, requires_grad=True)
+    native_cotangent = tg.from_torch(cotangent)
     output = EdgeProduct()(
         graph=graph, src={}, dst={}, edge={"value": native_message})
-    gradient = gf.autograd.grad(
+    gradient = tg.autograd.grad(
         output, native_message, grad_output=native_cotangent)
     from tiga.compiler.gpu_tensor import compile_tensor
 

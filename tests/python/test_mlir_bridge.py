@@ -6,7 +6,7 @@ from unittest import mock
 
 import torch
 
-import tiga as gf
+import tiga as tg
 from tiga.compiler.toolchain import find_gf_opt, find_gf_translate
 from tiga.interop.torch.compiler_bridge import (
     lower_kernel_to_ttir,
@@ -15,31 +15,31 @@ from tiga.interop.torch.compiler_bridge import (
 )
 
 
-class WeightedAggregation(gf.MessagePassing):
-    reducer = gf.sum()
+class WeightedAggregation(tg.MessagePassing):
+    reducer = tg.sum()
 
     def edge(self, src, dst, edge):
         del dst
         return edge.weight * src.x
 
 
-class RadiusDistanceAggregation(gf.MessagePassing):
-    reducer = gf.sum()
+class RadiusDistanceAggregation(tg.MessagePassing):
+    reducer = tg.sum()
 
     def edge(self, src, dst, edge):
         del dst
         return edge.distance * src.x
 
 
-class DenseSum(gf.MessagePassing):
-    reducer = gf.sum()
+class DenseSum(tg.MessagePassing):
+    reducer = tg.sum()
 
     def edge(self, src, dst, edge):
         del dst, edge
         return src.x
 
 
-class MeanReducer(gf.Reducer):
+class MeanReducer(tg.Reducer):
     name = "mean"
     associative = True
     commutative = True
@@ -57,7 +57,7 @@ class MeanReducer(gf.Reducer):
         return state[0] / state[1]
 
 
-class DenseMean(gf.MessagePassing):
+class DenseMean(tg.MessagePassing):
     reducer = MeanReducer()
 
     def edge(self, src, dst, edge):
@@ -65,7 +65,7 @@ class DenseMean(gf.MessagePassing):
         return src.x
 
 
-class ScalarOnlineReducer(gf.Reducer):
+class ScalarOnlineReducer(tg.Reducer):
     name = "scalar_online_weighted_mean"
     associative = True
     commutative = True
@@ -90,7 +90,7 @@ class ScalarOnlineReducer(gf.Reducer):
         return state[2] / state[1]
 
 
-class ScalarOnlineAggregation(gf.MessagePassing):
+class ScalarOnlineAggregation(tg.MessagePassing):
     reducer = ScalarOnlineReducer()
 
     def edge(self, src, dst, edge):
@@ -98,8 +98,8 @@ class ScalarOnlineAggregation(gf.MessagePassing):
         return self.reducer(src.score, src.value)
 
 
-class DiffusionUpdate(gf.MessagePassing):
-    reducer = gf.sum()
+class DiffusionUpdate(tg.MessagePassing):
+    reducer = tg.sum()
 
     def edge(self, src, dst, edge):
         return edge.conductivity * (src.u - dst.u)
@@ -108,8 +108,8 @@ class DiffusionUpdate(gf.MessagePassing):
         return dst.u + dt * flux
 
 
-class DenseDiffusionUpdate(gf.MessagePassing):
-    reducer = gf.sum()
+class DenseDiffusionUpdate(tg.MessagePassing):
+    reducer = tg.sum()
 
     def edge(self, src, dst, edge, scale):
         del edge
@@ -119,8 +119,8 @@ class DenseDiffusionUpdate(gf.MessagePassing):
         return dst.u + flux + bias
 
 
-class StructuredDense(gf.MessagePassing):
-    reducer = gf.online_softmax()
+class StructuredDense(tg.MessagePassing):
+    reducer = tg.online_softmax()
 
     def edge(self, src, dst, edge, scale):
         del edge
@@ -141,7 +141,7 @@ def _gf_translate() -> str | None:
 @unittest.skipUnless(_gf_opt(), "a built gf-opt is required")
 class MLIRBridgeTest(unittest.TestCase):
     def test_native_capture_lowers_stages_without_gf_opt_subprocess(self):
-        graph = gf.Graph.dense(8)
+        graph = tg.Graph.dense(8)
         x = torch.randn(8)
         module = message_passing_domain_mlir(
             kernel=DenseSum(),
@@ -165,7 +165,7 @@ class MLIRBridgeTest(unittest.TestCase):
         nodes, degree = 16, 2
         row_ptr = torch.arange(0, nodes * degree + 1, degree)
         col_idx = torch.arange(nodes * degree) % nodes
-        graph = gf.Graph.from_csr(row_ptr, col_idx, num_src=nodes)
+        graph = tg.Graph.from_csr(row_ptr, col_idx, num_src=nodes)
         u = torch.randn(nodes)
         conductivity = torch.randn(nodes * degree)
         module = message_passing_domain_mlir(
@@ -192,7 +192,7 @@ class MLIRBridgeTest(unittest.TestCase):
         degrees = torch.tensor([0, 1, 2, 4, 8, 16, 32, 64])
         row_ptr = torch.cat((torch.zeros(1, dtype=torch.int64), degrees.cumsum(0)))
         col_idx = torch.arange(int(row_ptr[-1])) % len(degrees)
-        graph = gf.Graph.from_csr(row_ptr, col_idx, num_src=len(degrees))
+        graph = tg.Graph.from_csr(row_ptr, col_idx, num_src=len(degrees))
         x = torch.randn(len(degrees))
         module = message_passing_domain_mlir(
             kernel=WeightedAggregation(),
@@ -216,7 +216,7 @@ class MLIRBridgeTest(unittest.TestCase):
         self.assertIn('partitioning = "degree-worklist"', stages.task)
         self.assertIn('"gf_storage.join"', stages.task)
 
-        plan = gf.compiler.translate_task_bundle(stages.task)
+        plan = tg.compiler.translate_task_bundle(stages.task)
         self.assertEqual(len(plan.invocations), 9)
         self.assertEqual(
             {item.task_kind for item in plan.invocations[:4]},
@@ -230,7 +230,7 @@ class MLIRBridgeTest(unittest.TestCase):
         row_ptr = torch.cat((
             torch.zeros(1, dtype=torch.int64), degrees.cumsum(0)))
         col_idx = torch.arange(int(row_ptr[-1])) % len(degrees)
-        graph = gf.Graph.from_csr(row_ptr, col_idx, num_src=len(degrees))
+        graph = tg.Graph.from_csr(row_ptr, col_idx, num_src=len(degrees))
         module = message_passing_domain_mlir(
             kernel=WeightedAggregation(), graph=graph,
             src={"x": torch.randn(len(degrees))}, dst={},
@@ -248,7 +248,7 @@ class MLIRBridgeTest(unittest.TestCase):
             'load_balance_plan = "high-degree-tail-chunked"', stages.task)
         self.assertIn('"gf_task.degree_scatter"', stages.task)
 
-        plan = gf.compiler.translate_task_bundle(stages.task)
+        plan = tg.compiler.translate_task_bundle(stages.task)
         self.assertEqual(
             tuple(invocation.task_kind for invocation in plan.invocations),
             ("degree-histogram", "degree-reset", "degree-prefix",
@@ -270,7 +270,7 @@ class MLIRBridgeTest(unittest.TestCase):
 
     @unittest.skipUnless(_gf_translate(), "a built gf-translate is required")
     def test_dense_node_input_abi_reaches_generic_ttir(self):
-        graph = gf.Graph.dense(8)
+        graph = tg.Graph.dense(8)
         u = torch.randn(8)
         module = message_passing_domain_mlir(
             kernel=DenseDiffusionUpdate(), graph=graph,
@@ -293,7 +293,7 @@ class MLIRBridgeTest(unittest.TestCase):
     )
     def test_public_lazy_jit_runs_udf_reducer_and_rebinds_scalar_params(self):
         nodes = 8
-        graph = gf.Graph.dense(nodes, device="cuda")
+        graph = tg.Graph.dense(nodes, device="cuda")
         x = torch.randn(nodes, device="cuda")
         mean = DenseMean()
         actual = mean(graph=graph, src={"x": x}, dst={})
@@ -319,7 +319,7 @@ class MLIRBridgeTest(unittest.TestCase):
         row_ptr = torch.arange(
             0, nodes * degree + 1, degree, device="cuda")
         col_idx = torch.arange(nodes * degree, device="cuda") % nodes
-        csr = gf.Graph.from_csr(row_ptr, col_idx, num_src=nodes)
+        csr = tg.Graph.from_csr(row_ptr, col_idx, num_src=nodes)
         csr_actual = diffusion(
             graph=csr, src={"u": x}, dst={"u": x},
             scale=0.25, bias=0.5)
@@ -357,7 +357,7 @@ class MLIRBridgeTest(unittest.TestCase):
         value = torch.randn(nodes, device="cuda", generator=generator)
         kernel = ScalarOnlineAggregation()
         actual = kernel(
-            graph=gf.Graph.from_csr(row_ptr, col_idx, num_src=nodes),
+            graph=tg.Graph.from_csr(row_ptr, col_idx, num_src=nodes),
             src={"score": score, "value": value}, dst={})
         score_rows = score[col_idx].reshape(nodes, degree)
         value_rows = value[col_idx].reshape(nodes, degree)
@@ -380,7 +380,7 @@ class MLIRBridgeTest(unittest.TestCase):
         self.assertIn("@gf_csr_stable_weighted_tile", ttir)
         self.assertEqual(ttir.count('"tt.reduce"'), 3)
         prepared = kernel.prepare(
-            graph=gf.Graph.from_csr(row_ptr, col_idx, num_src=nodes),
+            graph=tg.Graph.from_csr(row_ptr, col_idx, num_src=nodes),
             src={"score": score, "value": value}, dst={})
         torch.testing.assert_close(
             prepared(), expected, rtol=2e-4, atol=2e-4)
@@ -392,7 +392,7 @@ class MLIRBridgeTest(unittest.TestCase):
     @unittest.skipUnless(_gf_translate(), "a built gf-translate is required")
     def test_structured_reducer_reaches_direct_dense_ttir(self):
         nodes, lanes, width = 64, 3, 64
-        graph = gf.Graph.dense(nodes)
+        graph = tg.Graph.dense(nodes)
         storage = torch.randn(lanes, nodes, width, dtype=torch.float16)
         field = storage.permute(1, 0, 2)
         module = message_passing_domain_mlir(
@@ -414,7 +414,7 @@ class MLIRBridgeTest(unittest.TestCase):
     @unittest.skipUnless(_gf_translate(), "a built gf-translate is required")
     def test_triangular_relation_boundary_reaches_dense_ttir(self):
         nodes, lanes, width = 64, 2, 64
-        graph = gf.Graph.triangular(nodes)
+        graph = tg.Graph.triangular(nodes)
         storage = torch.randn(lanes, nodes, width, dtype=torch.float16)
         field = storage.permute(1, 0, 2)
         module = message_passing_domain_mlir(
@@ -450,7 +450,7 @@ class MLIRBridgeTest(unittest.TestCase):
         value = torch.randn_like(key)
         kernel = StructuredDense()
         actual = kernel(
-            graph=gf.Graph.triangular(nodes, device="cuda"),
+            graph=tg.Graph.triangular(nodes, device="cuda"),
             src={"right": key.permute(1, 0, 2),
                  "payload": value.permute(1, 0, 2)},
             dst={"left": query.permute(1, 0, 2)},
@@ -467,7 +467,7 @@ class MLIRBridgeTest(unittest.TestCase):
             "%lane_group = arith.constant 4", kernel.ir("gf.kernel.ttir"))
 
     def test_dense_graph_reaches_dense_kernel_skeleton(self):
-        graph = gf.Graph.dense(32, 16)
+        graph = tg.Graph.dense(32, 16)
         x = torch.randn(32)
         module = message_passing_domain_mlir(
             kernel=DenseSum(), graph=graph,
@@ -483,7 +483,7 @@ class MLIRBridgeTest(unittest.TestCase):
         self.assertIn('schedule_kind = "dense-query-key-tile"', stages.kernel)
 
     def test_udf_reducer_is_embedded_as_four_native_regions(self):
-        graph = gf.Graph.dense(8)
+        graph = tg.Graph.dense(8)
         module = message_passing_domain_mlir(
             kernel=DenseMean(), graph=graph,
             src={"x": torch.randn(8)}, dst={}, edge={}, params={},
@@ -498,7 +498,7 @@ class MLIRBridgeTest(unittest.TestCase):
 
     @unittest.skipUnless(_gf_translate(), "a built gf-translate is required")
     def test_udf_tuple_reducer_lowers_by_algebra_not_python_name(self):
-        graph = gf.Graph.dense(8)
+        graph = tg.Graph.dense(8)
         module = message_passing_domain_mlir(
             kernel=DenseMean(), graph=graph,
             src={"x": torch.randn(8)}, dst={}, edge={}, params={},
@@ -517,7 +517,7 @@ class MLIRBridgeTest(unittest.TestCase):
         nodes, degree = 16, 2
         row_ptr = torch.arange(0, nodes * degree + 1, degree)
         col_idx = torch.arange(nodes * degree) % nodes
-        graph = gf.Graph.from_csr(row_ptr, col_idx, num_src=nodes)
+        graph = tg.Graph.from_csr(row_ptr, col_idx, num_src=nodes)
         x = torch.randn(nodes)
         weight = torch.randn(nodes * degree)
         module = message_passing_domain_mlir(
@@ -546,7 +546,7 @@ class MLIRBridgeTest(unittest.TestCase):
         nodes, degree = 16, 2
         row_ptr = torch.arange(0, nodes * degree + 1, degree)
         col_idx = torch.arange(nodes * degree) % nodes
-        graph = gf.Graph.from_csr(row_ptr, col_idx, num_src=nodes)
+        graph = tg.Graph.from_csr(row_ptr, col_idx, num_src=nodes)
         x = torch.randn(nodes)
         weight = torch.randn(nodes * degree)
         module = message_passing_domain_mlir(
@@ -566,7 +566,7 @@ class MLIRBridgeTest(unittest.TestCase):
         nodes, degree, features = 16, 4, 16
         row_ptr = torch.arange(0, nodes * degree + 1, degree)
         col_idx = torch.arange(nodes * degree) % nodes
-        graph = gf.Graph.from_csr(row_ptr, col_idx, num_src=nodes)
+        graph = tg.Graph.from_csr(row_ptr, col_idx, num_src=nodes)
         x = torch.randn(nodes, features)
         weight = torch.randn(nodes * degree)
         module = message_passing_domain_mlir(
@@ -592,7 +592,7 @@ class MLIRBridgeTest(unittest.TestCase):
         row_ptr[0] = 0
         torch.cumsum(degrees, dim=0, out=row_ptr[1:])
         col_idx = torch.arange(int(row_ptr[-1]), dtype=torch.int64) % nodes
-        graph = gf.Graph.from_csr(row_ptr, col_idx, num_src=nodes)
+        graph = tg.Graph.from_csr(row_ptr, col_idx, num_src=nodes)
         x = torch.randn(nodes, features)
         weight = torch.randn(col_idx.numel())
         module = message_passing_domain_mlir(
@@ -619,7 +619,7 @@ class MLIRBridgeTest(unittest.TestCase):
     @unittest.skipUnless(_gf_translate(), "a built gf-translate is required")
     def test_generated_radius_reaches_direct_provider_ttir(self):
         positions = torch.rand(64, 3)
-        graph = gf.Graph.radius(positions, cutoff=0.25)
+        graph = tg.Graph.radius(positions, cutoff=0.25)
         directory = graph.generated_cell_directory()
         self.assertIsNotNone(directory)
         x = torch.randn(64)
@@ -646,7 +646,7 @@ class MLIRBridgeTest(unittest.TestCase):
     def test_knn_captures_ranked_relation_without_csr_materialization(self):
         queries = torch.rand(32, 3)
         candidates = torch.rand(48, 3)
-        graph = gf.Graph.knn(queries, 13, candidates=candidates)
+        graph = tg.Graph.knn(queries, 13, candidates=candidates)
         x = torch.randn(48)
         module = message_passing_domain_mlir(
             kernel=RadiusDistanceAggregation(),
@@ -674,8 +674,8 @@ class MLIRBridgeTest(unittest.TestCase):
         self.assertIn("scf.for", ttir)
 
     def test_message_passing_variant_exposes_canonical_stages(self):
-        class WeightedAggregation(gf.MessagePassing):
-            reducer = gf.sum()
+        class WeightedAggregation(tg.MessagePassing):
+            reducer = tg.sum()
 
             def edge(self, src, dst, edge):
                 return edge.weight * src.x
@@ -683,7 +683,7 @@ class MLIRBridgeTest(unittest.TestCase):
         nodes, degree = 16, 2
         row_ptr = torch.arange(0, nodes * degree + 1, degree)
         col_idx = torch.arange(nodes * degree) % nodes
-        graph = gf.Graph.from_csr(row_ptr, col_idx, num_src=nodes)
+        graph = tg.Graph.from_csr(row_ptr, col_idx, num_src=nodes)
         x = torch.randn(nodes)
         weight = torch.randn(nodes * degree)
         kernel = WeightedAggregation()
@@ -703,7 +703,7 @@ class MLIRBridgeTest(unittest.TestCase):
         self.assertEqual(kernel.last_variant.provider, "torch.sparse.mm")
         self.assertEqual(len(kernel.schedules), 1)
         schedule = kernel.schedules[0]
-        self.assertIsInstance(schedule, gf.MachineSchedule)
+        self.assertIsInstance(schedule, tg.MachineSchedule)
         self.assertEqual(schedule.operation, "gf_kernel.launch")
         self.assertEqual(schedule.kind, "fixed-row-neighbor")
         self.assertEqual(schedule.target_contract, "provider-neutral-v1")
@@ -721,22 +721,22 @@ class MLIRBridgeTest(unittest.TestCase):
         )
 
     def test_native_schedule_inspector_reads_only_verified_kernel_ir(self):
-        graph = gf.Graph.dense(8)
+        graph = tg.Graph.dense(8)
         module = message_passing_domain_mlir(
             kernel=DenseSum(), graph=graph,
             src={"x": torch.randn(8)}, dst={}, edge={}, params={},
             kernel_name="ScheduleInspection",
         )
         stages = lower_mlir_stages(module, gf_opt=_gf_opt())
-        schedules = gf.compiler.schedules_from_mlir(stages.kernel)
+        schedules = tg.compiler.schedules_from_mlir(stages.kernel)
 
         self.assertEqual(len(schedules), 1)
         self.assertEqual(schedules[0].operation, "gf_kernel.dense_launch")
         self.assertEqual(schedules[0].kind, "dense-query-key-tile")
         self.assertIn("vector-contraction", schedules[0].instructions)
-        self.assertEqual(gf.compiler.schedules_from_mlir("module {}"), ())
+        self.assertEqual(tg.compiler.schedules_from_mlir("module {}"), ())
         with self.assertRaisesRegex(TypeError, "non-empty MLIR"):
-            gf.compiler.schedules_from_mlir("")
+            tg.compiler.schedules_from_mlir("")
 
 
 if __name__ == "__main__":

@@ -1,6 +1,6 @@
 """Edge-local nn modules in MessagePassing with a fused compiler tile kernel."""
 
-import tiga as gf
+import tiga as tg
 import torch
 from torch import nn
 
@@ -13,17 +13,17 @@ x = torch.randn((nodes, f_in), device=device)            # (N, F_in)
 
 
 # --8<-- [start:core]
-class EdgeMLP(gf.MessagePassing):
+class EdgeMLP(tg.MessagePassing):
     def __init__(self, mlp):
         super().__init__()
-        self.mlp = gf.nn.trace(mlp)  # capturable AND eager-callable
+        self.mlp = tg.nn.trace(mlp)  # capturable AND eager-callable
 
     def edge(self, src, dst, edge):
         # edge.displacement (E, 3), src.x (E, F_in) → message (E, F_out)
         return self.mlp(edge.displacement, src.x)
 
 
-graph = gf.Graph.radius(positions, cutoff=0.15)  # avg degree ≈ 7
+graph = tg.Graph.radius(positions, cutoff=0.15)  # avg degree ≈ 7
 mlp = nn.Sequential(
     nn.Linear(3 + f_in, hidden), nn.ReLU(), nn.Linear(hidden, f_out),
 ).to(device)

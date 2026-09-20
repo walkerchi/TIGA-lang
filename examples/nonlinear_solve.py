@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-import tiga as gf
+import tiga as tg
 from solvers import dot
 
 
 # --8<-- [start:core]
-class NonlinearDiffusionApply(gf.MessagePassing):
+class NonlinearDiffusionApply(tg.MessagePassing):
     """Assemble F(u) = A(u)·u for -∇·(k(u)∇u) with k(u) = 1 + u².
 
     Edge (j -> i) sends the conductance-scaled difference
@@ -20,7 +20,7 @@ class NonlinearDiffusionApply(gf.MessagePassing):
         u₀ = u_{N+1} = 0.
     """
 
-    reducer = gf.sum()
+    reducer = tg.sum()
 
     def edge(self, src, dst, edge, inverse_spacing):
         del edge
@@ -36,14 +36,14 @@ class NonlinearDiffusionApply(gf.MessagePassing):
         return incoming + dst.boundary * conductance * dst.u * inverse_spacing
 
 
-@gf.jit
+@tg.jit
 def _picard_fixed_loop(apply, omega, state, rhs, iterations):
     for _ in range(iterations):
         state = state + omega * (rhs - apply(state))
     return state
 
 
-@gf.jit
+@tg.jit
 def _picard_tolerance_loop(
     apply, omega, state, rhs, threshold_squared, max_iterations,
 ):
@@ -58,26 +58,26 @@ def _picard_tolerance_loop(
 
 def nonlinear_solve(
     operator,
-    rhs: gf.Tensor,
+    rhs: tg.Tensor,
     *,
     omega: float,
     iterations: int | None = None,
     tolerance: float | None = 1.0e-6,
     max_iterations: int = 2_000,
-    initial: gf.Tensor | None = None,
-) -> gf.Tensor:
+    initial: tg.Tensor | None = None,
+) -> tg.Tensor:
     """Solve F(u) = rhs by damped Picard (nonlinear Richardson) iteration.
 
     The fixed-point step u ← u + ω·(rhs − F(u)) runs in ONE flat loop:
     ``iterations=k`` captures a fixed ``gf_control.repeat`` (differentiable
-    through ``gf.autograd.grad``; the VJP unrolls the loop, so keep k small
+    through ``tg.autograd.grad``; the VJP unrolls the loop, so keep k small
     when differentiating); ``tolerance=eps`` with ``max_iterations``
     captures a bounded device-side ``gf_control.while`` instead (forward-only
     — the while form has no VJP yet). The contracts are exclusive.
     """
     if not callable(operator):
         raise TypeError("operator must be a Tensor -> Tensor callable")
-    if not isinstance(rhs, gf.Tensor) or rhs.ndim != 1:
+    if not isinstance(rhs, tg.Tensor) or rhs.ndim != 1:
         raise TypeError(
             "nonlinear_solve rhs must be a rank-one tiga.Tensor")
     if rhs.dtype.kind != "float":
@@ -103,15 +103,15 @@ def nonlinear_solve(
         if max_iterations < 0:
             raise ValueError(
                 "nonlinear_solve max_iterations must be non-negative")
-    state = gf.zeros_like(rhs) if initial is None else initial
-    if not isinstance(state, gf.Tensor) or state.shape != rhs.shape:
+    state = tg.zeros_like(rhs) if initial is None else initial
+    if not isinstance(state, tg.Tensor) or state.shape != rhs.shape:
         raise ValueError("nonlinear_solve initial value must match rhs shape")
     if state.dtype is not rhs.dtype or state.device != rhs.device:
         raise ValueError(
             "nonlinear_solve initial value must match rhs dtype and device")
     if fixed:
         return _picard_fixed_loop(operator, omega, state, rhs, iterations)
-    threshold = gf.tensor(
+    threshold = tg.tensor(
         tolerance * tolerance, dtype=rhs.dtype, device=rhs.device)
     return _picard_tolerance_loop(
         operator, omega, state, rhs, threshold, max_iterations)
@@ -122,11 +122,11 @@ def nonlinear_operator(interior_nodes: int):
     if interior_nodes < 1:
         raise ValueError("interior_nodes must be positive")
     spacing = 1.0 / (interior_nodes + 1)
-    graph = gf.Graph.stencil((interior_nodes,), ((-1,), (0,), (1,)))
+    graph = tg.Graph.stencil((interior_nodes,), ((-1,), (0,), (1,)))
     flags = (                                   # one entry per boundary element
         [2.0] if interior_nodes == 1
         else [1.0] + [0.0] * (interior_nodes - 2) + [1.0])
-    boundary = gf.tensor(flags, dtype=gf.float32)  # (N,)
+    boundary = tg.tensor(flags, dtype=tg.float32)  # (N,)
     return NonlinearDiffusionApply(), graph, spacing, boundary
 
 
@@ -146,8 +146,8 @@ def solve(
     stable for both grid sizes used below.
     """
     kernel, graph, spacing, boundary = nonlinear_operator(interior_nodes)
-    load = gf.tensor(
-        [spacing] * interior_nodes, dtype=gf.float32, requires_grad=True)  # (N,)
+    load = tg.tensor(
+        [spacing] * interior_nodes, dtype=tg.float32, requires_grad=True)  # (N,)
 
     def apply(state):  # F(u): (N,) -> (N,), conductance from current iterate
         return kernel(
@@ -183,8 +183,8 @@ def load_gradient(
     forward-only drivers above run hundreds of iterations cheaply).
     """
     kernel, graph, spacing, boundary = nonlinear_operator(interior_nodes)
-    load = gf.tensor(
-        [spacing] * interior_nodes, dtype=gf.float32, requires_grad=True)  # (N,)
+    load = tg.tensor(
+        [spacing] * interior_nodes, dtype=tg.float32, requires_grad=True)  # (N,)
 
     def apply(state):  # F(u): (N,) -> (N,)
         return kernel(
@@ -196,7 +196,7 @@ def load_gradient(
 
     solution = nonlinear_solve(
         apply, load, omega=omega, iterations=iterations, tolerance=None)  # (N,)
-    return gf.autograd.grad(solution.sum(), load)              # (N,)
+    return tg.autograd.grad(solution.sum(), load)              # (N,)
 
 
 # Inspect: solve()[0].mlir() (bounded gf_control.while loop),

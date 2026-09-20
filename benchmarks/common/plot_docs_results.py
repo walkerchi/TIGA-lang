@@ -2,8 +2,7 @@
 
 Every figure on docs/benchmark-results.md is produced here from the measured
 artifacts under ``output/roofline/`` and ``output/distributed/`` (the two
-hand-transcribed summary figures cite the registered results table as their
-source). One shared style keeps the whole page visually unified; figures are
+archived summary figures use the same checked JSON inputs). One shared style keeps the whole page visually unified; figures are
 written to ``docs/assets/results/`` as SVG with a PNG fallback. The data-
 generated "The full matrix" section is rebuilt at the same time into
 ``docs/includes/`` by :mod:`benchmarks.common.full_matrix`.
@@ -28,7 +27,8 @@ import numpy as np
 from benchmarks.common import docs_style, full_matrix
 from benchmarks.common.docs_style import BASE, GF, GF_SOFT, SLATE, TEXT
 
-ROOT = Path("output")
+ROOT = Path("benchmarks/evidence_snapshot/output")
+SOURCES = set()
 OUT = Path("docs/assets/results")
 
 # --- unified style (benchmarks/common/docs_style.py) ------------------------
@@ -68,235 +68,158 @@ def _inject_tooltips(svg_path: Path, tooltips: dict[str, str]) -> None:
 # --- figures ---------------------------------------------------------------
 
 
+def _point(operation, case, candidate, baseline, **filters):
+    payload = _case_json(operation, case)
+    def select(provider):
+        matches = [r for r in payload["results"] if r["provider"] == provider
+                   and all(r.get(k) == v for k, v in filters.items())]
+        if len(matches) != 1:
+            raise ValueError(f"ambiguous/missing chart point: {operation}/{case}/{provider}/{filters}")
+        return float(matches[0]["milliseconds"])
+    candidate_ms, baseline_ms = select(candidate), select(baseline)
+    if min(candidate_ms, baseline_ms) <= 0:
+        raise ValueError("non-positive chart latency")
+    return baseline_ms / candidate_ms, f"{candidate_ms:.4g} vs {baseline_ms:.4g} ms"
+
+
 def figure_transformations() -> None:
-    """Registered high-water speedup per compiler transformation.
-
-    Source: the registered "Compiler transformations" table in
-    docs/benchmark-results.md (hand-transcribed; the table is canonical).
-    """
-    rows = [
-        ("Periodic radius rebuild", 6.064, 3.861, "range"),
-        ("Generated radius build + consume", 4.425, 4.397, None),
-        ("Fixed vector CSR traversal", 4.322, 4.245, None),
-        ("Bounded-ragged vector traversal", 4.213, 4.153, None),
-        ("Fixed-iteration PageRank", 2.337, 2.312, None),
+    selections = [
+        ("Radius topology build", "radius_graph_build", "cuda_n32768_d3_degree32",
+         "tiga.compact_cell_directory", "tiga.materialized_cell_list_csr", {}),
+        ("Local CSR · F16 · prepared", "weighted_aggregation",
+         "regular_local_cuda_i64_n131072_degree16_f1_16_64",
+         "tiga.prepared_auto", "torch.sparse.mm", {"features": 16, "cache": "hot"}),
+        ("Ragged CSR · F16 · prepared", "weighted_aggregation",
+         "irregular_random_cuda_i32_n131072_degree16_f16_64",
+         "tiga.prepared_auto", "torch.sparse.mm", {"features": 16, "cache": "hot"}),
+        ("PageRank · 20 iterations", "pagerank", "cuda_fp32_iter20",
+         "tiga.control", "torch.sparse.mm", {"nodes": 262144, "edges": 4194304, "cache": "hot"}),
     ]
-    names = [row[0] for row in rows]
-    values = np.array([row[1] for row in rows])
-    ci_low = np.array([row[2] for row in rows])
-    # One-sided whisker down to the CI low (range row: down to the
-    # registered-range bottom) so the bar end stays the measured value.
-    xerr = np.zeros((2, len(rows)))
-    xerr[0] = values - ci_low
-
-    fig, ax = plt.subplots(figsize=(7.0, 2.9))
-    fig.subplots_adjust(top=0.78)
-    bars = ax.barh(
-        np.arange(len(rows)), values, height=0.62, color=GF, zorder=3,
-        xerr=xerr,
-        error_kw={"ecolor": SLATE, "elinewidth": 1.1, "capsize": 3})
-    ax.invert_yaxis()
-    ax.set_yticks(np.arange(len(rows)), names)
-    ax.axvline(1.0, color=SLATE, linestyle="--", linewidth=1.0)
-    ax.set_xlim(0, 7.4)
-    ax.set_xlabel("speedup over matched peer (×)")
-    for bar, value, low, kind in zip(bars, values, ci_low,
-                                     [row[3] for row in rows]):
-        label = (f"{low:.2f}–{value:.2f}×" if kind == "range"
-                 else f"{value:.2f}×")
-        ax.text(
-            value + 0.06, bar.get_y() + bar.get_height() / 2, label,
-            va="center", ha="left", fontsize=8.5, color=INK)
-    _finish_axes(ax, horizontal=True)
-    _headline(
-        fig,
-        "Compiler transformations change the execution plan",
-        "registered high-water GPU case per transformation · "
-        "error bar: CI low · higher is better")
-    _save(fig, OUT / "transformations")
+    rows = []
+    for label, op, case, candidate, baseline, filters in selections:
+        ratio, times = _point(op, case, candidate, baseline, **filters)
+        rows.append((label, ratio, f"{ratio:.2f}× · {times}", GF))
+    _ratio_figure(OUT / "transformations", "Selected compiler transformations",
+                  "Fixed archived cases · matched baseline per row · not an aggregate",
+                  rows, x_max=max(r[1] for r in rows) * 1.2)
 
 
 def figure_cpu_relations() -> None:
-    """CPU fused relation loop vs the host sparse libraries.
-
-    Source: output/roofline/cpu_relation roofline.json artifacts
-    (regular_permuted_i32_n{16384,131072}_degree16_t16); the registered
-    N=131072 gate carries CI low 5.540 against scipy.csr_matvec.
-    """
-    rows = [
-        ("N=131k · vs torch.sparse.mm (CPU)", 2.5536 / 0.1236,
-         f"{2.5536 / 0.1236:.2f}× · 0.124 vs 2.554 ms", GF),
-        ("N=131k · vs scipy.csr_matvec", 6.318,
-         "6.32× · 0.124 vs 0.781 ms", GF),
-        ("N=16k · vs scipy.csr_matvec", 0.088379 / 0.054535,
-         f"{0.088379 / 0.054535:.2f}× · 0.055 vs 0.088 ms", GF),
-        ("N=16k · vs torch.sparse.mm (CPU)", 0.022950 / 0.054535,
-         f"{0.022950 / 0.054535:.2f}× · 0.055 vs 0.023 ms", PEER),
-    ]
-    names = [row[0] for row in rows]
-    values = [row[1] for row in rows]
-    colors = [row[3] for row in rows]
-
-    fig, ax = plt.subplots(figsize=(7.0, 2.9))
-    fig.subplots_adjust(top=0.74)
-    bars = ax.barh(
-        np.arange(len(rows)), values, height=0.62, color=colors, zorder=3)
-    ax.invert_yaxis()
-    ax.set_yticks(np.arange(len(rows)), names)
-    ax.axvline(1.0, color=SLATE, linestyle="--", linewidth=1.0, zorder=4)
-    ax.set_xlim(0, 26)
-    ax.set_xlabel("speedup of the generated LLVM relation loop (×)")
-    for bar, value, label in zip(bars, values, [r[2] for r in rows]):
-        ax.text(
-            value + 26 * 0.008, bar.get_y() + bar.get_height() / 2, label,
-            va="center", ha="left", fontsize=8.5, color=INK)
-    _finish_axes(ax, horizontal=True)
-    _headline(
-        fig,
-        "CPU: fused relation loop vs the host sparse libraries",
-        "weighted CSR SpMV · 16 threads · degree 16 · FP32 hot · "
-        "two host baselines, never averaged")
-    _save(fig, OUT / "cpu-relations")
+    rows = []
+    for n, label in ((131072, "131k"), (16384, "16k")):
+        for baseline in ("scipy.csr_matvec", "torch.sparse.mm"):
+            ratio, times = _point("cpu_relation", f"regular_permuted_i32_n{n}_degree16_t16",
+                                  "tiga.llvm.parallel_relation", baseline)
+            rows.append((f"N={label} · {baseline}", ratio, f"{ratio:.2f}× · {times}", GF))
+    _ratio_figure(OUT / "cpu-relations", "CPU relation: size changes the result",
+                  "FP32/i32 · degree 16 · 16 threads · both wins and losses",
+                  rows, x_max=max(r[1] for r in rows) * 1.15)
 
 
 def figure_primitive_parity() -> None:
-    """Parity with mature specialized implementations.
-
-    Source: the registered "Mature primitive parity" table in
-    docs/benchmark-results.md (hand-transcribed; the table is canonical).
-    """
-    rows = [
-        ("Exact kNN build + consume", 1.327),
-        ("Tile-pruned sparse attention", 1.182),
-        ("GPU visualization prep", 1.153),
-        ("Causal dense attention", 1.117),
-        ("Grouped-query attention", 1.084),
-        ("Exact dense attention", 1.074),
-        ("Linear attention", 1.037),
-        ("Dense matmul", 1.005),
-    ]
-    names = [row[0] for row in rows]
-    values = [row[1] for row in rows]
-
-    fig, ax = plt.subplots(figsize=(7.0, 2.9))
-    fig.subplots_adjust(top=0.74)
-    bars = ax.barh(
-        np.arange(len(rows)), values, height=0.62, color=GF, zorder=3)
-    ax.invert_yaxis()
-    ax.set_yticks(np.arange(len(rows)), names)
-    ax.axvline(1.0, color=SLATE, linestyle="--", linewidth=1.0,
-               zorder=4)
-    ax.set_xlim(0, 1.6)
-    ax.set_xlabel("speedup over matched peer (×)")
-    _label_bars(ax, bars)
-    _finish_axes(ax, horizontal=True)
-    _headline(
-        fig,
-        "Abstraction costs little against mature implementations",
-        "registered parity cases · ≥1.0 means Tiga is not slower")
-    _save(fig, OUT / "primitive-parity")
+    manifest = json.loads(Path("benchmarks/evidence_manifest.json").read_text())
+    operations = {"knn_graph", "sparse_attention", "visualization_heatmap",
+                  "dense_attention", "linear_attention", "dense_matmul_calibration"}
+    rows = []
+    for panel in manifest["report_panels"]:
+        if panel["operation"] not in operations:
+            continue
+        ratio, times = _point(panel["operation"], panel["case"], panel["providers"][0],
+                              panel["baseline"], **panel.get("filters", {}))
+        rows.append((panel["title"], ratio, f"{ratio:.3f}× · {times}", GF))
+    _ratio_figure(OUT / "primitive-parity", "Specialized primitive comparisons",
+                  "Fixed manifest cases · exact peer and timing scope in the evidence table",
+                  rows, x_max=max(r[1] for r in rows) * 1.2)
 
 
-def _case_json(
-    operation: str, case_hint: str, filename: str = "roofline.json"
-) -> dict:
-    for path in sorted((ROOT / "roofline" / operation).glob("*/")):
-        if case_hint in path.name and (path / filename).is_file():
-            return json.loads((path / filename).read_text())
-    raise FileNotFoundError(f"{operation}/{case_hint}/{filename}")
+def _read(path):
+    path = Path(path)
+    raw = path.read_bytes()
+    SOURCES.add(str(path.relative_to(ROOT)))
+    return json.loads(raw)
+
+
+def _case_json(operation: str, case_hint: str, filename="roofline.json") -> dict:
+    directory = ROOT / "roofline" / operation
+    exact = directory / case_hint / filename
+    if exact.is_file():
+        return _read(exact)
+    matches = [p / filename for p in sorted(directory.iterdir())
+               if case_hint in p.name and (p / filename).is_file()]
+    if len(matches) != 1:
+        raise ValueError(f"ambiguous/missing case: {operation}/{case_hint}/{filename}")
+    return _read(matches[0])
 
 
 def figure_sparse_relations() -> None:
-    """Registered sparse-relation speedups vs torch.sparse.mm.
-
-    Source: the registered "Sparse relations and reducers" table in
-    docs/benchmark-results.md (hand-transcribed; the table is canonical).
-    The local artifact subset does not contain every registered row, so the
-    figure transcribes the registered values instead of re-deriving them.
-    """
-    rows = [
-        ("Regular random · F16", 4.322, None),
-        ("Irregular 0–32 · F16", 4.213, None),
-        ("Regular random · F64", 1.966, None),
-        ("Regular local · F1", 1.67, None),
-        ("Irregular 0–32 · F64", 1.595, None),
-        ("Power-law slice · F1", 1.525, 1.353),
-        ("Exponential slice · F1 (cold)", 1.439, None),
-        ("Log-normal slice · F1", 1.196, None),
-        ("Scalar degree 4 · F1", 1.0 / 0.824, None),
+    slices = [
+        ("Regular local · F16", "regular_local_cuda_i64_n131072_degree16_f1_16_64", 16),
+        ("Regular local · F64", "regular_local_cuda_i64_n131072_degree16_f1_16_64", 64),
+        ("Ragged random · F16", "irregular_random_cuda_i32_n131072_degree16_f16_64", 16),
+        ("Ragged random · F64", "irregular_random_cuda_i32_n131072_degree16_f16_64", 64),
+        ("Power-law random · F1", "powerlaw_random_cuda_i32_n131072_degree16_f1", 1),
+        ("Log-normal random · F1", "lognormal_random_cuda_i32_n131072_degree16_f1", 1),
+        ("Exponential random · F1", "exponential_random_cuda_i32_n131072_degree16_f1", 1),
     ]
-    # Per-row hover definitions: every row is the same weighted in-edge sum;
-    # only the graph slice, feature width and cache state change.  Descriptions
-    # follow benchmarks/sparse_compute/cases.py.
-    slice_notes = {
-        "Regular random · F16":
-            "fixed degree 16, neighbors uniform at random, 16 feature "
-            "channels — no degree skew; the tiling-friendly slice.",
-        "Irregular 0–32 · F16":
-            "degrees uniform in 0–32 (mean 16), random neighbors, 16 feature "
-            "channels — bounded skew stresses row-length variance.",
-        "Regular random · F64":
-            "fixed degree 16, random neighbors, 64 feature channels — wider "
-            "rows, more compute per byte.",
-        "Regular local · F1":
-            "fixed degree 16, neighbors are the next 16 consecutive nodes "
-            "(perfect locality), scalar features — the cache-friendliest "
-            "slice.",
-        "Irregular 0–32 · F64":
-            "degrees uniform in 0–32, random neighbors, 64 feature channels "
-            "— skewed row lengths with wide features.",
-        "Power-law slice · F1":
-            "social-network tail: 90% of rows degree 8, 9% degree 64, 1% "
-            "degree 256, scalar features — hub rows force chunked "
-            "scheduling; the label spans the 95% CI.",
-        "Exponential slice · F1 (cold)":
-            "degrees drawn from an exponential law rescaled to mean 16 "
-            "(cap 256), scalar features, cold cache — the "
-            "DRAM-bandwidth-bound slice.",
-        "Log-normal slice · F1":
-            "degrees log-normal (sigma 1.25) rescaled to mean 16 (cap 256), "
-            "scalar features — a continuous heavy tail.",
-        "Scalar degree 4 · F1":
-            "fixed degree 4, scalar features — tiny rows where launch and "
-            "scheduling overhead dominates.",
-    }
-    names = [row[0] for row in rows]
-    values = np.array([row[1] for row in rows])
+    rows = []
+    for label, case, features in slices:
+        ratio, times = _point("weighted_aggregation", case,
+                             "tiga.prepared_auto", "torch.sparse.mm",
+                             features=features, cache="hot")
+        rows.append((label, ratio, f"{ratio:.2f}× · {times}", GF))
+    _ratio_figure(OUT / "sparse-relations", "Sparse relations: one fixed candidate",
+                  "N=131072 · hot · prepared_auto / cuSPARSE · F is feature width",
+                  rows, x_max=max(r[1] for r in rows) * 1.12)
 
-    fig, ax = plt.subplots(figsize=(7.0, 3.1))
-    fig.subplots_adjust(top=0.78)
-    bars = ax.barh(np.arange(len(rows)), values, height=0.62, color=GF,
-                   zorder=3)
+
+def figure_provider_comparison() -> None:
+    case = "irregular_random_cuda_i32_n131072_degree16_f16_64"
+    payload = _case_json("weighted_aggregation", case)
+    selected = [r for r in payload["results"] if r.get("cache") == "hot" and r.get("features") == 16]
+    providers = [r["provider"] for r in selected]
+    if len(providers) != len(set(providers)):
+        raise ValueError("ambiguous provider comparison")
+    labels = {
+        "tiga.prepared_auto": "Tiga (prepared)*",
+        "tiga.auto": "Tiga (regular call)",
+        "torch.sparse.mm": "Torch sparse matmul",
+        "torch.compile.index_add": "Torch compiled scatter",
+        "triton.csr": "Handwritten Triton",
+        "pyg.message_passing": "PyG gather-scatter",
+        "torch.index_add": "Torch scatter",
+    }
+    if set(providers) != set(labels) | {"tiga.reference"}:
+        raise ValueError("unexpected providers in historical comparison")
+    # The reference is a correctness oracle, not an optimized execution path;
+    # keep its timing in the complete table directly below the chart instead.
+    rows = sorted((r for r in selected if r["provider"] in labels),
+                  key=lambda r: r["milliseconds"])
+    values = [float(r["milliseconds"]) for r in rows]
+    if not all(np.isfinite(v) and v > 0 for v in values):
+        raise ValueError("invalid comparison latency")
+    fig, ax = plt.subplots(figsize=(7.5, 4.4))
+    fig.subplots_adjust(left=0.29, right=0.97, top=0.79, bottom=0.24)
+    bars = ax.barh(np.arange(len(rows)), values, height=0.58,
+                   color=[GF if r["provider"].startswith("tiga.") else SLATE
+                          for r in rows], zorder=3)
+    ax.set_yticks(np.arange(len(rows)), [labels[r["provider"]] for r in rows])
     ax.invert_yaxis()
-    ax.set_yticks(np.arange(len(rows)), names)
-    for index, bar in enumerate(bars):
-        bar.set_gid(f"slice-{index}-bar")
-    for index, label in enumerate(ax.get_yticklabels()):
-        label.set_gid(f"slice-{index}-label")
-    ax.axvline(1.0, color=SLATE, linestyle="--", linewidth=1.0)
-    ax.set_xlim(0, 5.0)
-    ax.set_xlabel("speedup over matched peer (×)")
-    for bar, value, low in zip(bars, values, [row[2] for row in rows]):
-        label = (f"{low:.2f}–{value:.2f}×" if low is not None
-                 else f"{value:.2f}×")
-        ax.text(
-            value + 0.04, bar.get_y() + bar.get_height() / 2, label,
-            va="center", ha="left", fontsize=8.5, color=INK)
+    ax.set_xlim(0, max(values) * 1.20)
+    ax.set_xlabel("Execution time (ms) — shorter is faster")
+    for bar, value in zip(bars, values):
+        ax.text(value + max(values) * 0.02,
+                bar.get_y() + bar.get_height() / 2, f"{value:.3f}",
+                va="center", fontsize=9, color=INK)
     _finish_axes(ax, horizontal=True)
-    _headline(
-        fig,
-        "Sparse relations: compiler tiles beat the sparse library",
-        "131,072 rows · degree 16 unless noted · vs torch.sparse.mm, "
-        "hot cache unless noted")
-    _save(fig, OUT / "sparse-relations")
-    common = ("Every row computes the same weighted in-edge sum printed "
-              "above the chart; only the graph slice, feature width and "
-              "cache state change — ")
-    tooltips = {}
-    for index, (name, _value, _low) in enumerate(rows):
-        tooltips[f"slice-{index}-bar"] = common + slice_notes[name]
-        tooltips[f"slice-{index}-label"] = common + slice_notes[name]
-    _inject_tooltips(OUT / "sparse-relations.svg", tooltips)
+    fig.text(0.03, 0.94, "Weighted graph aggregation: execution time",
+             fontsize=11, fontweight="bold", color=INK)
+    fig.text(0.03, 0.875, "Historical · RTX 5070 Ti · 131,072 nodes · 16 features · hot cache",
+             fontsize=8.5, color=INK)
+    fig.text(0.03, 0.075, "* Prepared: fixed input bindings; preparation is outside timing.",
+             fontsize=8.5, color=INK)
+    fig.text(0.03, 0.025, "Forward only. No first compilation, graph build, transfer or backward.",
+             fontsize=8.5, color=INK)
+    _save(fig, OUT / "spmm-provider-compare")
 
 
 def _ratio_figure(
@@ -337,9 +260,7 @@ def _ratio_figure(
 
 
 def figure_edge_nn() -> None:
-    case = json.loads(
-        (ROOT / "roofline" / "radius_edge_mlp" / "n262144" / "results.json")
-        .read_text())
+    case = _read(ROOT / "roofline" / "radius_edge_mlp" / "n262144" / "results.json")
     latency = {
         item["provider"]: item["milliseconds"] for item in case["results"]}
     # The user-facing baselines are the external tools: PyTorch eager and
@@ -378,13 +299,12 @@ def figure_edge_nn() -> None:
     for name, directory in (("16k · 0.5M edges", "quick"),
                             ("131k · 4.0M edges", "default"),
                             ("262k · 8.1M edges", "n262144")):
-        payload = json.loads(
-            (ROOT / "roofline" / "radius_edge_mlp" / directory
-             / "results.json").read_text())
+        payload = _read(ROOT / "roofline" / "radius_edge_mlp" / directory
+             / "results.json")
         scales.append(
             (name, payload["memory"]["eager_message_activation_bytes"] / 2**30))
     rows = [(
-        f"eager (PyTorch / Tiga) · {name}", gb, f"{gb:.2f} GB", BASE)
+        f"eager (PyTorch / Tiga) · {name}", gb, f"{gb:.2f} GiB", BASE)
         for name, gb in scales]
     rows.append(("fused tile (Tiga + oracle) · every scale",
                  0.0, "0 at every scale", GF))
@@ -394,7 +314,7 @@ def figure_edge_nn() -> None:
     ax.invert_yaxis()
     ax.set_yticks(np.arange(len(rows)), [row[0] for row in rows])
     ax.set_xlim(0, max(gb for _name, gb in scales) * 1.3)
-    ax.set_xlabel("O(E) message activations (GB)")
+    ax.set_xlabel("O(E) message activations (GiB)")
     for bar, value, label in zip(
             bars, [row[1] for row in rows], [row[2] for row in rows]):
         ax.text(
@@ -416,9 +336,8 @@ def figure_edge_nn_backward() -> None:
     Source: output/roofline/edge_nn_backward/cuda_n131072_degree32
     (measured; one forward+backward step, compile excluded).
     """
-    payload = json.loads(
-        (ROOT / "roofline" / "edge_nn_backward" / "cuda_n131072_degree32"
-         / "roofline.json").read_text())
+    payload = _read(ROOT / "roofline" / "edge_nn_backward" / "cuda_n131072_degree32"
+         / "roofline.json")
     latency = {
         item["provider"]: item["milliseconds"] for item in payload["results"]}
     memory = payload["memory"]["step_peak_bytes"]
@@ -454,9 +373,8 @@ def figure_gat_attention() -> None:
     Source: output/roofline/gat_attention/cuda_n131072_degree32
     (measured; one forward+backward step, compile excluded).
     """
-    payload = json.loads(
-        (ROOT / "roofline" / "gat_attention" / "cuda_n131072_degree32"
-         / "roofline.json").read_text())
+    payload = _read(ROOT / "roofline" / "gat_attention" / "cuda_n131072_degree32"
+         / "roofline.json")
     latency = {
         item["provider"]: item["milliseconds"] for item in payload["results"]}
     memory = payload["memory"]["step_peak_bytes"]
@@ -561,9 +479,7 @@ def figure_attention() -> None:
 
 
 def figure_distributed_overlap() -> None:
-    payload = json.loads(
-        (ROOT / "distributed" / "automatic_cpu_overlap" / "results.json")
-        .read_text())
+    payload = _read(ROOT / "distributed" / "automatic_cpu_overlap" / "results.json")
     sample = payload["ranks"][0]["samples"]["tiga.auto"][0]
     t0 = sample["interior_started_ns"]
     interior = (
@@ -585,7 +501,7 @@ def figure_distributed_overlap() -> None:
     ax_time.axvspan(*overlap, color=ORACLE, alpha=0.14, zorder=2)
     ax_time.text(
         interior[0] + 0.15, 0.86,
-        "halo exchange hidden behind interior compute\n"
+        "one sample trace; median reported separately\n"
         f"median overlap {payload['median_measured_overlap_ms']:.2f} ms",
         fontsize=8.5, color=MUTED)
     ax_time.text(
@@ -601,7 +517,7 @@ def figure_distributed_overlap() -> None:
 
     _headline(
         fig,
-        "Distributed message passing overlaps communication by default",
+        "Two CPU processes: controlled-link overlap",
         f"stdlib transport · {payload['entities']:,} entities · "
         f"degree {payload['degree']} · F={payload['features']} · "
         f"boundary {payload['boundary_fraction']:.0%} · 2 processes · "
@@ -613,18 +529,59 @@ def figure_distributed_overlap() -> None:
 
 
 def main() -> None:
+    import argparse
+    global ROOT, OUT, INCLUDES, CHART_SOURCES
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--root", type=Path, default=ROOT)
+    parser.add_argument("--out", type=Path, default=OUT)
+    parser.add_argument("--includes", type=Path, default=Path("docs/includes"))
+    args = parser.parse_args()
+    ROOT, OUT, INCLUDES = args.root, args.out, args.includes
+    OUT.mkdir(parents=True, exist_ok=True)
+    CHART_SOURCES = {}
     _style()
+    SOURCES.clear()
     figure_transformations()
+    CHART_SOURCES["transformations"] = sorted(SOURCES)
+    SOURCES.clear()
     figure_cpu_relations()
+    CHART_SOURCES["cpu-relations"] = sorted(SOURCES)
+    SOURCES.clear()
     figure_primitive_parity()
+    CHART_SOURCES["primitive-parity"] = sorted(SOURCES)
+    SOURCES.clear()
     figure_sparse_relations()
+    CHART_SOURCES["sparse-relations"] = sorted(SOURCES)
+    SOURCES.clear()
     figure_edge_nn()
+    CHART_SOURCES["edge-nn"] = sorted(SOURCES)
+    CHART_SOURCES["edge-nn-message-passing"] = sorted(SOURCES)
+    CHART_SOURCES["edge-nn-memory"] = sorted(SOURCES)
+    del CHART_SOURCES["edge-nn"]
+    SOURCES.clear()
     figure_edge_nn_backward()
+    CHART_SOURCES["edge-nn-backward"] = sorted(SOURCES)
+    SOURCES.clear()
     figure_gat_attention()
+    CHART_SOURCES["gat-attention"] = sorted(SOURCES)
+    SOURCES.clear()
     figure_dynamic_boundaries()
+    CHART_SOURCES["dynamic-boundaries"] = sorted(SOURCES)
+    SOURCES.clear()
     figure_attention()
+    CHART_SOURCES["attention"] = sorted(SOURCES)
+    SOURCES.clear()
     figure_distributed_overlap()
-    full_matrix.main()
+    CHART_SOURCES["distributed-overlap"] = sorted(SOURCES)
+    SOURCES.clear()
+    figure_provider_comparison()
+    CHART_SOURCES["spmm-provider-compare"] = sorted(SOURCES)
+    full_matrix.main(root=ROOT / "roofline", out_dir=INCLUDES)
+    import hashlib
+    index = {"schema": "tiga.chart-inputs.v1", "charts": CHART_SOURCES,
+             "files": [{"path": p, "sha256": hashlib.sha256((ROOT / p).read_bytes()).hexdigest()}
+                       for p in sorted(set().union(*map(set, CHART_SOURCES.values())))]}
+    (OUT / "chart-inputs.json").write_text(json.dumps(index, indent=2) + "\n")
 
 
 if __name__ == "__main__":

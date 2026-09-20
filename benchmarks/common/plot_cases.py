@@ -27,13 +27,14 @@ def main() -> None:
             continue
         for case in record.get("cases", []):
             directory = args.root / operation / case
-            path = directory / "roofline.json"
+            path = directory / record.get("artifact", "roofline.json")
             if not path.is_file():
                 raise SystemExit(f"missing registered JSON: {path}")
             payload = json.loads(path.read_text(encoding="utf-8"))
-            plot_roofline(payload, directory)
+            if "roof" in payload:
+                plot_roofline(payload, directory)
+                print(directory / "roofline.svg")
             plot_latency(payload, directory)
-            print(directory / "roofline.svg")
             print(directory / "provider_latency.svg")
 
 

@@ -24,7 +24,7 @@ from pathlib import Path
 
 import torch
 
-import tiga as gf
+import tiga as tg
 from tiga.interop.torch.graph import from_native
 from benchmarks.common.output_layout import artifact_path
 from benchmarks.common.perf_protocol import evaluate_sota_gates
@@ -36,8 +36,8 @@ from benchmarks.graph_operations.radius_build import unit_ball_volume
 SOTA_MATCH_THRESHOLD = 1.0
 
 
-class DistanceAggregation(gf.MessagePassing):
-    reducer = gf.sum()
+class DistanceAggregation(tg.MessagePassing):
+    reducer = tg.sum()
 
     def edge(self, src, dst, edge):
         return edge.distance * src.x
@@ -196,19 +196,19 @@ def main() -> None:
     # Every build-only sample owns a new logical graph. Reusing one Graph here
     # would measure its immutable physical-cache lookup, not construction.
     def build_materialized():
-        return gf.Graph.radius(
+        return tg.Graph.radius(
             positions, cutoff, periodic=periodic
         ).resolve_csr()
 
     def build_directory():
-        return gf.Graph.radius(positions, cutoff).generated_cell_directory()
+        return tg.Graph.radius(positions, cutoff).generated_cell_directory()
 
     build_samples = wall_samples_ms(build_materialized, device, args.repeat)
     directory_build_samples = (
         wall_samples_ms(build_directory, device, args.repeat)
         if periodic is None else None
     )
-    build_graph = gf.Graph.radius(positions, cutoff, periodic=periodic)
+    build_graph = tg.Graph.radius(positions, cutoff, periodic=periodic)
     row_ptr, col_idx = build_graph.resolve_csr()
     distance = from_native(build_graph).implicit_edge_fields(
         row_ptr, col_idx)["distance"]
@@ -217,7 +217,7 @@ def main() -> None:
     degree_min = int(degrees.min().item())
     degree_max = int(degrees.max().item())
 
-    snapshot = gf.Graph.from_csr(
+    snapshot = tg.Graph.from_csr(
         row_ptr, col_idx, num_src=args.particles, validate="basic")
     consume_kernel = DistanceAggregation()
 
@@ -239,14 +239,14 @@ def main() -> None:
         graphforge_consume, torch_consume, device, args.repeat
     )
 
-    dynamic_graph = gf.Graph.radius(positions, cutoff, periodic=periodic)
+    dynamic_graph = tg.Graph.radius(positions, cutoff, periodic=periodic)
     dynamic_kernel = DistanceAggregation()
 
     def graphforge_reuse():
         return dynamic_kernel(
             graph=dynamic_graph, src={"x": x}, dst={"x": x})
 
-    baseline_graph = gf.Graph.radius(positions, cutoff, periodic=periodic)
+    baseline_graph = tg.Graph.radius(positions, cutoff, periodic=periodic)
     baseline_row, baseline_col = baseline_graph.resolve_csr()
     baseline_distance = from_native(baseline_graph).implicit_edge_fields(
         baseline_row, baseline_col)["distance"]
@@ -256,12 +256,12 @@ def main() -> None:
             baseline_row, baseline_col, baseline_distance, x)
 
     def graphforge_logical_rebind():
-        graph = gf.Graph.radius(positions, cutoff, periodic=periodic)
+        graph = tg.Graph.radius(positions, cutoff, periodic=periodic)
         return dynamic_kernel(
             graph=graph, src={"x": x}, dst={"x": x})
 
     def torch_logical_rebind():
-        graph = gf.Graph.radius(positions, cutoff, periodic=periodic)
+        graph = tg.Graph.radius(positions, cutoff, periodic=periodic)
         current_row, current_col = graph.resolve_csr()
         current_distance = from_native(graph).implicit_edge_fields(
             current_row, current_col)["distance"]
@@ -284,7 +284,7 @@ def main() -> None:
     def graphforge_topology_rebuild():
         gf_rebuild_positions.add_(rebuild_shift, alpha=gf_rebuild_sign[0])
         gf_rebuild_sign[0] = -gf_rebuild_sign[0]
-        graph = gf.Graph.radius(
+        graph = tg.Graph.radius(
             gf_rebuild_positions, cutoff, periodic=periodic)
         return dynamic_kernel(
             graph=graph, src={"x": x}, dst={"x": x})
@@ -293,7 +293,7 @@ def main() -> None:
         torch_rebuild_positions.add_(
             rebuild_shift, alpha=torch_rebuild_sign[0])
         torch_rebuild_sign[0] = -torch_rebuild_sign[0]
-        graph = gf.Graph.radius(
+        graph = tg.Graph.radius(
             torch_rebuild_positions, cutoff, periodic=periodic)
         current_row, current_col = graph.resolve_csr()
         current_distance = from_native(graph).implicit_edge_fields(

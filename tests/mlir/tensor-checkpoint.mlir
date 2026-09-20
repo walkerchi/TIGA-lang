@@ -2,7 +2,7 @@
 // RUN: gf-translate --gf-tensor-to-ttir %s | FileCheck %s --check-prefix=TTIR
 
 // CHECK: "gf_tensor.checkpoint"
-// TTIR: graphforge.tensor entry=gf_tensor_pointwise
+// TTIR: tiga.tensor entry=gf_tensor_pointwise
 // TTIR: tt.load
 // TTIR: tt.store
 func.func @checkpoint_pointwise(%arg0: tensor<1024xf32>,

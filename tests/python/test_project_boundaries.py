@@ -41,7 +41,7 @@ class ProjectBoundaryTest(unittest.TestCase):
         self.assertTrue((oracle_dir / "sparse_triton_oracles.py").is_file())
 
     def test_high_level_framework_packages_are_out_of_scope(self):
-        # tiga/nn is the capture adapter (gf.nn.trace): it wraps user
+        # tiga/nn is the capture adapter (tg.nn.trace): it wraps user
         # torch.nn modules into compiler-visible DAGs and owns no layers,
         # losses, or training loops.  Framework surface stays forbidden.
         forbidden = ("optim", "optimizer", "dataset", "datasets")
@@ -56,16 +56,21 @@ class ProjectBoundaryTest(unittest.TestCase):
                    if path.suffix == ".py"),
             ["__init__.py"])
 
-    def test_torch_is_an_optional_adapter(self):
+    def test_torch_is_an_optional_application_dependency(self):
         project = tomllib.loads((ROOT / "pyproject.toml").read_text())
-        self.assertNotIn("torch>=2.1", project["project"]["dependencies"])
-        self.assertIn("torch>=2.1", project["project"]["optional-dependencies"]["torch"])
+        from packaging.requirements import Requirement
+        dependencies = project["project"]["dependencies"]
+        self.assertNotIn("torch", {Requirement(dep).name.lower() for dep in dependencies})
+        self.assertIn("torch>=2.11,<2.12", project["project"]["optional-dependencies"]["torch"])
 
     def test_release_metadata_names_the_real_repository_and_maintainer(self):
         project = tomllib.loads((ROOT / "pyproject.toml").read_text())["project"]
         self.assertEqual(project["name"], "tiga-lang")
-        self.assertEqual(project["authors"], [{"name": "walkerchi"}])
-        self.assertEqual(project["maintainers"], [{"name": "walkerchi"}])
+        identity = [{"name": "walkerchi", "email": "walker.chi.000@gmail.com"}]
+        self.assertEqual(project["authors"], identity)
+        self.assertEqual(project["maintainers"], identity)
+        for name in ("SECURITY.md", "CITATION.cff", "docs/support.md", "docs/support.zh.md"):
+            self.assertIn(identity[0]["email"], (ROOT / name).read_text())
         self.assertEqual(
             project["urls"]["Repository"],
             "https://github.com/walkerchi/TIGA-lang.git",

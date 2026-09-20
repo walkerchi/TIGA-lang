@@ -2,7 +2,17 @@
 
 状态：历史记录，不是现行规范  
 整理日期：2026-08-12  
-现行规范：[PROJECT.md](PROJECT.md)
+设计背景：[PROJECT.md](PROJECT.md)；当前接口与支持范围以
+[API reference](docs/api.zh.md)、[roadmap](docs/roadmap.zh.md) 和实现测试为准。
+
+2026-09-19 调度决策更新：distributed 只保留一种公开执行策略——完成 halo
+通信后计算全部本地 owned 行。历史 overlap 代码和测量只用于内部回归，
+不自动启用、不提供公开选择；暂缓进一步 overlap 优化。
+
+2026-09-18 接口决策更新：默认应用入口改为 `torch.Tensor` 与 Torch autograd，
+Torch 由使用者单独安装，不进入默认安装依赖。原生 Tensor 支持无 Torch 环境，
+也用于当前 Torch 不支持的高级能力。默认应用接口与可选安装依赖是两个契约；
+底层编译器和原生运行时的独立性不变。
 
 本文按讨论和实现发生的先后顺序，记录 Tiga 从“科学仿真是否都能抽象为
 MessagePassing”发展为 relation-oriented compiler 的过程。每个节点尽量保留当时的问题、
@@ -294,8 +304,8 @@ unsupported。
 **被质疑的 API**
 
 ```python
-gf.Placement(home="ram", cache=("hbm",), spill="nvme")
-gf.Schedule().tile("dst", 4096).cache(..., space="shared").pipeline(...)
+tg.Placement(home="ram", cache=("hbm",), spill="nvme")
+tg.Schedule().tile("dst", 4096).cache(..., space="shared").pipeline(...)
 ```
 
 **问题**
@@ -559,7 +569,7 @@ Runtime 可以在证明安全后复用 physical buffer，但 public semantics �
 **被质疑的 API**
 
 ```python
-graph = gf.Graph.open("dataset.gfg")
+graph = tg.Graph.open("dataset.gfg")
 ```
 
 单独的 `open()` 容易让人误解 SSD graph 是另一种算法对象。
@@ -728,8 +738,8 @@ Graph。Dense attention 可用它检验：compiler 是否真的能保留 contrac
 **设计**
 
 ```python
-class DenseAttention(gf.MessagePassing):
-    reducer = gf.online_softmax()
+class DenseAttention(tg.MessagePassing):
+    reducer = tg.online_softmax()
 
     def edge(self, src, dst, edge, scale):
         score = (src.key * dst.query).sum(dim=-1) * scale
@@ -764,7 +774,7 @@ broadcast 和梯度；但复制完整训练框架会稀释 compiler 主线。
 
 **最终范围**
 
-- 实现 `gf.Tensor`、Buffer/Device/Stream/Event、basic autograd；
+- 实现 `tg.Tensor`、Buffer/Device/Stream/Event、basic autograd；
 - 支持 reshape、permute、broadcast、axis reduction、complex dtype；
 - Torch/DLPack/external buffer interop；
 - 暂不实现 optimizer、dataset、通用 `nn` package。
@@ -1212,7 +1222,7 @@ Python 表面仍是 thin staging。
 
 **动机**
 
-`gf.repeat/gf.while_loop` 的 lambda 形式与项目自身惯例不一致：§2.3 早已规定“class 便于
+`tg.repeat/tg.while_loop` 的 lambda 形式与项目自身惯例不一致：§2.3 早已规定“class 便于
 命名、复用、检查 IR 和持有 specialization，lambda 只是匿名 shorthand”。讨论中否定了
 Taichi/AutoGraph 式 AST 捕获路线——它需要一个 Python 子集前端子系统（源码可得性、
 闭包规则、诊断质量），却只换拼写；现有 proxy tracing 已足够表达循环契约，且 loop-carried
@@ -1220,10 +1230,10 @@ state 与 `max_iterations` 本来就是必须显式的资源/调度契约，不�
 
 **决策**
 
-新增 `gf.control.Repeat` / `gf.control.While`：subclass override `body`（While 另有
+新增 `tg.control.Repeat` / `tg.control.While`：subclass override `body`（While 另有
 `condition`），captured constants 是普通实例属性。class 是主拼写，functional
 `repeat/while_loop` 保留为匿名 shorthand；两者经同一条 tracing 路径 lower 到同一个
-`gf_control.repeat/while` op，零 IR 改动。`@gf.program` 边界的 AST 捕获仍保留为未来可选
+`gf_control.repeat/while` op，零 IR 改动。`@tg.program` 边界的 AST 捕获仍保留为未来可选
 语法糖，不是当前工作项。
 
 **验证**
@@ -1236,18 +1246,18 @@ state 与 `max_iterations` 本来就是必须显式的资源/调度契约，不�
 
 ---
 
-## T37：2026-08-15——编排层 `@gf.jit` AST 子集
+## T37：2026-08-15——编排层 `@tg.jit` AST 子集
 
 **动机**
 
-`gf.repeat/gf.while_loop` 的三元组写法不够 Pythonic。讨论确认 AST 路线可以做，但边界
+`tg.repeat/tg.while_loop` 的三元组写法不够 Pythonic。讨论确认 AST 路线可以做，但边界
 必须划清：AST 只作用于编排层（调用 MessagePassing/Tensor 代数的外层函数），永不进入
 `edge()`/`node()` UDF region（那里维持 proxy tracing）。关键约束是 `max_iterations`
 资源契约不能丢——Python 循环语法本身没有承载它的位置。
 
 **决策**
 
-- 新增 `@gf.jit` / `@gf.jit(max_iterations=k)`（`python/tiga/jit.py`）：capture 期
+- 新增 `@tg.jit` / `@tg.jit(max_iterations=k)`（`python/tiga/jit.py`）：capture 期
   AST 重写，`for i in range(k)` → `gf_control.repeat`，裸 `while cond:` →
   `gf_control.while`（上界取装饰器参数），`for` body 首句 `if cond: break` → 提前退出
   的 bounded while（上界取 range 长度）。循环变量 `i` 被读取时 desugar 为额外 carried
@@ -1266,7 +1276,7 @@ state 与 `max_iterations` 本来就是必须显式的资源/调度契约，不�
 - `tests/python/test_jit.py` 8 项：for/while/for+break 与 functional 形式 IR 等价
   （`num_carried`、op 计数）、carried 自动推导、循环变量 desugar、MessagePassing 在
   循环体内、8 类 fail-closed；
-- `examples/solvers.py` 的 `cg`/`richardson` 改用 `@gf.jit` 自然循环写法后，
+- `examples/solvers.py` 的 `cg`/`richardson` 改用 `@tg.jit` 自然循环写法后，
   `test_solvers.py` 12 项断言（含 `num_carried=4`、`scf.while`、`arith.cmpf ogt`、
   VJP 数值）一字未改全部通过——transform 不改变 IR；
 - 全量 Python suite 通过；ruff 与 mkdocs strict 通过。

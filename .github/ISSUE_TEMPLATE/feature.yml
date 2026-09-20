@@ -1,0 +1,18 @@
+name: Feature or documentation request
+description: Explain a missing use case or unclear documentation.
+title: "[Request] "
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Use case or unclear page / 场景或不清楚的页面
+      description: Include a documentation URL and language where applicable.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior / 期望行为
+      description: A short example, constraints and existing workaround are useful.
+    validations:
+      required: true

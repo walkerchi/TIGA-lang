@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from itertools import pairwise
 
-import tiga as gf
+import tiga as tg
 import pytest
 import torch
 
@@ -28,17 +28,40 @@ CU_SEQLENS_CASES = [
 ]
 
 
+@pytest.mark.parametrize("family", ["native", "torch"])
+@pytest.mark.parametrize("device", ["cpu", "cuda"])
+@pytest.mark.parametrize("empty", [False, True])
+def test_transpose_bipartite_preserves_isolated_nodes(family, device, empty):
+    if device == "cuda" and not torch.cuda.is_available():
+        pytest.skip("CUDA unavailable")
+    factory = tg.tensor if family == "native" else torch.tensor
+    dtype = tg.int64 if family == "native" else torch.int64
+    graph = tg.Graph.from_csr(
+        factory([0, 0, 0] if empty else [0, 2, 3], dtype=dtype, device=device),
+        factory([] if empty else [0, 2, 2], dtype=dtype, device=device),
+        num_src=4,
+    )
+    transposed = graph.transpose()
+    assert transposed.schema.num_src == 2
+    assert transposed.schema.num_dst == 4
+    rows, columns = transposed.resolve_csr()
+    assert rows.tolist() == ([0, 0, 0, 0, 0] if empty else [0, 1, 1, 3, 3])
+    assert columns.tolist() == ([] if empty else [0, 0, 1])
+    assert transposed.device == graph.device
+    assert columns.dtype == tg.int64
+
+
 @pytest.mark.parametrize("boundaries", CU_SEQLENS_CASES)
 @pytest.mark.parametrize("causal", [True, False])
 def test_cu_seqlens_matches_brute_force(boundaries, causal):
     expected_rows, expected_columns = _reference_cu_seqlens(boundaries, causal)
-    graph = gf.Graph.cu_seqlens(
+    graph = tg.Graph.cu_seqlens(
         torch.tensor(boundaries, dtype=torch.int64), causal=causal)
     assert graph.schema.num_src == boundaries[-1]
     row_ptr, col_idx = graph.resolve_csr()
     assert row_ptr.tolist() == expected_rows
     assert col_idx.tolist() == expected_columns
-    gf.Graph.from_csr(
+    tg.Graph.from_csr(
         row_ptr, col_idx, num_src=boundaries[-1], validate="full")
 
 
@@ -46,17 +69,17 @@ def test_cu_seqlens_matches_brute_force(boundaries, causal):
 def test_cu_seqlens_native_tensor_input(causal):
     boundaries = [0, 3, 4, 4, 8]
     expected_rows, expected_columns = _reference_cu_seqlens(boundaries, causal)
-    graph = gf.Graph.cu_seqlens(
-        gf.tensor(boundaries, dtype=gf.int64), causal=causal)
+    graph = tg.Graph.cu_seqlens(
+        tg.tensor(boundaries, dtype=tg.int64), causal=causal)
     row_ptr, col_idx = graph.resolve_csr()
     assert row_ptr.tolist() == expected_rows
     assert col_idx.tolist() == expected_columns
-    gf.Graph.from_csr(
+    tg.Graph.from_csr(
         row_ptr, col_idx, num_src=boundaries[-1], validate="full")
 
 
 def test_cu_seqlens_preserves_int32_index_dtype():
-    graph = gf.Graph.cu_seqlens(torch.tensor([0, 2, 5], dtype=torch.int32))
+    graph = tg.Graph.cu_seqlens(torch.tensor([0, 2, 5], dtype=torch.int32))
     assert graph.schema.index_dtype.name == "int32"
     row_ptr, col_idx = graph.resolve_csr()
     assert row_ptr.tolist() == [0, 1, 3, 4, 6, 9]
@@ -65,13 +88,13 @@ def test_cu_seqlens_preserves_int32_index_dtype():
 
 def test_cu_seqlens_validation():
     with pytest.raises(ValueError, match="start at zero"):
-        gf.Graph.cu_seqlens(torch.tensor([1, 2], dtype=torch.int64))
+        tg.Graph.cu_seqlens(torch.tensor([1, 2], dtype=torch.int64))
     with pytest.raises(ValueError, match="monotonic"):
-        gf.Graph.cu_seqlens(torch.tensor([0, 3, 2], dtype=torch.int64))
+        tg.Graph.cu_seqlens(torch.tensor([0, 3, 2], dtype=torch.int64))
     with pytest.raises(ValueError, match="one-dimensional"):
-        gf.Graph.cu_seqlens(torch.zeros(2, 2, dtype=torch.int64))
+        tg.Graph.cu_seqlens(torch.zeros(2, 2, dtype=torch.int64))
     with pytest.raises(TypeError, match="causal"):
-        gf.Graph.cu_seqlens(torch.tensor([0, 1], dtype=torch.int64), causal=1)
+        tg.Graph.cu_seqlens(torch.tensor([0, 1], dtype=torch.int64), causal=1)
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA is unavailable")
@@ -79,7 +102,7 @@ def test_cu_seqlens_validation():
 def test_cu_seqlens_builds_index_tensors_on_cuda(causal):
     boundaries = [0, 3, 4, 7]
     expected_rows, expected_columns = _reference_cu_seqlens(boundaries, causal)
-    graph = gf.Graph.cu_seqlens(
+    graph = tg.Graph.cu_seqlens(
         torch.tensor(boundaries, dtype=torch.int64, device="cuda"), causal=causal)
     row_ptr, col_idx = graph.resolve_csr()
     assert row_ptr.tolist() == expected_rows
@@ -87,19 +110,19 @@ def test_cu_seqlens_builds_index_tensors_on_cuda(causal):
 
 
 def test_stencil_1d_three_point_truncates_boundaries():
-    graph = gf.Graph.stencil((4,), ((-1,), (0,), (1,)))
+    graph = tg.Graph.stencil((4,), ((-1,), (0,), (1,)))
     assert graph.schema.num_src == 4
     row_ptr, col_idx = graph.resolve_csr()
     assert row_ptr.tolist() == [0, 2, 5, 8, 10]
     assert col_idx.tolist() == [0, 1, 0, 1, 2, 1, 2, 3, 2, 3]
     assert graph.degree_bounds() == (2, 3)
-    gf.Graph.from_csr(row_ptr, col_idx, num_src=4, validate="full")
+    tg.Graph.from_csr(row_ptr, col_idx, num_src=4, validate="full")
 
 
 def test_stencil_2d_five_point_exact():
     # Row-major (r, c) -> r * 3 + c on a 2x3 grid; offsets follow the
     # (0,0), (0,1), (0,-1), (1,0), (-1,0) order within each row.
-    graph = gf.Graph.stencil(
+    graph = tg.Graph.stencil(
         (2, 3), ((0, 0), (0, 1), (0, -1), (1, 0), (-1, 0)))
     row_ptr, col_idx = graph.resolve_csr()
     assert row_ptr.tolist() == [0, 3, 7, 10, 13, 17, 20]
@@ -111,34 +134,34 @@ def test_stencil_2d_five_point_exact():
         4, 5, 3, 1,
         5, 4, 2,
     ]
-    gf.Graph.from_csr(row_ptr, col_idx, num_src=6, validate="full")
+    tg.Graph.from_csr(row_ptr, col_idx, num_src=6, validate="full")
 
 
 def test_stencil_periodic_1d_ring():
-    graph = gf.Graph.stencil((4,), ((-1,), (0,), (1,)), periodic=True)
+    graph = tg.Graph.stencil((4,), ((-1,), (0,), (1,)), periodic=True)
     row_ptr, col_idx = graph.resolve_csr()
     assert row_ptr.tolist() == [0, 3, 6, 9, 12]
     assert col_idx.tolist() == [3, 0, 1, 0, 1, 2, 1, 2, 3, 2, 3, 0]
     assert graph.fixed_degree() == 3
-    gf.Graph.from_csr(row_ptr, col_idx, num_src=4, validate="full")
+    tg.Graph.from_csr(row_ptr, col_idx, num_src=4, validate="full")
 
 
 def test_stencil_validation():
     with pytest.raises(ValueError, match="dims"):
-        gf.Graph.stencil((), ((0,),))
+        tg.Graph.stencil((), ((0,),))
     with pytest.raises(ValueError, match="dims"):
-        gf.Graph.stencil((0,), ((0,),))
+        tg.Graph.stencil((0,), ((0,),))
     with pytest.raises(ValueError, match="offsets"):
-        gf.Graph.stencil((3,), ())
+        tg.Graph.stencil((3,), ())
     with pytest.raises(ValueError, match="offsets"):
-        gf.Graph.stencil((3,), ((0, 0),))
+        tg.Graph.stencil((3,), ((0, 0),))
     with pytest.raises(TypeError, match="periodic"):
-        gf.Graph.stencil((3,), ((0,),), periodic=1)
+        tg.Graph.stencil((3,), ((0,),), periodic=1)
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA is unavailable")
 def test_stencil_builds_index_tensors_on_cuda():
-    graph = gf.Graph.stencil((4,), ((-1,), (0,), (1,)), device="cuda")
+    graph = tg.Graph.stencil((4,), ((-1,), (0,), (1,)), device="cuda")
     row_ptr, col_idx = graph.resolve_csr()
     assert row_ptr.tolist() == [0, 2, 5, 8, 10]
     assert col_idx.tolist() == [0, 1, 0, 1, 2, 1, 2, 3, 2, 3]
@@ -159,27 +182,27 @@ def test_cat_matches_cu_seqlens(lengths, causal):
     boundaries = [0]
     for length in lengths:
         boundaries.append(boundaries[-1] + length)
-    block = gf.Graph.triangular if causal else gf.Graph.dense
-    graph = gf.Graph.cat([block(length) for length in lengths])
-    reference = gf.Graph.cu_seqlens(
-        gf.tensor(boundaries, dtype=gf.int64), causal=causal)
+    block = tg.Graph.triangular if causal else tg.Graph.dense
+    graph = tg.Graph.cat([block(length) for length in lengths])
+    reference = tg.Graph.cu_seqlens(
+        tg.tensor(boundaries, dtype=tg.int64), causal=causal)
     assert graph.schema.num_src == boundaries[-1]
     assert graph.schema.num_dst == boundaries[-1]
     row_ptr, col_idx = graph.resolve_csr()
     ref_rows, ref_columns = reference.resolve_csr()
     assert row_ptr.tolist() == ref_rows.tolist()
     assert col_idx.tolist() == ref_columns.tolist()
-    gf.Graph.from_csr(
+    tg.Graph.from_csr(
         row_ptr, col_idx, num_src=boundaries[-1], validate="full")
 
 
 def test_cat_mixed_blocks_offsets_sources():
-    dense_block = gf.Graph.dense(2, 3)  # num_src=2, num_dst=3
-    csr_block = gf.Graph.from_csr(
+    dense_block = tg.Graph.dense(2, 3)  # num_src=2, num_dst=3
+    csr_block = tg.Graph.from_csr(
         torch.tensor([0, 2, 3], dtype=torch.int64),
         torch.tensor([1, 2, 0], dtype=torch.int64),
         num_src=3)
-    graph = gf.Graph.cat([dense_block, csr_block])
+    graph = tg.Graph.cat([dense_block, csr_block])
     assert graph.schema.num_src == 5
     assert graph.schema.num_dst == 5
     row_ptr, col_idx = graph.resolve_csr()
@@ -188,41 +211,41 @@ def test_cat_mixed_blocks_offsets_sources():
 
 
 def test_cat_promotes_index_dtype_to_int64():
-    graph = gf.Graph.cat(
-        [gf.Graph.dense(2, index_dtype=gf.int32), gf.Graph.dense(2)])
+    graph = tg.Graph.cat(
+        [tg.Graph.dense(2, index_dtype=tg.int32), tg.Graph.dense(2)])
     assert graph.schema.index_dtype.name == "int64"
 
 
 def test_cat_validation():
     with pytest.raises(ValueError, match="non-empty"):
-        gf.Graph.cat([])
+        tg.Graph.cat([])
     with pytest.raises(TypeError, match="list or tuple"):
-        gf.Graph.cat(gf.Graph.dense(2))
+        tg.Graph.cat(tg.Graph.dense(2))
     with pytest.raises(TypeError, match="only Graph"):
-        gf.Graph.cat([gf.Graph.dense(2), 3])
+        tg.Graph.cat([tg.Graph.dense(2), 3])
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA is unavailable")
 def test_cat_builds_index_tensors_on_cuda():
-    graph = gf.Graph.cat(
-        [gf.Graph.triangular(4, device="cuda"),
-         gf.Graph.dense(2, device="cuda")])
+    graph = tg.Graph.cat(
+        [tg.Graph.triangular(4, device="cuda"),
+         tg.Graph.dense(2, device="cuda")])
     row_ptr, col_idx = graph.resolve_csr()
     assert row_ptr.device.type == "cuda" or "cuda" in str(row_ptr.device)
     assert row_ptr.tolist() == [0, 1, 3, 6, 10, 12, 14]
     assert col_idx.tolist() == [0, 0, 1, 0, 1, 2, 0, 1, 2, 3, 4, 5, 4, 5]
     with pytest.raises(ValueError, match="share a device"):
-        gf.Graph.cat([gf.Graph.dense(2), gf.Graph.dense(2, device="cuda")])
+        tg.Graph.cat([tg.Graph.dense(2), tg.Graph.dense(2, device="cuda")])
 
 
 def test_cat_result_feeds_message_passing():
-    class Sum(gf.MessagePassing):
-        reducer = gf.sum()
+    class Sum(tg.MessagePassing):
+        reducer = tg.sum()
 
         def edge(self, src, dst, edge):
             return src.x
 
-    x = gf.tensor([1.0, 2.0, 3.0, 4.0])
-    graph = gf.Graph.cat([gf.Graph.dense(2), gf.Graph.dense(2)])
+    x = tg.tensor([1.0, 2.0, 3.0, 4.0])
+    graph = tg.Graph.cat([tg.Graph.dense(2), tg.Graph.dense(2)])
     out = Sum()(graph=graph, src={"x": x}, dst={})
     assert out.tolist() == [3.0, 3.0, 7.0, 7.0]

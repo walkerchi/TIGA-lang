@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="680" height="420" viewBox="0 0 680 420" role="img" aria-labelledby="title desc">
-  <title id="title">Tile pruning: whole tiles skipped, never read</title>
-  <desc id="desc">An 8 by 8 attention matrix grouped into 2 by 2 tiles. Tiles near the diagonal are admitted in solid indigo; far tiles are crossed out and their scores and values are never read.</desc>
+  <title id="title">Tile pruning: skip low-score value loads</title>
+  <desc id="desc">An 8 by 8 attention matrix grouped into 2 by 2 tiles. Tiles near the diagonal are admitted in solid indigo; illustrative low-score tiles are crossed out. Scores are evaluated before pruning; only value loads and accumulation are skipped.</desc>
   <defs><style>
       text{font-family:Arial,sans-serif}
       .title{font-size:20px;font-weight:700;fill:#0f172a}
@@ -10,7 +10,7 @@
       .cap{font-size:11px;fill:#64748b}
 </style></defs>
   <rect width="680" height="420" rx="18" fill="#f8fafc" />
-  <text x="32" y="44" class="title">Tile pruning: whole tiles skipped, never read</text>
+  <text x="32" y="44" class="title">Tile pruning: skip low-score value loads</text>
 <rect x="150" y="112" width="28" height="28" rx="3" fill="#4f46e5" stroke="#ffffff" stroke-width="1.5" />
   <rect x="178" y="112" width="28" height="28" rx="3" fill="#4f46e5" stroke="#ffffff" stroke-width="1.5" />
   <rect x="206" y="112" width="28" height="28" rx="3" fill="#4f46e5" stroke="#ffffff" stroke-width="1.5" />
@@ -88,8 +88,8 @@
   <text x="132" y="224" text-anchor="middle" class="axis" transform="rotate(-90 132 224)">i · query (dst)</text>
   <text x="262" y="368" text-anchor="middle" class="cap">every cell is an edge; tiles are admitted or skipped whole</text>
   <rect x="430" y="152" width="16" height="16" rx="3" fill="#4f46e5" /><text x="454" y="165" class="body">admitted tile</text>
-  <rect x="430" y="180" width="16" height="16" rx="3" fill="#e2e8f0" stroke="#e2e8f0" stroke-width="1.5" /><path d="M435.12 185.12 L440.88 190.88 M440.88 185.12 L435.12 190.88" stroke="#64748b" stroke-width="2" stroke-linecap="round" fill="none" /><text x="454" y="193" class="body">pruned — never read</text>
-  <text x="430" y="240" class="body">a tile enters the softmax only</text>
-  <text x="430" y="264" class="body">if its best score is within τ</text>
-  <text x="430" y="288" class="body">of the running row max</text>
+  <rect x="430" y="180" width="16" height="16" rx="3" fill="#e2e8f0" stroke="#e2e8f0" stroke-width="1.5" /><path d="M435.12 185.12 L440.88 190.88 M440.88 185.12 L435.12 190.88" stroke="#64748b" stroke-width="2" stroke-linecap="round" fill="none" /><text x="454" y="193" class="body">pruned — no value load</text>
+  <text x="430" y="240" class="body">compute scores first; admit</text>
+  <text x="430" y="264" class="body">by a relative score threshold</text>
+  <text x="430" y="288" class="body">against the query-block max</text>
 </svg>

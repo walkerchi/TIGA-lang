@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import functools
 import inspect
 import os
 import weakref
@@ -17,6 +18,7 @@ from ...compiler.capture import (
     recognize_weighted_sum,
 )
 from .graph import Graph
+from .state import tensor_version
 from ...kernel import CompiledVariant, Kernel
 from ...reducer import OnlineSoftmaxReducer, SumReducer
 from ...runtime import (
@@ -82,13 +84,13 @@ class _EdgeNNWeightCache:
         if entry is not None:
             reference, version, padded = entry
             if reference() is parameter and version == (
-                    parameter._version, shape_key):
+                    tensor_version(parameter), shape_key):
                 return padded
         if len(self._entries) > 256:
             self._entries.clear()
         padded = build()
         self._entries[key] = (
-            weakref.ref(parameter), (parameter._version, shape_key), padded)
+            weakref.ref(parameter), (tensor_version(parameter), shape_key), padded)
         return padded
 
     @staticmethod
@@ -373,6 +375,93 @@ class _EdgeNNTileVjpFunction(torch.autograd.Function):
         return (None, None, None, None, None, None, None, *grads)
 
 
+class _CSRWeightedSumFunction(torch.autograd.Function):
+    """Compiled forward with a Torch-replayed, fixed-topology semantic VJP."""
+
+    @staticmethod
+    def forward(ctx, source, weight, row_ptr, col_idx, runner):
+        ctx.save_for_backward(source, weight, row_ptr, col_idx)
+        return runner(source, weight)
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        source, weight, row_ptr, col_idx = ctx.saved_tensors
+        create_graph = torch.is_grad_enabled()
+        need_source, need_weight = ctx.needs_input_grad[:2]
+        rows = row_ptr.numel() - 1
+        with torch.enable_grad():
+            # Distinct identity nodes compute partials per call argument even
+            # when the original arguments alias or one depends on the other.
+            source = source.view_as(source)
+            weight = weight.view_as(weight)
+            destination = torch.repeat_interleave(
+                torch.arange(rows, device=row_ptr.device), row_ptr[1:] - row_ptr[:-1])
+            values = source[col_idx]
+            scales = weight if values.ndim == 1 else weight.reshape(-1, 1)
+            messages = values * scales
+            output = messages.new_zeros((rows, *messages.shape[1:])).index_add(
+                0, destination, messages)
+            inputs = [value for value, needed in
+                      ((source, need_source), (weight, need_weight)) if needed]
+            gradients = iter(torch.autograd.grad(
+                output, inputs, grad_output, create_graph=create_graph))
+        return (next(gradients) if need_source else None,
+                next(gradients) if need_weight else None, None, None, None)
+
+
+def _weighted_sum_autograd_runner(runner, graph):
+    @functools.wraps(runner)
+    def run(source, weight):
+        if torch.is_grad_enabled() and (source.requires_grad or weight.requires_grad):
+            row_ptr, col_idx = graph.resolve_csr()
+            return _CSRWeightedSumFunction.apply(source, weight, row_ptr, col_idx, runner)
+        return runner(source, weight)
+    return run
+
+
+class _CSRExpressionFunction(torch.autograd.Function):
+    """Bridge a compiled scalar UDF using its existing Torch semantic evaluator."""
+
+    @staticmethod
+    def forward(ctx, runner, evaluate, row_ptr, col_idx, *inputs):
+        ctx.evaluate = evaluate
+        ctx.constants = tuple(None if isinstance(x, torch.Tensor) else x for x in inputs)
+        ctx.positions = tuple(i for i, x in enumerate(inputs) if isinstance(x, torch.Tensor))
+        ctx.save_for_backward(row_ptr, col_idx, *(inputs[i] for i in ctx.positions))
+        return runner(*inputs)
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        row_ptr, col_idx, *tensors = ctx.saved_tensors
+        inputs = list(ctx.constants)
+        for i, value in zip(ctx.positions, tensors):
+            inputs[i] = value
+        positions = [i for i in ctx.positions if ctx.needs_input_grad[4 + i]]
+        create_graph = torch.is_grad_enabled()
+        with torch.enable_grad():
+            for i in ctx.positions:
+                inputs[i] = inputs[i].view_as(inputs[i])
+            output = ctx.evaluate(row_ptr, col_idx, *inputs)
+            grads = torch.autograd.grad(output, [inputs[i] for i in positions],
+                                        grad_output, create_graph=create_graph,
+                                        allow_unused=True)
+        result = [None] * len(inputs)
+        for i, grad in zip(positions, grads):
+            result[i] = grad
+        return None, None, None, None, *result
+
+
+def _csr_expression_autograd_runner(runner, evaluate, row_ptr, col_idx):
+    @functools.wraps(runner)
+    def run(*inputs):
+        if torch.is_grad_enabled() and any(
+            isinstance(x, torch.Tensor) and x.requires_grad for x in inputs
+        ):
+            return _CSRExpressionFunction.apply(runner, evaluate, row_ptr, col_idx, *inputs)
+        return runner(*inputs)
+    return run
+
+
 class _GeneratedRadiusDistanceSum(torch.autograd.Function):
     """Autograd bridge for the compiler-generated matrix-free radius consumer.
 
@@ -472,9 +561,9 @@ def _compiled_fixed_snapshot_radius_vjp(
     upstream = grad_output.contiguous()
     fast_key = (
         _dynamic_snapshot_token(graph),
-        positions.data_ptr(), positions._version,
-        source.data_ptr(), source._version,
-        upstream.data_ptr(), upstream._version,
+        positions.data_ptr(), tensor_version(positions),
+        source.data_ptr(), tensor_version(source),
+        upstream.data_ptr(), tensor_version(upstream),
     )
     cached = getattr(graph, "_graphforge_compiled_radius_vjp", None)
     if cached is not None and cached[0] == fast_key:
@@ -953,7 +1042,7 @@ class _GeneratedRadiusExecutable:
         if (
             not _matches_field(source, self.source_spec)
             or positions is not self.position
-            or positions._version != self.position_version
+            or tensor_version(positions) != self.position_version
             or _dynamic_snapshot_token(graph) != self.snapshot_token
         ):
             return _EXECUTABLE_MISS
@@ -1030,15 +1119,15 @@ def _dynamic_snapshot_token(graph: Graph) -> tuple[object, ...]:
     cutoff = graph._cutoff
     periodic = graph._periodic
     return (
-        None if positions is None else (positions.data_ptr(), positions._version),
+        None if positions is None else (positions.data_ptr(), tensor_version(positions)),
         None if source_positions is None else (
-            source_positions.data_ptr(), source_positions._version
+            source_positions.data_ptr(), tensor_version(source_positions)
         ),
-        (cutoff.data_ptr(), cutoff._version)
+        (cutoff.data_ptr(), tensor_version(cutoff))
         if isinstance(cutoff, torch.Tensor) else cutoff,
-        None if periodic is None else (periodic.data_ptr(), periodic._version),
+        None if periodic is None else (periodic.data_ptr(), tensor_version(periodic)),
         tuple(
-            (name, value.data_ptr(), value._version)
+            (name, value.data_ptr(), tensor_version(value))
             for name, value in sorted(graph._builder_fields.items())
         ),
     )
@@ -1219,8 +1308,8 @@ class _EdgeNNTileExecutable:
             return _EXECUTABLE_MISS
         row_ptr, col_idx = graph.resolve_csr()
         if (
-            row_ptr.data_ptr(), row_ptr._version,
-            col_idx.data_ptr(), col_idx._version,
+            row_ptr.data_ptr(), tensor_version(row_ptr),
+            col_idx.data_ptr(), tensor_version(col_idx),
         ) != self.csr_guard:
             return _EXECUTABLE_MISS
         for role, mapping in (("src", src), ("dst", dst), ("edge", edge)):
@@ -1231,7 +1320,7 @@ class _EdgeNNTileExecutable:
                 if not _matches_field(value, specs[name]):
                     return _EXECUTABLE_MISS
         if any(
-            reference() is None or reference()._version != version
+            reference() is None or tensor_version(reference()) != version
             for reference, version in self.weight_guards
         ):
             return _EXECUTABLE_MISS
@@ -1240,7 +1329,7 @@ class _EdgeNNTileExecutable:
         if spec.needs_positions:
             positions = graph.euclidean_positions()
             if positions is None or (
-                positions.data_ptr(), positions._version
+                positions.data_ptr(), tensor_version(positions)
             ) != self.positions_guard:
                 return _EXECUTABLE_MISS
             if not positions.is_contiguous():
@@ -1271,9 +1360,22 @@ class _RankedExecutable(_DenseScalarExecutable):
     """Shape-guarded dynamic ranked relation with live coordinate rebinding."""
 
     position_specs: tuple[tuple[object, ...], tuple[object, ...]] | None = None
+    relation_spec: tuple[object, ...] | None = None
+    field_specs: dict[str, dict[str, tuple[object, ...]]] | None = None
+
+    @staticmethod
+    def relation_signature(graph):
+        # Coordinates are live runtime operands, not specialization constants.
+        # Freeze semantics rather than retaining a mutable Graph as the guard.
+        return (
+            graph.schema.num_src, graph.schema.num_dst, graph._k,
+            graph._exclude_self, graph._source_positions is None,
+        )
 
     def try_run(self, graph, src, dst, edge, params=None):
-        if graph is not self.graph or graph.schema.realization != "procedural_knn":
+        if graph.schema.realization != "procedural_knn":
+            return _EXECUTABLE_MISS
+        if self.relation_signature(graph) != self.relation_spec:
             return _EXECUTABLE_MISS
         try:
             query, candidate = graph.ranked_positions()
@@ -1286,6 +1388,19 @@ class _RankedExecutable(_DenseScalarExecutable):
             return _EXECUTABLE_MISS
         namespaces = {
             "src": src, "dst": dst, "edge": edge, "param": params or {}}
+        if query.requires_grad or candidate.requires_grad:
+            return _EXECUTABLE_MISS
+        if self.field_specs is None:
+            return _EXECUTABLE_MISS
+        for role, specs in self.field_specs.items():
+            values = namespaces[role]
+            if set(values) != set(specs):
+                return _EXECUTABLE_MISS
+            if any(not _matches_field(values[name], spec)
+                   or values[name].requires_grad for name, spec in specs.items()):
+                return _EXECUTABLE_MISS
+        if set(namespaces['param']) != {name for role, name in self.bindings if role == 'param'}:
+            return _EXECUTABLE_MISS
         try:
             inputs = tuple(
                 namespaces[role][name] for role, name in self.bindings)
@@ -1417,7 +1532,7 @@ class MessagePassing(Kernel):
         if not getattr(graph, "_graphforge_graph", False):
             raise TypeError("graph must be a tiga.Graph")
         # This module is the deprecated Torch eager/JIT compatibility facade.
-        # Native gf.Tensor execution is owned by compiler/runtime modules.
+        # Native tg.Tensor execution is owned by compiler/runtime modules.
         if type(graph).__module__ != "tiga.interop.torch.graph":
             from .graph import from_native
 
@@ -1667,6 +1782,9 @@ class MessagePassing(Kernel):
             variant=variant,
             runner=plan.run,
             position_specs=(_field_spec(query), _field_spec(candidate)),
+            relation_spec=_RankedExecutable.relation_signature(graph),
+            field_specs={role: {name: _field_spec(value) for name, value in values.items()}
+                         for role, values in (("src", src), ("dst", dst), ("edge", edge))},
         )
         return output
 
@@ -1698,7 +1816,7 @@ class MessagePassing(Kernel):
                     source_field=pattern.src_field,
                     source_spec=_field_spec(x),
                     position=positions,
-                    position_version=positions._version,
+                    position_version=tensor_version(positions),
                     snapshot_token=_dynamic_snapshot_token(graph),
                     variant=variant,
                     generated_runner=direct_plan.run,
@@ -1742,7 +1860,7 @@ class MessagePassing(Kernel):
                         "capture-edge-expression",
                         "recognize-distance-weighted-sum",
                         "prove-default-euclidean-radius",
-                        "select-dense-cell-directory",
+                        "select-modular-hash-grid" if directory.hash_grid else "select-dense-cell-directory",
                         "elide-implicit-edge-geometry",
                         "lower-generated-cell-tile-consumer",
                         "gf-kernel-to-ttir",
@@ -1763,7 +1881,8 @@ class MessagePassing(Kernel):
                         "accepted CSR, distance and message tensors are not materialized",
                         "dynamic cell-directory buffers are rebound on every invocation",
                         "autograd reconstructs the fixed-snapshot geometry VJP automatically",
-                        "32-lane generated cell tiles passed the <=1.03x oracle runtime gate",
+                        "spatially ordered query lanes" if directory.hash_grid
+                        else "32-lane generated cell tiles",
                     ),
                 )
                 self._record_variant(variant)
@@ -1773,7 +1892,7 @@ class MessagePassing(Kernel):
                     source_field=pattern.src_field,
                     source_spec=_field_spec(x),
                     position=positions,
-                    position_version=positions._version,
+                    position_version=tensor_version(positions),
                     snapshot_token=_dynamic_snapshot_token(graph),
                     variant=variant,
                     generated_runner=direct_plan.run,
@@ -2167,8 +2286,8 @@ class MessagePassing(Kernel):
         self._last_executable = _EdgeNNTileExecutable(
             graph=graph,
             csr_guard=(
-                row_ptr.data_ptr(), row_ptr._version,
-                col_idx.data_ptr(), col_idx._version,
+                row_ptr.data_ptr(), tensor_version(row_ptr),
+                col_idx.data_ptr(), tensor_version(col_idx),
             ),
             field_specs={
                 role: {name: _field_spec(value) for name, value in mapping.items()}
@@ -2176,10 +2295,10 @@ class MessagePassing(Kernel):
                     ("src", src), ("dst", dst), ("edge", edge))
             },
             weight_guards=tuple(
-                (weakref.ref(parameter), parameter._version)
+                (weakref.ref(parameter), tensor_version(parameter))
                 for parameter in weights.values()),
             positions_guard=(
-                (positions.data_ptr(), positions._version)
+                (positions.data_ptr(), tensor_version(positions))
                 if spec.needs_positions else None),
             spec=spec,
             plan=plan,
@@ -2556,6 +2675,19 @@ class MessagePassing(Kernel):
                     task_selected = True
                     output = selected_runner(*inputs)
 
+        def evaluate(current_row, current_col, *values):
+            fields = {"src": {}, "dst": {}, "edge": {}, "param": {}}
+            for (role, name), value in zip(bindings, values):
+                fields[role][name] = value
+            return self._evaluate_reference(
+                graph, current_row, current_col, fields["src"], fields["dst"],
+                fields["edge"], fields["param"])
+
+        selected_runner = _csr_expression_autograd_runner(
+            selected_runner, evaluate, row_ptr, col_idx)
+        if torch.is_grad_enabled() and any(value.requires_grad for value in tensors):
+            output = selected_runner(*inputs)
+
         artifacts = {
             name: artifact
             for name, artifact in plan.result.artifacts.items()
@@ -2638,6 +2770,7 @@ class MessagePassing(Kernel):
             artifacts=artifacts,
             remarks=(
                 "user reducer and optional node regions were lowered",
+                "Torch gradients replay the fixed CSR UDF; backward is not a generated TTIR kernel",
                 (
                     "zero-additive tuple state was proven and reduced in a "
                     f"bounded {manifest.block_rows}-row neighbor tile"
@@ -2749,7 +2882,7 @@ class MessagePassing(Kernel):
                     raise NotImplementedError(
                         "the torch oracle evaluates single-message reducer "
                         "bindings; multi-message user reducers run on the "
-                        "native gf.Tensor path")
+                        "native tg.Tensor path")
                 message = message.messages[0]
             aggregate = _map_tree(
                 lambda tensor: reduce_oracle(
@@ -2800,10 +2933,14 @@ class MessagePassing(Kernel):
             minimum_degree, maximum_degree = int(extrema[0]), int(extrema[1])
         degree = minimum_degree if minimum_degree == maximum_degree else None
         direct_fixed_shape = (
+            row_ptr.is_contiguous() and col_idx.is_contiguous()
+            and x.is_contiguous() and weight.is_contiguous()
+        ) and (
             (x.ndim == 1 and weight.ndim == 1)
             or (
                 x.ndim == 2
                 and x.shape[1] > 1
+                and x.shape[1] & (x.shape[1] - 1) == 0
                 and (
                     weight.ndim == 1
                     or (weight.ndim == 2 and weight.shape[1:] == (1,))
@@ -2843,10 +2980,10 @@ class MessagePassing(Kernel):
                     return plan.run_csr(
                         current_row_ptr, current_col_idx,
                         current_x, current_weight)
-                output = plan.run_csr(row_ptr, col_idx, x, weight)
             else:
                 selected_runner = plan.run
-                output = selected_runner(x, weight)
+            selected_runner = _weighted_sum_autograd_runner(selected_runner, graph)
+            output = selected_runner(x, weight)
             if self._lookup_variant(key) is None:
                 artifacts = {
                     name: value
@@ -2890,6 +3027,7 @@ class MessagePassing(Kernel):
                     artifacts=artifacts,
                     remarks=(
                         "physical fixed-degree proof selected a row-neighbor-feature tile",
+                        "Torch gradients replay the fixed CSR expression; backward is not a generated TTIR kernel",
                         "TTIR was emitted from gf_kernel IR without a @triton.jit frontend",
                         "the direct candidate passed the SOTA runtime gate on this machine",
                         (
@@ -2940,7 +3078,8 @@ class MessagePassing(Kernel):
                 block_rows=launch_manifest.block_rows,
                 num_warps=launch_manifest.num_warps,
             )
-            output = plan.run(x, weight)
+            selected_runner = _weighted_sum_autograd_runner(plan.run, graph)
+            output = selected_runner(x, weight)
             if self._lookup_variant(key) is None:
                 artifacts = {
                     name: value
@@ -2981,6 +3120,7 @@ class MessagePassing(Kernel):
                     artifacts=artifacts,
                     remarks=(
                         "bounded ragged rows use compiler-emitted masked row-neighbor-feature tiles",
+                        "Torch gradients replay the fixed CSR expression; backward is not a generated TTIR kernel",
                         "TTIR was emitted from gf_kernel IR without a @triton.jit frontend",
                         "the direct candidate matched the Triton oracle performance gate",
                         "zero-degree rows produce the sum reducer identity",
@@ -2995,7 +3135,7 @@ class MessagePassing(Kernel):
                 variant=self.last_variant,
                 src_field=pattern.src_field,
                 edge_field=pattern.edge_field,
-                runner=plan.run,
+                runner=selected_runner,
                 resolved_weight=weight,
             )
             if isinstance(self._last_executable, _DynamicSnapshotExecutable):
@@ -3032,9 +3172,10 @@ class MessagePassing(Kernel):
                 task_runner, compiled_tasks = prepared_candidate
                 native_sparse = graph.sparse_csr(
                     weight, row_ptr=row_ptr, col_idx=col_idx)
-                native_output = torch.empty_like(x)
+                native_output = x.new_empty((graph.schema.num_dst,))
 
                 def native_runner(current_x, current_weight):
+                    nonlocal native_output
                     current_sparse = (
                         native_sparse
                         if current_weight is weight
@@ -3043,23 +3184,24 @@ class MessagePassing(Kernel):
                         )
                     )
                     if current_x.ndim == 1:
-                        # The guarded/prepared executable owns stable output
-                        # storage. Reusing it avoids an allocator round trip
-                        # and matches the semantics of generated kernels that
-                        # already write into persistent output buffers.
+                        from .provider import reusable_row_output
+                        native_output = reusable_row_output(
+                            native_output, current_x, rows=graph.schema.num_dst)
                         torch.mv(current_sparse, current_x, out=native_output)
                         return native_output
                     return torch.mm(current_sparse, current_x)
                 # Compilation and immutable worklist materialization are JIT
                 # costs, not consume timings.  Autotune only the two warm
                 # executable choices on the actual provider and topology.
-                candidate_ms = _cuda_median_ms(
-                    lambda: task_runner.run(x, weight))
-                native_ms = _cuda_median_ms(
-                    lambda: native_runner(x, weight))
+                with torch.no_grad():
+                    candidate_ms = _cuda_median_ms(
+                        lambda: task_runner.run(x, weight))
+                    native_ms = _cuda_median_ms(
+                        lambda: native_runner(x, weight))
                 choose_candidate = candidate_ms <= native_ms * 0.99
                 selected_runner = (
                     task_runner.run if choose_candidate else native_runner)
+                selected_runner = _weighted_sum_autograd_runner(selected_runner, graph)
                 output = selected_runner(x, weight)
                 artifacts = {}
                 if choose_candidate:
@@ -3142,7 +3284,7 @@ class MessagePassing(Kernel):
         # Linear ragged/unsupported feature shapes retain their structure by
         # dispatching the native sparse provider instead of materializing
         # messages in the semantic evaluator.
-        x_2d = x[:, None] if x.ndim == 1 else x
+        x_2d = (x[:, None] if x.ndim == 1 else x).contiguous()
         if x_2d.ndim != 2 or weight.dtype != x.dtype:
             return None
         sparse = graph.sparse_csr(
@@ -3179,12 +3321,12 @@ class MessagePassing(Kernel):
         def native_sparse_runner(current_x, current_weight):
             current_sparse = (
                 sparse
-                if current_weight is weight
+                if current_weight is weight and not current_weight.requires_grad
                 else graph.sparse_csr(
                     current_weight, row_ptr=row_ptr, col_idx=col_idx
                 )
             )
-            current_2d = current_x[:, None] if current_x.ndim == 1 else current_x
+            current_2d = (current_x[:, None] if current_x.ndim == 1 else current_x).contiguous()
             result = torch.mm(current_sparse, current_2d)
             return result[:, 0] if current_x.ndim == 1 else result
 
@@ -3243,13 +3385,14 @@ class MessagePassing(Kernel):
         # high-performance selected TTIR as the executable artifact, while
         # exposing this independently produced TTIR for correctness/perf gates.
         translator = find_gf_translate(next_to=tool)
-        translatable_shape = (
+        translatable_shape = x.is_contiguous() and weight.is_contiguous() and ((
             x.ndim == 1 and weight.ndim == 1
         ) or (
             x.ndim == 2 and x.shape[1] > 1 and
+            x.shape[1] & (x.shape[1] - 1) == 0 and
             (weight.ndim == 1 or
              (weight.ndim == 2 and weight.shape[1:] == (1,)))
-        )
+        ))
         if translatable_shape and translator is not None:
             try:
                 provider_ttir = lower_kernel_to_ttir(
@@ -3296,6 +3439,14 @@ class MessagePassing(Kernel):
                 provider_ttir=lower_kernel_to_ttir(
                     stages.kernel, gf_translate=translator),
             )
+        if directory.hash_grid and (
+            "hash_grid = true" not in stages.kernel
+            or (stages.provider_ttir is not None
+                and "// tiga.radius_index=hash_grid" not in stages.provider_ttir)
+        ):
+            raise RuntimeError(
+                "hash-grid radius requires matching native compiler and gf-translate; "
+                "rebuild Tiga and update TIGA_TRANSLATE")
         return stages
 
     @staticmethod
@@ -3406,7 +3557,9 @@ class MessagePassing(Kernel):
     def _run_dynamic_distance_plan(graph, source, plan):
         row_ptr, col_idx = graph.resolve_csr()
         distance = graph.implicit_edge_fields(row_ptr, col_idx)["distance"]
-        return plan.run_csr(row_ptr, col_idx, source, distance)
+        runner = _weighted_sum_autograd_runner(
+            lambda x, w: plan.run_csr(row_ptr, col_idx, x, w), graph)
+        return runner(source, distance)
 
     @staticmethod
     def _validate_fields(
@@ -3482,7 +3635,7 @@ class MessagePassing(Kernel):
             passes=("validate-domain", "select-reference-csr"),
             remarks=(
                 "reference evaluator selected; no performance codegen artifact exists",
-                "cross-apply fusion is handled by the @gf.jit/@gf.program "
+                "cross-apply fusion is handled by the @tg.jit/@tg.program "
                 "capture boundary rather than the single-apply reference "
                 "evaluator",
             ),
@@ -3550,8 +3703,8 @@ def _install_native_fast_path(
         except (KeyError, TypeError):
             pass
         else:
-            source_version = captured_source._version
-            weight_version = captured_weight._version
+            source_version = tensor_version(captured_source)
+            weight_version = tensor_version(captured_weight)
 
             def direct(current_src, current_dst, current_edge, current_params):
                 del current_params
@@ -3568,8 +3721,8 @@ def _install_native_fast_path(
                     # mutations take one guarded miss, then rebind without
                     # recompilation; this avoids two Python metadata queries
                     # on every asynchronous kernel submission.
-                    or source._version != source_version
-                    or weight._version != weight_version
+                    or tensor_version(source) != source_version
+                    or tensor_version(weight) != weight_version
                 ):
                     return _EXECUTABLE_MISS
                 if executable.require_dst_alias:
@@ -3589,7 +3742,7 @@ def _install_native_fast_path(
             captured_inputs = ()
         if len(captured_inputs) == len(executable.bindings):
             captured_versions = tuple(
-                None if role == "param" else value._version
+                None if role == "param" else tensor_version(value)
                 for (role, _), value in zip(
                     executable.bindings, captured_inputs)
             )
@@ -3617,7 +3770,7 @@ def _install_native_fast_path(
                     if role == "param":
                         if not isinstance(current, (int, float)):
                             return _EXECUTABLE_MISS
-                    elif current is not captured or current._version != version:
+                    elif current is not captured or tensor_version(current) != version:
                         return _EXECUTABLE_MISS
                 return executable.runner(*current_inputs)
 

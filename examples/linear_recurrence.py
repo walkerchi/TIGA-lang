@@ -2,14 +2,14 @@
 
 import torch
 
-import tiga as gf
+import tiga as tg
 
 
 lanes, steps, key_width, value_width = 4, 128, 16, 16
 q_torch = torch.randn(lanes, steps, key_width, device="cuda")      # (L, S, K)
 k_torch = torch.randn_like(q_torch)                                # (L, S, K)
 v_torch = torch.randn(lanes, steps, value_width, device="cuda")    # (L, S, V)
-q, k, v = map(gf.from_torch, (q_torch, k_torch, v_torch))
+q, k, v = map(tg.from_torch, (q_torch, k_torch, v_torch))
 
 # --8<-- [start:core]
 state_shape = (lanes, steps, key_width, value_width)  # (L, S, K, V)

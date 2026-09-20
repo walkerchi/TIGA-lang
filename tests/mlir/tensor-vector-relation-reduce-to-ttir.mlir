@@ -3,7 +3,7 @@
 
 // CHECK: "gf_tensor.gather"
 // CHECK: "gf_tensor.reduce_sum"
-// TTIR: graphforge.tensor entry=gf_tensor_fused_reduce
+// TTIR: tiga.tensor entry=gf_tensor_fused_reduce
 // TTIR-SAME: abi=arg0,arg1,arg2,out
 // TTIR: %[[INDEX:.+]] = tt.load {{.+}} : !tt.ptr<i64>
 // TTIR: %[[VALUES:.+]] = tt.load {{.+}} : tensor<16x!tt.ptr<f32>>

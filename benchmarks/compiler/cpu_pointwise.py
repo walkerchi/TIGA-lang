@@ -13,7 +13,7 @@ import time
 
 import torch
 
-import tiga as gf
+import tiga as tg
 from tiga.compiler.cpu_tensor import compile_tensor
 from benchmarks.common.output_layout import operation_dir
 from benchmarks.common.perf_protocol import evaluate_sota_gates
@@ -79,8 +79,8 @@ def main():
     # Setup/conversion is outside warm timing for both providers.
     left_values = [1.5] * args.elements
     right_values = [2.0] * args.elements
-    left = gf.tensor(left_values)
-    right = gf.tensor(right_values)
+    left = tg.tensor(left_values)
+    right = tg.tensor(right_values)
     output = (left * right + left).sqrt()
     cold_started = time.perf_counter_ns()
     output.realize()

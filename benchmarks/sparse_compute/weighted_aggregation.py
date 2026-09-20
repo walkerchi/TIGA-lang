@@ -17,7 +17,7 @@ import warnings
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
-import tiga as gf
+import tiga as tg
 import torch
 
 from benchmarks.common.hardware_roofline import (
@@ -59,8 +59,8 @@ if triton is not None:
                  mask=feature_mask)
 
 
-class WeightedAggregation(gf.MessagePassing):
-    reducer = gf.sum()
+class WeightedAggregation(tg.MessagePassing):
+    reducer = tg.sum()
 
     def edge(self, src, dst, edge):
         return edge.weight * src.x
@@ -126,7 +126,7 @@ def compiler_chunked_tail(kernel, graph, row_ptr, col_idx, x, weight):
     stages = lower_mlir_stages(module)
     if stages.task is None:
         return None
-    plan = gf.compiler.translate_task_bundle(stages.task)
+    plan = tg.compiler.translate_task_bundle(stages.task)
     if not any(
         invocation.metadata.get("row_mapping") == "worklist-chunked"
         for invocation in plan.invocations
@@ -267,7 +267,7 @@ def benchmark_case(args, roof: Roof, device: torch.device, features: int,
         csr = torch.sparse_csr_tensor(
             row_ptr, col_idx, weight, size=(args.nodes, args.nodes),
             check_invariants=False)
-    graph = gf.Graph.from_csr(row_ptr, col_idx, num_src=args.nodes)
+    graph = tg.Graph.from_csr(row_ptr, col_idx, num_src=args.nodes)
     gf_kernel = WeightedAggregation()
 
     providers = {}

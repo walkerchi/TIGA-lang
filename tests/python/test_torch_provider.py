@@ -3,7 +3,7 @@ from __future__ import annotations
 import unittest
 
 import torch
-import tiga as gf
+import tiga as tg
 
 from tiga.interop.torch.provider import (
     reusable_dense_output,
@@ -31,8 +31,8 @@ class _DenseOwner:
         return output
 
 
-class _Weighted(gf.MessagePassing):
-    reducer = gf.sum()
+class _Weighted(tg.MessagePassing):
+    reducer = tg.sum()
 
     def edge(self, src, dst, edge):
         del dst
@@ -42,10 +42,10 @@ class _Weighted(gf.MessagePassing):
 class TorchProviderOutputTest(unittest.TestCase):
     def test_graph_degree_analysis_uses_strided_storage_provider_hook(self):
         storage = torch.tensor([0, -9, 2, -9, 5], dtype=torch.int64)
-        row_ptr = gf.from_torch(storage[::2])
-        col_idx = gf.from_torch(torch.tensor(
+        row_ptr = tg.from_torch(storage[::2])
+        col_idx = tg.from_torch(torch.tensor(
             [0, 1, 1, 2, 0], dtype=torch.int64))
-        graph = gf.Graph.from_csr(row_ptr, col_idx, num_src=3)
+        graph = tg.Graph.from_csr(row_ptr, col_idx, num_src=3)
 
         self.assertEqual(graph.degree_bounds(), (2, 3))
         self.assertEqual(graph.degree_bounds(), (2, 3))
@@ -54,16 +54,16 @@ class TorchProviderOutputTest(unittest.TestCase):
             (0 + 1 + 0 + 1 + 1) / 5 / 3,
         )
 
-    def test_vector_reuses_unobserved_output(self):
+    def test_vector_does_not_reuse_public_output_by_tensor_refcount(self):
         owner = _VectorOwner()
         reference = torch.empty(5)
         owner.acquire(reference)
         first_pointer = owner.output.data_ptr()
 
-        # The previous return value is not observable, so a warm invocation
-        # may safely reuse its storage.
+        # A TensorImpl refcount cannot prove that no detached/storage alias
+        # exists. Public outputs use the allocator, not manual overwriting.
         owner.acquire(reference)
-        self.assertEqual(owner.output.data_ptr(), first_pointer)
+        self.assertNotEqual(owner.output.data_ptr(), first_pointer)
 
     def test_vector_does_not_overwrite_held_output(self):
         owner = _VectorOwner()
@@ -84,10 +84,10 @@ class TorchProviderOutputTest(unittest.TestCase):
     def test_dynamic_torch_library_op_has_fake_autograd_and_opcheck(self):
         row_ptr = torch.tensor([0, 2, 4], dtype=torch.int64)
         col_idx = torch.tensor([0, 1, 1, 2], dtype=torch.int64)
-        graph = gf.Graph.from_csr(row_ptr, col_idx, num_src=3)
+        graph = tg.Graph.from_csr(row_ptr, col_idx, num_src=3)
         x = torch.tensor([1.0, 2.0, 4.0], requires_grad=True)
         weight = torch.tensor([2.0, 3.0, 5.0, 7.0], requires_grad=True)
-        registered = gf.interop.torch.register_message_passing(
+        registered = tg.interop.torch.register_message_passing(
             _Weighted(), graph=graph, src={"x": x}, dst={},
             edge={"weight": weight})
 

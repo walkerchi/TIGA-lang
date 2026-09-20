@@ -2,7 +2,7 @@
 
 import torch
 
-import tiga as gf
+import tiga as tg
 
 torch.manual_seed(0)
 nodes, heads, width = 1024, 4, 64
@@ -13,10 +13,10 @@ value = torch.randn(heads, nodes, width, device="cuda", dtype=torch.float16).per
 
 
 # --8<-- [start:core]
-class TilePrunedAttention(gf.MessagePassing):
+class TilePrunedAttention(tg.MessagePassing):
     def __init__(self, threshold):
         super().__init__()
-        self.reducer = gf.online_softmax(
+        self.reducer = tg.online_softmax(
             block_prune_threshold=threshold,
         )
 
@@ -27,7 +27,7 @@ class TilePrunedAttention(gf.MessagePassing):
 
 program = TilePrunedAttention(width / nodes)
 output = program(  # (N, H, D)
-    graph=gf.Graph.dense(nodes, device="cuda"),
+    graph=tg.Graph.dense(nodes, device="cuda"),
     src={"key": key, "value": value},
     dst={"query": query},
     scale=width**-0.5,

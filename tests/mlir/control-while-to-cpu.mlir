@@ -1,9 +1,9 @@
 // RUN: gf-opt --gf-lower-tensor-to-cpu %s | FileCheck %s
 
 // CHECK-LABEL: func.func @bounded_multi
-// CHECK-SAME: graphforge.cpu.bounded_while
-// CHECK-SAME: graphforge.cpu.loop_buffers = 4
-// CHECK-SAME: graphforge.cpu.max_iterations = 12
+// CHECK-SAME: tiga.cpu.bounded_while
+// CHECK-SAME: tiga.cpu.loop_buffers = 4
+// CHECK-SAME: tiga.cpu.max_iterations = 12
 // CHECK: scf.while
 // CHECK: arith.cmpf ogt
 // CHECK: arith.cmpi ult

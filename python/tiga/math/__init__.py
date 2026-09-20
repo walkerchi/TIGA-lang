@@ -7,7 +7,7 @@ def exp(value):
     method = getattr(value, "exp", None)
     if method is not None:
         return method()
-    raise TypeError("gf.math.exp expects a staged Tiga value")
+    raise TypeError("tg.math.exp expects a staged Tiga value")
 
 
 def maximum(left, right):
@@ -17,7 +17,7 @@ def maximum(left, right):
     method = getattr(right, "maximum", None)
     if method is not None:
         return method(left)
-    raise TypeError("gf.math.maximum expects at least one staged Tiga value")
+    raise TypeError("tg.math.maximum expects at least one staged Tiga value")
 
 
 __all__ = ["exp", "maximum"]

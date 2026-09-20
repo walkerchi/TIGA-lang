@@ -1,153 +1,233 @@
-"""Chainable tensor spill: RAM <-> disk with a Tiga-managed lifecycle.
+"""Bounded temporary spill and atomic Tensor value snapshots.
 
-``tensor.disk()`` writes the payload to the spill store and releases the
-in-memory buffer; any later read (``tolist``/``to_numpy``/execution) lazily
-reloads it.  Anonymous spills live in a per-process temporary directory and
-are released when the owning tensor is collected or the process exits.
-``tensor.disk(name=...)`` instead writes to a stable directory
-(``TIGA_SPILL_DIR`` or ``~/.cache/tiga/spill``) so another
-process can attach the same payload with ``gf.from_disk(name)``.
+Residency preserves logical device and autograd. Open snapshots retain their
+inode so replacement cannot change an attached value. Persistence stores values,
+not the computation graph.
 """
-
 from __future__ import annotations
 
 import atexit
 import json
 import os
+from pathlib import Path
 import shutil
 import struct
 import tempfile
 import uuid
-from pathlib import Path
+
+from ..runtime.storage_io import CHUNK_BYTES, file_to_buffer
 
 _MAGIC = b"GFSPILL1\n"
-
-_anonymous_dir: Path | None = None
-
-_STRUCT_CODES = {
-    "float16": "e", "float32": "f", "float64": "d",
-    "int32": "i", "int64": "q", "bool": "?",
-}
+_anonymous_dir = None
 
 
-def _anonymous_store() -> Path:
+def _anonymous_store():
+    from ..runtime.memory import current_execution
+    active = current_execution()
+    if active is not None and active.spill_dir is not None:
+        active.spill_dir.mkdir(parents=True, exist_ok=True)
+        return active.spill_dir
     global _anonymous_dir
     if _anonymous_dir is None:
         _anonymous_dir = Path(tempfile.mkdtemp(prefix="tiga-spill-"))
-        atexit.register(_cleanup_anonymous)
+        atexit.register(shutil.rmtree, _anonymous_dir, ignore_errors=True)
     return _anonymous_dir
 
 
-def _named_store() -> Path:
-    override = os.environ.get("TIGA_SPILL_DIR")
-    path = (Path(override) if override else
-            Path.home() / ".cache" / "tiga" / "spill")
+def _named_store():
+    path = Path(os.environ.get("TIGA_SPILL_DIR", Path.home() / ".cache/tiga/spill"))
     path.mkdir(parents=True, exist_ok=True)
     return path
 
 
-def _cleanup_anonymous() -> None:
-    if _anonymous_dir is not None:
-        shutil.rmtree(_anonymous_dir, ignore_errors=True)
-
-
-def _pack_values(tensor, values: list[object]) -> bytes:
-    name = tensor.dtype.name
-    if name in _STRUCT_CODES:
-        return struct.pack(f"={len(values)}{_STRUCT_CODES[name]}", *values)
-    component = "f" if name == "complex64" else "d"
-    flat: list[float] = []
-    for value in values:
-        flat.extend((value.real, value.imag))
-    return struct.pack(f"={len(flat)}{component}", *flat)
-
-
-def _payload_bytes(tensor) -> bytes:
-    buffer = tensor._buffer
-    if (buffer is not None and tensor.is_contiguous and tensor.offset == 0
-            and not getattr(buffer, "_graphforge_torch_buffer", False)):
-        return buffer.read(bytes=tensor.nbytes)
-    return _pack_values(tensor, tensor._read_flat())
-
-
-def spill_tensor(tensor, *, name: str | None) -> None:
-    """Move ``tensor``'s payload into the spill store and free its buffer."""
-    if getattr(tensor, "_spill", None) is not None:
-        raise RuntimeError("tensor is already spilled; reload it before respilling")
-    if name is not None and (not name or "/" in name or name.startswith(".")):
+def _validate_name(name):
+    if not isinstance(name, str) or not name or name.startswith(".") or any(c in name for c in ("/", "\\", "\x00")):
         raise ValueError("spill name must be a plain file-name-safe identifier")
-    tensor.realize()  # force the payload into a physical buffer
-    payload = _payload_bytes(tensor)
-    header = {
-        "shape": list(tensor.shape),
-        "dtype": tensor.dtype.name,
-        "version": tensor.version,
-    }
-    encoded = json.dumps(header).encode()
-    if name is None:
-        path = _anonymous_store() / f"{uuid.uuid4().hex}.gfspill"
+
+
+def _chunks(tensor):
+    from ..runtime import Buffer
+    from .core import _logical_offsets
+    tensor.realize()
+    if tensor.ready_event is not None:
+        tensor.ready_event.wait()
+    source = tensor._buffer
+    if getattr(source, "_graphforge_torch_buffer", False):
+        source = Buffer.wrap_address(source.address, source.nbytes, device=source.device, owner=source)
+    width = tensor.dtype.itemsize
+    if tensor.is_contiguous:
+        for start in range(0, tensor.nbytes, CHUNK_BYTES):
+            yield source.read(offset=tensor.offset * width + start,
+                              bytes=min(CHUNK_BYTES, tensor.nbytes - start))
     else:
-        path = _named_store() / f"{name}.gfspill"
-    temporary = path.with_suffix(".gfspill.tmp")
-    temporary.write_bytes(_MAGIC + struct.pack("=I", len(encoded)) + encoded + payload)
-    temporary.replace(path)  # atomic publish for cross-process readers
-    tensor._spill = {"path": path, "named": name is not None}
+        chunk = bytearray()
+        for offset in _logical_offsets(tensor.shape, tensor.strides):
+            chunk.extend(source.read(offset=(tensor.offset + offset) * width, bytes=width))
+            if len(chunk) >= CHUNK_BYTES:
+                yield chunk
+                chunk = bytearray()
+        if chunk:
+            yield chunk
+
+
+def save_tensor(tensor, path, *, overwrite=False):
+    """Save a value snapshot without evicting or discarding gradient history."""
+    target = Path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    if not overwrite and target.exists():
+        raise FileExistsError(target)
+    header = json.dumps({"shape": list(tensor.shape), "dtype": tensor.dtype.name,
+                         "version": tensor.version}).encode()
+    fd, temporary = tempfile.mkstemp(prefix=f".{target.name}.", suffix=".tmp", dir=target.parent)
+    try:
+        with os.fdopen(fd, "wb") as stream:
+            stream.write(_MAGIC + struct.pack("=I", len(header)) + header)
+            for chunk in _chunks(tensor):
+                stream.write(chunk)
+            stream.flush()
+            os.fsync(stream.fileno())
+        if overwrite:
+            os.replace(temporary, target)
+        else:
+            os.link(temporary, target)
+    finally:
+        Path(temporary).unlink(missing_ok=True)
+    return target
+
+
+def _header(stream):
+    if stream.read(len(_MAGIC)) != _MAGIC:
+        raise ValueError("not a Tiga Tensor snapshot")
+    length_bytes = stream.read(4)
+    if len(length_bytes) != 4:
+        raise ValueError("truncated Tensor snapshot header")
+    length = struct.unpack("=I", length_bytes)[0]
+    if length > 65536:
+        raise ValueError("Tensor snapshot header is too large")
+    try:
+        result = json.loads(stream.read(length))
+        from .core import _DTYPES, _numel
+        shape = result["shape"]
+        if not isinstance(shape, list) or any(type(n) is not int or n < 0 for n in shape):
+            raise ValueError("invalid snapshot shape")
+        if type(result["version"]) is not int or result["version"] < 0:
+            raise ValueError("invalid snapshot version")
+        size = _numel(tuple(shape)) * _DTYPES[result["dtype"]].itemsize
+        if os.fstat(stream.fileno()).st_size != stream.tell() + size:
+            raise ValueError("Tensor snapshot payload length mismatch")
+    except (KeyError, TypeError, json.JSONDecodeError) as exc:
+        raise ValueError("invalid Tensor snapshot metadata") from exc
+    return result, stream.tell()
+
+
+def read_header(path):
+    with Path(path).open("rb") as stream:
+        return _header(stream)[0]
+
+
+def _attachment(path, *, named, reservation=None):
+    stream = Path(path).open("rb")
+    try:
+        header, offset = _header(stream)
+    except BaseException:
+        stream.close()
+        raise
+    return header, {"path": Path(path), "named": named, "stream": stream,
+                    "offset": offset, "reservation": reservation}
+
+
+def release_spill(info):
+    info["stream"].close()
+    if not info["named"]:
+        info["path"].unlink(missing_ok=True)
+    if info.get("reservation") is not None:
+        info["reservation"].close()
+
+
+def spill_tensor(tensor, *, name=None):
+    if tensor._spill is not None:
+        raise RuntimeError("tensor is already spilled; reload it before respilling")
+    if name is not None:
+        _validate_name(name)
+    from ..runtime.memory import reserve
+    reservation = reserve("nvme", tensor.nbytes) if name is None else None
+    path = (_anonymous_store() / f"{uuid.uuid4().hex}.gfspill" if name is None
+            else _named_store() / f"{name}.gfspill")
+    written = False
+    try:
+        save_tensor(tensor, path)
+        written = True
+        _, info = _attachment(path, named=name is not None, reservation=reservation)
+    except BaseException:
+        if reservation is not None:
+            reservation.close()
+        if written and name is None:
+            path.unlink(missing_ok=True)
+        raise
+    tensor._spill = info
     tensor._buffer = None
-    tensor._expr = None
     tensor.ready_event = None
+    tensor._prepared_launch = None
 
 
-def read_header(path: Path) -> dict:
-    raw = path.read_bytes()
-    if raw[: len(_MAGIC)] != _MAGIC:
-        raise ValueError(f"{path} is not a Tiga spill file")
-    (length,) = struct.unpack("=I", raw[len(_MAGIC): len(_MAGIC) + 4])
-    return json.loads(raw[len(_MAGIC) + 4: len(_MAGIC) + 4 + length])
-
-
-def reload_tensor(tensor) -> None:
-    """Load a spilled payload back into a fresh native CPU buffer."""
-    from ..runtime import Buffer, Device, Event
+def reload_tensor(tensor):
+    from ..runtime import Buffer, Event, DeviceType
     from .core import _contiguous_strides
-
     info = tensor._spill
-    raw = info["path"].read_bytes()
-    (length,) = struct.unpack("=I", raw[len(_MAGIC): len(_MAGIC) + 4])
-    payload = raw[len(_MAGIC) + 4 + length:]
-    if len(payload) != tensor.nbytes:
-        raise RuntimeError(
-            f"spill payload is {len(payload)} bytes, expected {tensor.nbytes}")
-    buffer = Buffer(len(payload), device="cpu", _pooled=True)
-    buffer.write(payload)
+    buffer = Buffer(tensor.nbytes, device=tensor.device, _pooled=True)
+    try:
+        info["stream"].seek(info["offset"])
+        file_to_buffer(info["stream"], buffer, tensor.nbytes)
+    except BaseException:
+        buffer.close()
+        raise
     tensor._buffer = buffer
-    # the payload is stored in logical (contiguous) order even for views
     tensor.strides = _contiguous_strides(tensor.shape)
     tensor.offset = 0
-    tensor.device = Device.parse("cpu")
-    tensor.ready_event = Event(tensor.device, _pooled=True)
-    tensor._expr = None
+    tensor.ready_event = Event(tensor.device, _pooled=True) if tensor.device.type == DeviceType.CPU else None
     tensor._spill = None
+    release_spill(info)
+    from ..runtime.memory import current_execution
+    active = current_execution()
+    if active is not None:
+        active._restores += 1
 
 
-def open_spill(name: str):
-    """Attach a named on-disk payload as a lazily-loaded Tensor shell."""
-    from .core import _DTYPES as _DTYPES_BY_NAME
-    from .core import Tensor  # no cycle at call time
-
-    path = _named_store() / f"{name}.gfspill"
-    if not path.exists():
-        raise FileNotFoundError(
-            f"no spill named {name!r} in {_named_store()}")
-    header = read_header(path)
-    tensor = Tensor(
-        tuple(header["shape"]),
-        dtype=_DTYPES_BY_NAME[header["dtype"]],
-        device="cpu",
-        version=header["version"],
-    )
-    tensor._buffer = None  # drop the shell allocation; the payload is on disk
-    tensor._spill = {"path": path, "named": True}
+def load_tensor(path, *, device="cpu"):
+    from .core import Tensor, _DTYPES
+    header, info = _attachment(path, named=True)
+    try:
+        tensor = Tensor(tuple(header["shape"]), dtype=_DTYPES[header["dtype"]],
+                        device=device, version=header["version"], _allocate=False)
+    except BaseException:
+        release_spill(info)
+        raise
+    tensor._spill = info
     return tensor
 
 
-__all__ = ["open_spill", "reload_tensor", "spill_tensor"]
+def open_spill(name):
+    _validate_name(name)
+    return load_tensor(_named_store() / f"{name}.gfspill")
+
+
+def copy_tensor(tensor, device):
+    from ..runtime import Buffer
+    from .core import Tensor, _Expr
+    buffer = Buffer(tensor.nbytes, device=device)
+    try:
+        if tensor._spill is not None:
+            info = tensor._spill
+            info["stream"].seek(info["offset"])
+            file_to_buffer(info["stream"], buffer, tensor.nbytes)
+        else:
+            offset = 0
+            for chunk in _chunks(tensor):
+                buffer.write(chunk, offset=offset)
+                offset += len(chunk)
+    except BaseException:
+        buffer.close()
+        raise
+    return Tensor(tensor.shape, dtype=tensor.dtype, device=device, buffer=buffer,
+                  requires_grad=tensor.requires_grad, version=tensor.version,
+                  expression=_Expr("device_copy", (tensor,)))

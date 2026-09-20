@@ -156,7 +156,7 @@ The first DynamicGraph is defined as a geometric radius graph, not arbitrary
 edge mutation:
 
 ```python
-graph = gf.RadiusGraph(
+graph = tg.RadiusGraph(
     positions=position,
     cutoff=cutoff,
     periodic_box=box,

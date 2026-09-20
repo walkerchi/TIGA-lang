@@ -5,7 +5,7 @@ shape、索引约定、缓存状态和计时边界完全一致。事实依据是
 设备元数据，不是截图。证据矩阵见
 [benchmark results](benchmark-results.md)：它由
 `benchmarks/evidence_manifest.json` 生成，注册的用例、过滤器或
-provider 一旦有缺失，生成就直接失败——过期的图表不可能被悄悄沿用。
+provider 有缺失时，生成会失败。每份报告标明对应的测量快照。
 
 ## 语义匹配 { #semantic-matching }
 
@@ -83,6 +83,8 @@ optimistic_roof = min(measured_FP32_peak,
 DRAM 流量，所以它可以超过物理带宽——绝不能把它当作 profiler 实测的
 DRAM 字节数。
 
+以下是新测量的产物契约，不表示每份历史文件都已满足。历史输入缺口与可下载存档见[图表复现](benchmark-reproducibility.zh.md)。
+
 ## 产物契约 { #artifact-contract }
 
 ```text
@@ -138,8 +140,9 @@ docs/assets/charts/
 ## 复现 { #reproduce }
 
 ```bash
-export TIGA_OPT="$PWD/build/bin/gf-opt"
-export TIGA_TRANSLATE="$PWD/build/bin/gf-translate"
+# Optional overrides for the development compiler test build:
+export TIGA_OPT="$PWD/build/compiler/bin/gf-opt"
+export TIGA_TRANSLATE="$PWD/build/compiler/bin/gf-translate"
 
 python -m benchmarks.compiler.provider_gate --fail-on-gate
 python -m benchmarks.sparse_compute.weighted_aggregation

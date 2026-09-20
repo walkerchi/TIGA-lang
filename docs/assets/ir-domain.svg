@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="220" viewBox="0 0 760 220" role="img" aria-labelledby="title desc">
+<title id="title">Domain: messages reduce into one destination</title><desc id="desc">Source values 2 and 3 times weights 4 and 5 produce messages 8 and 15. Sum produces 23. Illustrative values only.</desc>
+<style>text{font:16px sans-serif;fill:#334155}.small{font-size:14px}.focus{font-weight:700;fill:#4338ca}path{fill:none;stroke:#64748b;stroke-width:2}</style>
+<defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0L10 5L0 10" fill="#64748b" stroke="none"/></marker></defs>
+<style>@media(prefers-color-scheme:dark){text{fill:#d7deec}.focus{fill:#c7d2fe}rect[fill="#f8fafc"]{fill:#232936}rect[fill="#e0e7ff"]{fill:#303e63}path{stroke:#97a6bf}}</style>
+<rect width="760" height="220" rx="12" fill="#f8fafc"/><text x="30" y="34" class="small">Domain · gf.apply</text>
+<text x="40" y="94">src.x = 2</text><text x="40" y="166">src.x = 3</text>
+<path d="M130 90H375L475 125" marker-end="url(#a)"/><path d="M130 162H375L475 132" marker-end="url(#a)"/>
+<rect x="187" y="70" width="170" height="34" fill="#f8fafc"/><rect x="187" y="142" width="170" height="34" fill="#f8fafc"/>
+<text x="200" y="92">2 × 4 = 8</text><text x="200" y="164">3 × 5 = 15</text>
+<rect x="491" y="92" width="229" height="76" rx="10" fill="#e0e7ff"/><text x="514" y="121" class="focus">dst: sum(8, 15) = 23</text><text x="514" y="148" class="small">reducers = [@sum]</text>
+<text x="200" y="202" class="small">arith.mulf → gf.yield</text>
+</svg>

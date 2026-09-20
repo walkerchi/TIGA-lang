@@ -25,7 +25,7 @@ func.func @generated_distance_sum(
   return %0 : tensor<?xf32>
 }
 
-// CHECK: graphforge.launch entry=gf_generated_radius_distance_sum
+// CHECK: tiga.launch entry=gf_generated_radius_distance_sum
 // CHECK-SAME: block_rows=1 num_warps=1
 // CHECK-SAME: abi=cell_ptr,particle_order,cell_coordinates,extents,strides,neighbor_offsets,lattice,inverse_lattice,positions,x,out
 // CHECK: tt.func public @gf_generated_radius_distance_sum

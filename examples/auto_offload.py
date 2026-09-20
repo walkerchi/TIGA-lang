@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import time
 
-import tiga as gf
+import tiga as tg
 
 
 # --8<-- [start:core]
-class Smoothing(gf.MessagePassing):
-    reducer = gf.sum()
+class Smoothing(tg.MessagePassing):
+    reducer = tg.sum()
 
     def edge(self, src, dst, edge):
         return src.x  # staged edge item: neighbor value, (E_page,)
@@ -21,10 +21,10 @@ class Smoothing(gf.MessagePassing):
 def main(grid=(1000, 1000), budget: int = 8 << 20):
     # The 1000x1000 stencil CSR is ~48MB — over the 8MB budget. from_csr
     # persists the topology as .gfg and returns a paged graph instead.
-    with gf.runtime.auto_offload(ram=budget):
-        graph = gf.Graph.stencil(grid, ((-1, 0), (1, 0), (0, -1), (0, 1)))
+    with tg.runtime.auto_offload(ram=budget):
+        graph = tg.Graph.stencil(grid, ((-1, 0), (1, 0), (0, -1), (0, 1)))
         assert graph.schema.realization == "paged_csr"
-        x = gf.tensor(                      # (N,) node field — fields stay in RAM
+        x = tg.tensor(                      # (N,) node field — fields stay in RAM
             [float(node % 977) for node in range(graph.schema.num_dst)])
         started = time.perf_counter()
         out = Smoothing()(graph=graph, src={"x": x}, dst={})  # (1_000_000,)

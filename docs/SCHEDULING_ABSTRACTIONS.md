@@ -163,8 +163,8 @@ regions allow tensor and scalar expressions, but node/edge/neighbor traversal is
 not exposed through public loop syntax:
 
 ```python
-class Diffusion(gf.MessagePassing):
-    reducer = gf.sum()
+class Diffusion(tg.MessagePassing):
+    reducer = tg.sum()
 
     def edge(self, src, dst, edge):
         return edge.weight * (src.u - dst.u)
@@ -195,7 +195,7 @@ bucket the cost model may choose a small amount of padding/masking, trading
 regularity for higher hardware utilization.
 
 Here "fine-grained" is first a property of the compiler IR, not a public
-language commitment. There is no public `gf.Schedule` in M0–M2: only after the
+language commitment. There is no public `tg.Schedule` in M0–M2: only after the
 naive Static/Dynamic Graph backends and at least one hardware optimization are
 complete is user syntax reverse-engineered from validated needs such as
 dependent axes, work tiles, partial reducers, and materialize/reuse.
@@ -366,7 +366,7 @@ buffer lifetimes, and distributed region versions.
 ## 6. User API Recommendation for M0–M2
 
 As stated in §4.0, ordinary users write only coarse MessagePassing semantics
-and there is no public `gf.Schedule`. The first kernel call triggers automatic
+and there is no public `tg.Schedule`. The first kernel call triggers automatic
 JIT, and the compiler picks the schedule from the internal fine-grained IR. The
 information available to the compiler includes named/dependent IterAxes,
 AccessMaps, Effects, Relation provenance/statistics, reducer algebra,
@@ -378,7 +378,7 @@ Memory budgets, available devices, and permitted storage tiers cannot be
 derived from compute code; they are separate deployment inputs:
 
 ```python
-deployment = gf.DeploymentPolicy(
+deployment = tg.DeploymentPolicy(
     memory_budget={"hbm": "12GiB"},
     allowed_tiers=("hbm", "pinned", "ram", "nvme"),
 )

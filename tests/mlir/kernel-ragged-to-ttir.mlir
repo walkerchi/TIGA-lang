@@ -22,7 +22,7 @@ func.func @ragged_weighted_sum(%row: tensor<?xi64>, %col: tensor<?xi64>,
   return %0 : tensor<?xf32>
 }
 
-// CHECK: graphforge.launch entry=gf_csr_weighted_sum block_rows=32 num_warps=1
+// CHECK: tiga.launch entry=gf_csr_weighted_sum block_rows=32 num_warps=1
 // CHECK: %starts = tt.load
 // CHECK: %edges = arith.addi {{.*}} : tensor<32x64xi64>
 // CHECK: %mask = arith.andi {{.*}} : tensor<32x64xi1>

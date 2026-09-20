@@ -455,7 +455,7 @@ def reverse_halo_device(cotangent, halo: HaloMap, transport: DeviceBufferTranspo
     from ..tensor import Tensor, int64, tensor
 
     if not isinstance(cotangent, Tensor) or cotangent.device.type != DeviceType.CUDA:
-        raise TypeError("device reverse halo requires a CUDA gf.Tensor")
+        raise TypeError("device reverse halo requires a CUDA tg.Tensor")
     if not isinstance(transport, DeviceBufferTransport):
         raise TypeError("device reverse halo requires DeviceBufferTransport")
     if transport.rank != halo.rank or transport.world_size != halo.world_size:
@@ -699,8 +699,9 @@ class DistributedRuntime:
         self._executor = ThreadPoolExecutor(max_workers=progress_threads)
         self._context_token = None
         self._last_execution_trace: dict[str, object] | None = None
-        # Internal benchmark/conformance control. Public execution always lets
-        # the compiler-selected overlap path decide; users do not schedule it.
+        # Public execution has one policy: complete halo exchange, then compute.
+        # Explicit False is reserved for historical overlap regression probes;
+        # transport preferences must never change the public default.
         self._force_serialized: bool | None = None
 
     @classmethod
@@ -905,12 +906,9 @@ def execute_sharded_message_passing(
 ):
     """Execute one destination-sharded static CSR forward program.
 
-    The compiler-derived destination split starts host/MPI halo progress,
-    realizes interior rows while communication is in flight, then evaluates
-    boundary rows and scatters both disjoint outputs into owner order. Native
-    autograd follows the same split and reverses ghost cotangents. Device-
-    direct transports retain their stream-ordered path; multi-GPU overlap is
-    a separate provider gate.
+    Complete halo exchange before computing all owned rows in one local call.
+    Native autograd reverses ghost cotangents. The interior/boundary split is
+    retained only for explicitly enabled internal regression probes.
     """
     from ..graph import Graph
     from ..runtime import Buffer, Device, DeviceType, Stream
@@ -1019,12 +1017,9 @@ def execute_sharded_message_passing(
         graph_device.type == DeviceType.CUDA
         and isinstance(runtime.transport, DeviceBufferTransport)
     )
-    prefer_overlap = bool(getattr(
-        runtime.transport, "prefer_compute_overlap", False))
-    if runtime._force_serialized is not None:
-        prefer_overlap = not runtime._force_serialized
+    prefer_overlap = runtime._force_serialized is False
     host_overlap = (
-        graph_device.type == DeviceType.CPU
+        graph_device.type in {DeviceType.CPU, DeviceType.CUDA}
         and not device_direct
         and prefer_overlap
     )
@@ -1315,7 +1310,11 @@ def execute_sharded_message_passing(
             )
         runtime._last_execution_trace = {
             "schema": "tiga.distributed-execution-trace.v1",
-            "schedule": "interior||halo->boundary",
+            "schedule": ("interior||host-staged-halo->boundary"
+                         if graph_device.type == DeviceType.CUDA
+                         else "interior||halo->boundary"),
+            "timing_kind": "host-wall-clock",
+            "transport_kind": "host-staged",
             "interior_rows": (
                 0 if row_plan.interior_rows is None
                 else row_plan.interior_rows.shape[0]
@@ -1328,7 +1327,12 @@ def execute_sharded_message_passing(
             "communication_finished_ns": communication_finished_ns,
             "interior_started_ns": interior_started_ns,
             "interior_finished_ns": interior_finished_ns,
-            "measured_overlap_ms": overlap_ns / 1e6,
+            "host_overlap_ms": overlap_ns / 1e6,
+            # Host progress can overlap a synchronous CUDA realization, but
+            # its wall-clock span includes launch/JIT overhead, not just GPU
+            # execution. GPU concurrency requires provider events/profiling.
+            "measured_overlap_ms": (None if graph_device.type == DeviceType.CUDA
+                                    else overlap_ns / 1e6),
         }
     elif device_overlap:
         runtime._last_execution_trace = {

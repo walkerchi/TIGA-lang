@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="1000" height="300" viewBox="0 0 1000 300" role="img" aria-labelledby="title desc">
-  <title id="title">@gf.jit horizontal fusion</title>
-  <desc id="desc">Two WeightedSum leaves read the same CSR graph and feature vector x with different edge weights; @gf.jit captures both as SSA leaves and fuses both reducers into a single kernel launch that returns both outputs.</desc>
+  <title id="title">@tg.jit horizontal fusion</title>
+  <desc id="desc">Two WeightedSum leaves read the same CSR graph and feature vector x with different edge weights; @tg.jit captures both as SSA leaves and fuses both reducers into a single kernel launch that returns both outputs.</desc>
   <defs>
     <marker id="mpArrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
       <path d="M0 0l10 5-10 5z" fill="#64748b" />
@@ -28,7 +28,7 @@
   </g>
   <g>
     <rect x="280" y="65" width="220" height="80" rx="12" class="userBox" />
-    <text x="390" y="91" text-anchor="middle" class="stage">LEAF 1 · YOU</text>
+    <text x="390" y="91" text-anchor="middle" class="stage">LEAF 1</text>
     <g transform="translate(326.50 105.00)" fill="#312e81"><g id="text_1">
    
    <g transform="translate(0 14) scale(0.13 -0.13)">
@@ -75,7 +75,7 @@
  </g></g>
   <g>
     <rect x="280" y="185" width="220" height="80" rx="12" class="userBox" />
-    <text x="390" y="211" text-anchor="middle" class="stage">LEAF 2 · YOU</text>
+    <text x="390" y="211" text-anchor="middle" class="stage">LEAF 2</text>
     <g transform="translate(326.50 225.00)" fill="#312e81"><g id="text_1">
    
    <g transform="translate(0 14) scale(0.13 -0.13)">

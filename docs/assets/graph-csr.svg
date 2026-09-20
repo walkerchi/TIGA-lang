@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="240" viewBox="0 0 640 240" role="img" aria-labelledby="title desc">
+  <title id="title">CSR stores source IDs grouped by destination</title>
+  <desc id="desc">Row pointers 0, 2, 3, 5 mark boundaries between five edge slots. Source IDs 0 and 2 belong to destination 0; source 1 belongs to destination 1; sources 0 and 1 belong to destination 2. The highlighted first slice is col_idx[0:2].</desc>
+  <rect width="640" height="240" rx="10" fill="#f8fafc"/>
+  <g font-family="sans-serif" font-size="17" fill="#627080">
+    <text x="26" y="36" fill="#087f76" font-weight="700">col_idx[0:2] = [0, 2] → dst 0</text>
+    <text x="26" y="81">row_ptr</text>
+    <g text-anchor="middle" font-family="monospace" font-size="20">
+      <text x="150" y="81" fill="#087f76">0</text><text x="310" y="81" fill="#087f76">2</text><text x="390" y="81">3</text><text x="550" y="81">5</text>
+    </g>
+    <path d="M150 89V118 M310 89V118 M390 89V118 M550 89V118" stroke="#a0aab7" fill="none"/>
+    <rect x="150" y="119" width="160" height="49" rx="4" fill="#e0f2ee"/>
+    <path d="M150 119H550V168H150Z M230 119V168 M310 119V168 M390 119V168 M470 119V168" fill="none" stroke="#b4bec9"/>
+    <text x="26" y="151">col_idx</text>
+    <g text-anchor="middle" font-family="monospace" font-size="21">
+      <text x="190" y="151" fill="#087f76" font-weight="700">0</text><text x="270" y="151" fill="#087f76" font-weight="700">2</text><text x="350" y="151">1</text><text x="430" y="151">0</text><text x="510" y="151">1</text>
+    </g>
+    <g text-anchor="middle" font-size="13">
+      <text x="190" y="109">e0</text><text x="270" y="109">e1</text><text x="350" y="109">e2</text><text x="430" y="109">e3</text><text x="510" y="109">e4</text>
+    </g>
+    <path d="M154 178V187H306V178" fill="none" stroke="#087f76" stroke-width="2"/>
+    <path d="M314 178V187H386V178 M394 178V187H546V178" fill="none" stroke="#a0aab7"/>
+    <g text-anchor="middle"><text x="230" y="216" fill="#087f76" font-weight="700">dst 0</text><text x="350" y="216">dst 1</text><text x="470" y="216">dst 2</text></g>
+  </g>
+</svg>

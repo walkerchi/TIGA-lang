@@ -21,7 +21,7 @@ module {
   }
 }
 
-// TTIR: graphforge.tensor entry=gf_tensor_csr_product block_rows=1 block_elements=4
+// TTIR: tiga.tensor entry=gf_tensor_csr_product block_rows=1 block_elements=4
 // TTIR: tt.func public @gf_tensor_csr_product
 // TTIR: %product = "tt.reduce"(%values)
 // TTIR: %next = arith.mulf %a, %b : f32

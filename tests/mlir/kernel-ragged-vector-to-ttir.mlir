@@ -31,7 +31,7 @@ func.func @ragged_vector_weighted_sum(
 // KERNEL-SAME: schedule_kind = "bounded-ragged-row-neighbor-feature"
 // KERNEL: {block_features = 16 : i64}
 
-// TTIR: graphforge.launch entry=gf_csr_weighted_sum block_rows=32 num_warps=4
+// TTIR: tiga.launch entry=gf_csr_weighted_sum block_rows=32 num_warps=4
 // TTIR: %starts = tt.load %start_ptr
 // TTIR: %edge_limit = arith.cmpi slt, %edges, %ends_b
 // TTIR: %edge_mask = arith.andi %row_mask, %edge_limit

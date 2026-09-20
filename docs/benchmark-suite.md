@@ -5,6 +5,8 @@ The `benchmarks/` tree is the executable evidence base behind every row in
 semantics**, never by provider: Triton, Torch, vendor libraries and
 Tiga-generated code are peers inside a case, not top-level categories.
 
+Historical figures use the committed input archive. Original revision/environment metadata is incomplete; the commands below are not exact reruns of every old measurement. Start with [chart reproduction](benchmark-reproducibility.md).
+
 ## Layout
 
 | Directory | Scope | Entry points |
@@ -25,8 +27,14 @@ Tiga-generated code are peers inside a case, not top-level categories.
 
 ## Running cases
 
-Entry points run as modules from the repository root so imports are
-independent of the current working directory. Most accept `--quick` for a
+Use a source checkout: benchmark modules are not installed by the library wheel.
+Run the following commands from the repository root, after installing Tiga using
+the [installation guide](getting-started.md). The `benchmarks` extra supplies
+Torch and Matplotlib; CUDA cases also need the `cuda` extra and supported hardware.
+Install a matching Torch build first. Missing optional peers (for example SciPy,
+PyG or Warp) must be recorded as skipped, not counted as wins.
+
+Entry points run as modules from the repository root. Most accept `--quick` for a
 reduced sample count and `--fail-on-gate` to turn the acceptance gate into a
 non-zero exit:
 

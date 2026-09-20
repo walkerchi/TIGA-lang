@@ -38,7 +38,7 @@ import statistics
 import time
 from pathlib import Path
 
-import tiga as gf
+import tiga as tg
 import torch
 import triton
 import triton.language as tl
@@ -191,10 +191,10 @@ def _edge_mlp_tile_kernel(
 
 
 # --8<-- [start:tiga]
-class EdgeMLPMessagePassing(gf.MessagePassing):
+class EdgeMLPMessagePassing(tg.MessagePassing):
     """edge() calls a Torch MLP on [displacement ‖ src feature].
 
-    With ``traced=True`` the module is wrapped in ``gf.nn.trace`` so the
+    With ``traced=True`` the module is wrapped in ``tg.nn.trace`` so the
     compiler can prove the edge-NN tile structure and emit the fused kernel;
     with ``traced=False`` the same math stays on the eager fallback.
     """
@@ -202,7 +202,7 @@ class EdgeMLPMessagePassing(gf.MessagePassing):
     def __init__(self, mlp: nn.Module, *, traced: bool = False):
         super().__init__()
         self._traced = traced
-        self.mlp = gf.nn.trace(mlp) if traced else mlp
+        self.mlp = tg.nn.trace(mlp) if traced else mlp
 
     def edge(self, src, dst, edge):
         del dst
@@ -255,7 +255,7 @@ def main() -> None:
 
     # --- one-time topology builds (reported, never hidden in warm numbers) ---
     started = time.perf_counter_ns()
-    graph = gf.Graph.radius(positions, cutoff=cutoff)
+    graph = tg.Graph.radius(positions, cutoff=cutoff)
     row_ptr, col_idx = graph.resolve_csr()
     destination = graph.destination_index(row_ptr)
     torch.cuda.synchronize()

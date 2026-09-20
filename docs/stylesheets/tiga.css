@@ -1,3 +1,74 @@
+/* The monochrome mark stays legible on the dark navigation bar and theme. */
+.md-header .md-logo img {
+  filter: brightness(0) invert(1);
+}
+
+[data-md-color-scheme="slate"] .tiga-brand-logo {
+  filter: brightness(1.5);
+}
+
+/* The homepage logo is the heading; only the introductory hero is centered. */
+.md-typeset .tiga-home-hero {
+  margin: 1rem 0 2rem;
+  text-align: center;
+}
+
+.md-typeset .tiga-home-hero h1 {
+  margin: 0 0 .75rem;
+  line-height: 1;
+}
+
+.md-typeset .tiga-home-hero .tiga-brand-logo {
+  display: block;
+  width: 300px;
+  max-width: 100%;
+  height: auto;
+  margin-inline: auto;
+}
+
+.md-typeset .tiga-home-hero .headerlink {
+  display: none;
+}
+
+.md-typeset .tiga-home-hero p {
+  margin: 0;
+  text-wrap: balance;
+}
+
+/* Visualization examples: aligned comparisons, readable captions, opt-in motion. */
+.md-typeset .tg-render-comparison {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+  margin: 1.5rem 0;
+}
+.md-typeset .tg-render-comparison figure {
+  margin: 0;
+  min-width: 0;
+}
+.md-typeset .tg-render-comparison img,
+.md-typeset .tg-render-motion video {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: 10px;
+  background: #090c14;
+}
+.md-typeset .tg-render-comparison figcaption,
+.md-typeset .tg-render-motion figcaption {
+  margin: .65rem 0 0;
+  font-style: normal;
+  font-size: .75rem;
+  line-height: 1.6;
+  color: var(--gf-muted);
+  text-align: left;
+}
+.md-typeset .tg-render-comparison strong { color: var(--gf-ink); }
+.md-typeset .tg-render-motion { max-width: 24rem; margin: 1.25rem auto; }
+@media (max-width: 600px) {
+  .md-typeset .tg-render-comparison { grid-template-columns: 1fr; }
+}
+
 :root {
   --gf-blue: #1769e0;
   --gf-blue-bright: #2687ff;
@@ -158,6 +229,30 @@ body {
 .md-typeset details {
   border-radius: 13px;
   box-shadow: var(--gf-shadow-sm);
+}
+
+.gf-learning-paths {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1.25rem;
+  margin: 1.25rem 0;
+}
+
+.gf-learning-path {
+  padding: 1.15rem 1.4rem;
+  border: 1px solid var(--gf-line);
+  border-radius: 12px;
+  background: var(--gf-panel);
+}
+
+.gf-learning-path h3 {
+  margin-top: 0;
+}
+
+@media (max-width: 700px) {
+  .gf-learning-paths {
+    grid-template-columns: 1fr;
+  }
 }
 
 .gf-hero {
@@ -598,6 +693,19 @@ body {
   color-scheme: light;
 }
 
+/* Keep numeric result labels readable on narrow screens; only the chart scrolls. */
+.md-typeset a:has(> img[src*="assets/results/"]) {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+}
+@media (max-width: 700px) {
+  .md-typeset a > img[src*="assets/results/"] {
+    min-width: 720px;
+    max-width: none;
+  }
+}
+
 /* Interactive result charts embedded via <object> (native <title> tooltips);
    same color-scheme guard as the showcase object above. */
 .md-typeset object.gf-chart {
@@ -796,6 +904,65 @@ body {
   .gf-callout {
     grid-template-columns: 1fr;
   }
+}
+
+.md-typeset .tg-api-index ul {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: .35rem 1rem;
+  margin: .8rem 0 1.2rem !important;
+  padding: .8rem 1rem;
+  border-left: 2px solid var(--md-primary-fg-color);
+  list-style: none;
+}
+
+.tg-api-index li {
+  margin: 0 !important;
+  overflow-wrap: anywhere;
+}
+
+.tg-api-index a {
+  display: block;
+}
+
+@media (max-width: 600px) {
+  .md-typeset .tg-api-index ul { grid-template-columns: 1fr; }
+}
+
+.ir-diagram {
+  margin: 1.2rem 0;
+  overflow-x: auto;
+  text-align: left;
+}
+
+.ir-diagram img {
+  display: block;
+  width: 760px;
+  min-width: 640px;
+  max-width: 100%;
+  color-scheme: light;
+}
+
+/* The introductory graphs are deliberately small enough to fit on phones. */
+.graph-diagram img {
+  width: 640px;
+  min-width: 0;
+}
+
+[data-md-color-scheme="slate"] .ir-diagram img {
+  color-scheme: dark;
+}
+
+.language-mlir .nv {
+  color: #0f766e;
+}
+
+.language-mlir .na {
+  color: var(--md-code-fg-color);
+}
+
+[data-md-color-scheme="slate"] .language-mlir .nv {
+  color: #5eead4;
 }
 
 @media (prefers-reduced-motion: reduce) {

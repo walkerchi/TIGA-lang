@@ -1,0 +1,70 @@
+{
+  "workload": "radius edge MLP",
+  "particles": 131072,
+  "target_degree": 32,
+  "edges": 4016096,
+  "measured_degree": 30.640380859375,
+  "cutoff": 0.038771905681212505,
+  "mlp": {
+    "in": 11,
+    "hidden": 16,
+    "out": 8
+  },
+  "topology_ms": {
+    "graphforge_csr_snapshot": 279.694035,
+    "warp_hash_grid": 9.870515
+  },
+  "results": [
+    {
+      "provider": "tiga-eager",
+      "milliseconds": 6.508175849914551,
+      "min_ms": 6.474880218505859,
+      "max_ms": 6.696352005004883,
+      "cache": "hot",
+      "features": 8
+    },
+    {
+      "provider": "torch-eager",
+      "milliseconds": 5.959936141967773,
+      "min_ms": 5.945343971252441,
+      "max_ms": 5.984320163726807,
+      "cache": "hot",
+      "features": 8
+    },
+    {
+      "provider": "warp-fused",
+      "milliseconds": 4.575920104980469,
+      "min_ms": 4.553855895996094,
+      "max_ms": 4.597248077392578,
+      "cache": "hot",
+      "features": 8
+    },
+    {
+      "provider": "triton-fused-tile",
+      "milliseconds": 0.49878400564193726,
+      "min_ms": 0.4901759922504425,
+      "max_ms": 0.516543984413147,
+      "cache": "hot",
+      "features": 8
+    },
+    {
+      "provider": "tiga-compiled-tile",
+      "milliseconds": 0.5046719908714294,
+      "min_ms": 0.4940800070762634,
+      "max_ms": 0.5242879986763,
+      "cache": "hot",
+      "features": 8
+    }
+  ],
+  "memory": {
+    "eager_peak_bytes": 2192199168,
+    "eager_message_activation_bytes": 562253440,
+    "fused_message_activation_bytes": 0
+  },
+  "correctness": {
+    "warp_max_abs_error": 4.9591064453125e-05,
+    "triton_tile_max_abs_error": 1.52587890625e-05,
+    "compiled_tile_max_abs_error": 1.52587890625e-05,
+    "compiled_vs_handwritten_oracle_gap": 1.52587890625e-05
+  }
+}

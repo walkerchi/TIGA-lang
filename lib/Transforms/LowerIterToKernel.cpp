@@ -117,6 +117,7 @@ public:
         state.addAttribute("cutoff", generated.getCutoffAttr());
         state.addAttribute("dimensions", generated.getDimensionsAttr());
         state.addAttribute("periodic", generated.getPeriodicAttr());
+        state.addAttribute("hash_grid", generated.getHashGridAttr());
       } else if (ranked) {
         for (StringRef name : {"num_queries", "num_candidates", "dimensions",
                                "k", "metric", "selection", "tie_break",

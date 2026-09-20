@@ -15,15 +15,15 @@ from pathlib import Path
 import statistics
 import time
 
-import tiga as gf
+import tiga as tg
 from tiga.distributed import (
     DeviceBufferSlice, DistributedRuntime, NCCLTransport, nccl_unique_id,
     owned_range,
 )
 
 
-class NeighborSum(gf.MessagePassing):
-    reducer = gf.sum()
+class NeighborSum(tg.MessagePassing):
+    reducer = tg.sum()
 
     def edge(self, src, dst, edge):
         del dst, edge
@@ -36,9 +36,9 @@ def _worker(rank, communicator_id, byte_count, repeats, queue):
     transport = NCCLTransport(
         rank, 2, communicator_id, device=device,
     )
-    stream = gf.runtime.Stream(device)
-    source = gf.runtime.Buffer(byte_count, device=device)
-    destination = gf.runtime.Buffer(byte_count, device=device)
+    stream = tg.runtime.Stream(device)
+    source = tg.runtime.Buffer(byte_count, device=device)
+    destination = tg.runtime.Buffer(byte_count, device=device)
     source.write(bytes([rank + 17]) * byte_count)
     send = ((1 - rank, DeviceBufferSlice(source, 0, byte_count)),)
     receive = ((1 - rank, DeviceBufferSlice(destination, 0, byte_count)),)
@@ -62,20 +62,20 @@ def _worker(rank, communicator_id, byte_count, repeats, queue):
                 (destination_id + 1) % entities,
             )
         ]
-        graph = gf.Graph.from_csr(
-            gf.tensor(rows, dtype=gf.int64, device=device),
-            gf.tensor(columns, dtype=gf.int64, device=device),
+        graph = tg.Graph.from_csr(
+            tg.tensor(rows, dtype=tg.int64, device=device),
+            tg.tensor(columns, dtype=tg.int64, device=device),
             num_src=entities, validate="full",
-        ).halo(gf.DeviceMesh("cuda", 2), depth=1)
+        ).halo(tg.DeviceMesh("cuda", 2), depth=1)
         begin, end = owned_range(entities, 2, rank)
-        local_x = gf.tensor(
+        local_x = tg.tensor(
             [float(entity) for entity in range(begin, end)],
             device=device, requires_grad=True,
         )
         with DistributedRuntime(transport):
             output = NeighborSum()(graph=graph, src={"x": local_x}, dst={})
             output_values = output.tolist()
-            gradient = gf.autograd.grad(output.sum(), local_x)
+            gradient = tg.autograd.grad(output.sum(), local_x)
             gradient_values = gradient.tolist()
         queue.put({
             "rank": rank,
@@ -108,7 +108,7 @@ def main() -> None:
         raise ValueError("bytes and repeats must be positive")
     try:
         capabilities = [
-            gf.runtime.cuda_compute_capability(f"cuda:{ordinal}")
+            tg.runtime.cuda_compute_capability(f"cuda:{ordinal}")
             for ordinal in range(2)
         ]
     except RuntimeError as error:

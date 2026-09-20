@@ -30,7 +30,7 @@ module {
 
 // VJP: "gf_tensor.csr_segment_product_vjp"
 // VJP-NOT: "gf_tensor.grad"
-// TTIR: graphforge.tensor entry=gf_tensor_csr_product_vjp block_rows=1 block_elements=4
+// TTIR: tiga.tensor entry=gf_tensor_csr_product_vjp block_rows=1 block_elements=4
 // TTIR: tt.func public @gf_tensor_csr_product_vjp
 // TTIR: %not_self = arith.cmpi ne
 // TTIR: %excluded = "tt.reduce"(%values)

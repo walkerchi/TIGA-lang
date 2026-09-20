@@ -6,13 +6,13 @@ import multiprocessing
 from pathlib import Path
 import tempfile
 
-import tiga as gf
+import tiga as tg
 from tiga.distributed import DistributedRuntime, PipeTransport, owned_range
 
 
 # --8<-- [start:core]
-class NeighborSum(gf.MessagePassing):
-    reducer = gf.sum()
+class NeighborSum(tg.MessagePassing):
+    reducer = tg.sum()
 
     def edge(self, src, dst, edge):
         return src.x
@@ -21,17 +21,17 @@ class NeighborSum(gf.MessagePassing):
 def worker(rank, endpoint, graph_path, queue):
     # The handle is a normal Graph. Only this rank's CSR rows are read from
     # the .gfg PhysicalInstance; topology is not eagerly loaded process-wide.
-    graph = gf.load(graph_path).halo(gf.DeviceMesh("cpu", 2), depth=1)
+    graph = tg.load(graph_path).halo(tg.DeviceMesh("cpu", 2), depth=1)
     entities = graph.schema.num_dst
     begin, end = owned_range(entities, 2, rank)
     # Each process owns only its local leading-dimension shard. MessagePassing
     # performs exact halo pack/exchange/unpack below the kernel call.
-    local_x = gf.tensor(
+    local_x = tg.tensor(
         [float(entity) for entity in range(begin, end)], requires_grad=True)
     transport = PipeTransport(rank, 2, {1 - rank: endpoint})
     with DistributedRuntime(transport):
         output = NeighborSum()(graph=graph, src={"x": local_x}, dst={})
-        gradient = gf.autograd.grad(output.sum(), local_x)
+        gradient = tg.autograd.grad(output.sum(), local_x)
         values, gradients = output.tolist(), gradient.tolist()
     queue.put((rank, (values, gradients)))
 # --8<-- [end:core]
@@ -44,8 +44,8 @@ def main():
     entities = 8
     with tempfile.TemporaryDirectory() as directory:
         graph_path = Path(directory) / "ring.gfg"
-        gf.save(
-            gf.Graph.stencil(
+        tg.save(
+            tg.Graph.stencil(
                 (entities,), ((-1,), (0,), (1,)), periodic=True),
             graph_path,
         )

@@ -1,13 +1,13 @@
 """Single-machine paged MessagePassing over a disk-resident CSR relation.
 
-A ``paged_csr`` Graph (``gf.load(path)``) keeps its topology on disk and
+A ``paged_csr`` Graph (``tg.load(path)``) keeps its topology on disk and
 exposes bounded destination-row reads through ``Graph.paged_page``.  This
 executor streams those pages: only one page of ``row_ptr``/``col_idx`` is
 resident at a time, a small thread pool keeps up to ``prefetch_depth`` page
 reads in flight while pages compute, and every page runs through the
 unchanged native MessagePassing path on a page-local CSR graph.
 
-Fields may also live on disk inside the ``.gfg`` (``gf.save(graph, path,
+Fields may also live on disk inside the ``.gfg`` (``tg.save(graph, path,
 fields={"src": ..., "dst": ..., "edge": ...})``).  ``Graph.fields(role)``
 hands out full-shape shell Tensors backed by the store's row readers; the
 executor materializes only each page's contiguous dst/edge row ranges
@@ -38,8 +38,9 @@ from __future__ import annotations
 
 import math
 import os
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
+from contextvars import copy_context
 from pathlib import Path
 import shutil
 import tempfile
@@ -58,6 +59,9 @@ _PREFETCH_DEPTH_ENV = "TIGA_PAGED_PREFETCH_DEPTH"
 
 
 def _default_page_rows() -> int:
+    from ..runtime.memory import current_execution
+    if current_execution() is not None:
+        return current_execution().page_rows
     override = os.environ.get(_PAGE_ROWS_ENV)
     if override is None:
         return _DEFAULT_PAGE_ROWS
@@ -71,6 +75,9 @@ def _default_page_rows() -> int:
 
 
 def _default_prefetch_depth() -> int:
+    from ..runtime.memory import current_execution
+    if current_execution() is not None:
+        return current_execution().prefetch_depth
     override = os.environ.get(_PREFETCH_DEPTH_ENV)
     if override is None:
         return _DEFAULT_PREFETCH_DEPTH
@@ -120,7 +127,7 @@ def _field_reader(value: Tensor):
 
 
 def _flat_leaf(
-    flat: list,
+    flat: Sequence,
     shape: tuple[int, ...],
     dtype,
     device,
@@ -190,14 +197,14 @@ def _stream_pages(
             thread_name_prefix="tiga-paged-prefetch",
         ) as pool:
             pending = [
-                pool.submit(load, *bounds[index])
+                pool.submit(copy_context().run, load, *bounds[index])
                 for index in range(min(prefetch_depth, len(bounds)))
             ]
             for index, (begin, end) in enumerate(bounds):
                 page = pending.pop(0).result()
                 ahead = index + prefetch_depth
                 if ahead < len(bounds):
-                    pending.append(pool.submit(load, *bounds[ahead]))
+                    pending.append(pool.submit(copy_context().run, load, *bounds[ahead]))
                 yield begin, end, page
     else:
         for begin, end in bounds:
@@ -317,8 +324,15 @@ def _page_view(
             reader.gather_into(columns, slab.address)
         else:
             reader.read_into(begin, begin + count, slab.address)
-        view = Buffer.wrap_address(
-            slab.address, count * reader.row_bytes, device=device, owner=slab)
+        nbytes = count * reader.row_bytes
+        if device.type is DeviceType.CPU:
+            view = Buffer.wrap_address(
+                slab.address, nbytes, device=device, owner=slab)
+        else:
+            # A host arena address is not a CUDA address. Stage exactly this
+            # page onto the destination device before the kernel consumes it.
+            view = Buffer(nbytes, device=device, _pooled=True)
+            view.write(slab.read(bytes=nbytes))
         return Tensor(
             shape, dtype=value.dtype, device=device, buffer=view,
             requires_grad=requires_grad)
@@ -359,10 +373,17 @@ def _run_page(
     # Rebased page-local CSR with GLOBAL source indexing.  Built under the
     # _IN_PAGED flag by the caller so auto-offload never re-pages a page.
     page_graph = Graph.from_csr(
-        tensor(rows, dtype=index_dtype, device=device),
-        tensor(columns, dtype=index_dtype, device=device),
+        # Storage reads already return validated flat sequences. Avoid generic
+        # nested-shape inference once per edge on the host before every launch.
+        _flat_leaf(rows, (len(rows),), index_dtype, device),
+        _flat_leaf(columns, (len(columns),), index_dtype, device),
         num_src=graph.schema.num_src,
     )
+    # Row pointers are already on the host and validated by the page reader.
+    # Reuse them rather than copying device indices back for degree analysis.
+    degrees = [right - left for left, right in zip(rows, rows[1:])]
+    page_graph._degree_bounds_cache = (
+        (min(degrees), max(degrees)) if degrees else (0, 0))
     row_ptr, col_idx = page_graph.resolve_csr()
     views: dict[tuple[str, str], Tensor] = {}
 
@@ -462,7 +483,10 @@ def execute_paged_message_passing(
 
     from ..graph.offload import _IN_PAGED
 
-    page_payloads: list[bytes] = []
+    # Keep only one output page on the host. The final output is resident, but
+    # a second graph-sized list of host byte strings is not needed for assembly.
+    result = None
+    page_backends: set[str] = set()
     out_feature: tuple[int, ...] | None = None
     dtype = None
     edge_cursor = 0
@@ -492,16 +516,32 @@ def execute_paged_message_passing(
             if dtype is None:
                 dtype = output.dtype
                 out_feature = output.shape[1:]
+                result_shape = (graph.schema.num_dst, *out_feature)
+                result = Tensor(
+                    result_shape, dtype=dtype, device=device,
+                    buffer=Buffer(math.prod(result_shape) * dtype.itemsize,
+                                  device=device, _pooled=True))
             elif output.dtype is not dtype or output.shape[1:] != out_feature:
                 raise RuntimeError(
                     "paged pages produced inconsistent output dtypes/shapes")
-            page_payloads.append(_drain_bytes(output))
+            result._buffer.write(
+                _drain_bytes(output),
+                offset=begin * math.prod(out_feature) * dtype.itemsize)
+            page_backends.add((output.execution or {}).get("backend", "unknown"))
+            # Do not retain the previous page's bindings during the next
+            # allocation (or the final full-output assembly).
+            del output, _views
     finally:
         _IN_PAGED.reset(token)
         arena.close()
     assert edge_cursor == num_edges
-    result = _assemble_pages(
-        page_payloads, (graph.schema.num_dst, *out_feature), dtype, device)
+    assert result is not None
+    result._execution_info = {
+        "backend": "paged-message-passing",
+        "page_backends": sorted(page_backends),
+        "pages": len(bounds),
+        "storage_path": "host-staged" if device.type is not DeviceType.CPU else "host",
+    }
     if not differentiable:
         return result
 

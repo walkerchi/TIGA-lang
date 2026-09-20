@@ -1,8 +1,8 @@
 // RUN: gf-opt --gf-lower-tensor-to-cpu %s | FileCheck %s
 
 // CHECK-LABEL: func.func @repeat_pointwise
-// CHECK-SAME: graphforge.cpu.loop_buffers = 2
-// CHECK-SAME: graphforge.cpu.serial_control
+// CHECK-SAME: tiga.cpu.loop_buffers = 2
+// CHECK-SAME: tiga.cpu.serial_control
 // CHECK-COUNT-2: memref.alloc
 // CHECK: scf.for
 // CHECK: scf.for {{.*}} iter_args(

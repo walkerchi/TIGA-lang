@@ -4,7 +4,7 @@ The score network runs inside a row-centric fused tile kernel — no [E, ·]
 score or attention-weight tensor is materialized in either direction.
 """
 
-import tiga as gf
+import tiga as tg
 import torch
 from torch import nn
 
@@ -17,12 +17,12 @@ x = torch.randn((nodes, f_in), device=device)            # (N, F_in)
 
 
 # --8<-- [start:core]
-class GAT(gf.MessagePassing):
-    reducer = gf.online_softmax()      # attention: softmax over incoming edges
+class GAT(tg.MessagePassing):
+    reducer = tg.online_softmax()      # attention: softmax over incoming edges
 
     def __init__(self, attn):
         super().__init__()
-        self.attn = gf.nn.trace(attn)  # scalar score network, per edge
+        self.attn = tg.nn.trace(attn)  # scalar score network, per edge
 
     def edge(self, src, dst, edge):
         # s_e = attn([pos_src − pos_dst ‖ x_src ‖ x_dst])   (E, 1)
@@ -31,7 +31,7 @@ class GAT(gf.MessagePassing):
                             src.x)
 
 
-graph = gf.Graph.radius(positions, cutoff=0.15)  # avg degree ≈ 7
+graph = tg.Graph.radius(positions, cutoff=0.15)  # avg degree ≈ 7
 attn = nn.Sequential(
     nn.Linear(3 + 2 * f_in, hidden), nn.LeakyReLU(0.2), nn.Linear(hidden, 1),
 ).to(device)
@@ -47,7 +47,7 @@ with torch.no_grad():
 # the positions and the score-network weights.
 positions_g = positions.clone().requires_grad_(True)
 xg = x.clone().requires_grad_(True)
-graph_g = gf.Graph.radius(positions_g, cutoff=0.15)
+graph_g = tg.Graph.radius(positions_g, cutoff=0.15)
 out_g = kernel(graph=graph_g, src={"x": xg}, dst={"x": xg})
 out_g.sum().backward()
 

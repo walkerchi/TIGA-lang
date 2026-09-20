@@ -210,18 +210,19 @@ def tile_pruned_attention() -> None:
         f'fill="{PRUNED}" stroke="{EMPTY_STROKE}" stroke-width="1.5" />'
         + _cross(lx, y0 + 68, 16)
         + f'<text x="{lx + 24}" y="{y0 + 81}" class="body">pruned — '
-          f'never read</text>')
+          f'no value load</text>')
     parts.append(_notes(lx, y0 + 128, [
-        ("body", "a tile enters the softmax only"),
-        ("body", "if its best score is within τ"),
-        ("body", "of the running row max"),
+        ("body", "compute scores first; admit"),
+        ("body", "by a relative score threshold"),
+        ("body", "against the query-block max"),
     ]))
     _figure(
         "tile-pruned-attention.svg",
-        "Tile pruning: whole tiles skipped, never read",
+        "Tile pruning: skip low-score value loads",
         "An 8 by 8 attention matrix grouped into 2 by 2 tiles. Tiles near "
-        "the diagonal are admitted in solid indigo; far tiles are crossed "
-        "out and their scores and values are never read.",
+        "the diagonal are admitted in solid indigo; illustrative low-score tiles "
+        "are crossed out. Scores are evaluated before pruning; only value "
+        "loads and accumulation are skipped.",
         "\n  ".join(parts), 680, 420)
 
 

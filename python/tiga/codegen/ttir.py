@@ -172,9 +172,9 @@ class TTIRWeightedSumPlan:
     output: Any | None = None
 
     def _acquire_output(self, x: Any) -> Any:
-        from ..interop.torch.provider import reusable_empty_like
+        from ..interop.torch.provider import reusable_row_output
 
-        self.output = reusable_empty_like(self.output, x)
+        self.output = reusable_row_output(self.output, x, rows=self.num_rows)
         return self.output
 
     def run(self, x: Any, weight: Any) -> Any:

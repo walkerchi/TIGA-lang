@@ -7,12 +7,12 @@ import time
 
 import torch
 
-import tiga as gf
+import tiga as tg
 from tiga.interop.torch.message_passing import _csr_bundle_runner
 
 
-class Diffusion(gf.MessagePassing):
-    reducer = gf.sum()
+class Diffusion(tg.MessagePassing):
+    reducer = tg.sum()
 
     def edge(self, src, dst, edge):
         return edge.weight * (src.x - dst.x)
@@ -31,7 +31,7 @@ def main() -> None:
         0, n * degree + 1, degree, device="cuda", dtype=torch.int64)
     col_idx = torch.arange(
         n * degree, device="cuda", dtype=torch.int64).remainder(n)
-    graph = gf.Graph.from_csr(row_ptr, col_idx, num_src=n)
+    graph = tg.Graph.from_csr(row_ptr, col_idx, num_src=n)
     x = torch.rand(n, device="cuda")
     weight = torch.rand(n * degree, device="cuda")
     kernel = Diffusion()

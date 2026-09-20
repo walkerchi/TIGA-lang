@@ -8,7 +8,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-import tiga as gf
+import tiga as tg
 
 
 @unittest.skipUnless(importlib.util.find_spec("numpy"), "NumPy is unavailable")
@@ -16,8 +16,8 @@ class VisualizationTest(unittest.TestCase):
     def test_heatmap_is_ordinary_tensor_ir_and_exports_rgb(self):
         import numpy as np
 
-        values = gf.tensor([[0.0, 0.5], [1.0, 0.25]], dtype=gf.float32)
-        raster = gf.visualize.heatmap(
+        values = tg.tensor([[0.0, 0.5], [1.0, 0.25]], dtype=tg.float32)
+        raster = tg.visualize.heatmap(
             values, low=(0.0, 0.0, 0.0), high=(1.0, 0.5, 0.25))
         actual = raster.to_numpy()
         expected = np.array([
@@ -48,14 +48,14 @@ class VisualizationTest(unittest.TestCase):
         from tiga.visualize import _COLORMAPS
 
         flat = np.linspace(-0.5, 1.5, 48, dtype=np.float32)
-        values = gf.tensor(flat.reshape(6, 8).tolist(), dtype=gf.float32)
+        values = tg.tensor(flat.reshape(6, 8).tolist(), dtype=tg.float32)
         positions = np.linspace(0.0, 1.0, 8)
         for name, stops in _COLORMAPS.items():
-            actual = gf.visualize.heatmap(
+            actual = tg.visualize.heatmap(
                 values, cmap=name).to_numpy().reshape(-1, 3)
             expected = self._piecewise_linear(flat, positions, stops)
             np.testing.assert_allclose(actual, expected, rtol=1e-4, atol=1e-5)
-        mlir = gf.visualize.heatmap(values, cmap="viridis").mlir(verify=True)
+        mlir = tg.visualize.heatmap(values, cmap="viridis").mlir(verify=True)
         self.assertIn('"gf_tensor.sqrt"', mlir)
         self.assertNotIn("heatmap", mlir)
 
@@ -63,15 +63,15 @@ class VisualizationTest(unittest.TestCase):
         import numpy as np
 
         flat = np.linspace(-0.5, 1.5, 48, dtype=np.float32)
-        values = gf.tensor(flat.reshape(6, 8).tolist(), dtype=gf.float32)
+        values = tg.tensor(flat.reshape(6, 8).tolist(), dtype=tg.float32)
         custom = [(1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0)]
-        actual = gf.visualize.heatmap(
+        actual = tg.visualize.heatmap(
             values, cmap=custom).to_numpy().reshape(-1, 3)
         expected = self._piecewise_linear(flat, np.array([0.0, 0.5, 1.0]), custom)
         np.testing.assert_allclose(actual, expected, rtol=1e-4, atol=1e-5)
         stops = [(0.2, (0.0, 0.0, 0.0)), (0.6, (1.0, 1.0, 1.0)),
                  (0.9, (1.0, 0.0, 0.0))]
-        actual = gf.visualize.heatmap(
+        actual = tg.visualize.heatmap(
             values, cmap=stops).to_numpy().reshape(-1, 3)
         expected = self._piecewise_linear(
             flat, np.array([stop[0] for stop in stops]),
@@ -81,21 +81,21 @@ class VisualizationTest(unittest.TestCase):
     def test_heatmap_two_stop_colormap_matches_low_high(self):
         import numpy as np
 
-        values = gf.tensor([[0.0, 0.5], [1.5, 0.25]], dtype=gf.float32)
-        colormap = gf.visualize.heatmap(
+        values = tg.tensor([[0.0, 0.5], [1.5, 0.25]], dtype=tg.float32)
+        colormap = tg.visualize.heatmap(
             values, cmap=[(0.1, 0.2, 0.3), (0.9, 0.8, 0.7)]).to_numpy()
-        ramp = gf.visualize.heatmap(
+        ramp = tg.visualize.heatmap(
             values, low=(0.1, 0.2, 0.3), high=(0.9, 0.8, 0.7)).to_numpy()
         np.testing.assert_allclose(colormap, ramp, rtol=1e-6, atol=1e-6)
 
     def test_heatmap_default_is_full_viridis_not_endpoint_lerp(self):
         import numpy as np
 
-        values = gf.tensor([[0.0, 0.5], [1.5, 0.25]], dtype=gf.float32)
-        default = gf.visualize.heatmap(values).to_numpy()
-        explicit = gf.visualize.heatmap(values, cmap="viridis").to_numpy()
+        values = tg.tensor([[0.0, 0.5], [1.5, 0.25]], dtype=tg.float32)
+        default = tg.visualize.heatmap(values).to_numpy()
+        explicit = tg.visualize.heatmap(values, cmap="viridis").to_numpy()
         np.testing.assert_allclose(default, explicit, rtol=1e-6, atol=1e-6)
-        lerp = gf.visualize.heatmap(
+        lerp = tg.visualize.heatmap(
             values, low=(0.267, 0.005, 0.329),
             high=(0.993, 0.906, 0.144)).to_numpy()
         # the midpoint differs: full viridis passes through teal, not brown
@@ -104,21 +104,21 @@ class VisualizationTest(unittest.TestCase):
             default[1, 0], explicit[1, 0], rtol=1e-6, atol=1e-6)
 
     def test_heatmap_colormap_rejects_invalid_specs(self):
-        values = gf.tensor([[0.0, 0.5]], dtype=gf.float32)
+        values = tg.tensor([[0.0, 0.5]], dtype=tg.float32)
         with self.assertRaises(ValueError):
-            gf.visualize.heatmap(values, cmap="not-a-colormap")
+            tg.visualize.heatmap(values, cmap="not-a-colormap")
         with self.assertRaises(ValueError):
-            gf.visualize.heatmap(values, cmap=[(1.0, 0.0, 0.0)])
+            tg.visualize.heatmap(values, cmap=[(1.0, 0.0, 0.0)])
         with self.assertRaises(ValueError):
-            gf.visualize.heatmap(
+            tg.visualize.heatmap(
                 values, cmap=[(0.5, (0, 0, 0)), (0.4, (1, 1, 1))])
         with self.assertRaises(ValueError):
-            gf.visualize.heatmap(values, cmap="viridis", vmin=1.0, vmax=1.0)
+            tg.visualize.heatmap(values, cmap="viridis", vmin=1.0, vmax=1.0)
 
     def test_to_numpy_preserves_strided_cpu_view(self):
         import numpy as np
 
-        value = gf.tensor([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]])
+        value = tg.tensor([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]])
         np.testing.assert_array_equal(
             value.transpose(0, 1).to_numpy(),
             np.array([[1.0, 4.0], [2.0, 5.0], [3.0, 6.0]], dtype=np.float32),
@@ -133,8 +133,8 @@ class VisualizationTest(unittest.TestCase):
         source = torch.linspace(
             0.0, 1.0, 128 * 128, device="cuda", dtype=torch.float32
         ).reshape(128, 128)
-        raster = gf.visualize.heatmap(
-            gf.from_torch(source), low=(0.0, 0.25, 1.0), high=(1.0, 0.5, 0.0))
+        raster = tg.visualize.heatmap(
+            tg.from_torch(source), low=(0.0, 0.25, 1.0), high=(1.0, 0.5, 0.0))
         with patch.dict(os.environ, {"TIGA_TENSOR_BACKEND": "native"}):
             raster.realize()
         expected = torch.stack(
@@ -166,7 +166,7 @@ class VisualizationTest(unittest.TestCase):
         source = torch.linspace(
             -0.2, 1.2, 128 * 128, device="cuda", dtype=torch.float32
         ).reshape(128, 128)
-        raster = gf.visualize.heatmap(gf.from_torch(source), cmap="plasma")
+        raster = tg.visualize.heatmap(tg.from_torch(source), cmap="plasma")
         with patch.dict(os.environ, {"TIGA_TENSOR_BACKEND": "native"}):
             raster.realize()
         self.assertEqual(raster.execution["backend"], "cuda-ttir-triton")
@@ -187,7 +187,7 @@ class CameraTest(unittest.TestCase):
 
         rng = np.random.default_rng(0)
         positions = rng.normal(size=(64, 2))
-        camera = gf.visualize.Camera.auto(positions)
+        camera = tg.visualize.Camera.auto(positions)
         direction = np.asarray(camera.position) - np.asarray(camera.target)
         direction /= np.linalg.norm(direction)
         np.testing.assert_allclose(direction, [0.0, 0.0, 1.0], atol=1e-12)
@@ -200,7 +200,7 @@ class CameraTest(unittest.TestCase):
         line /= np.linalg.norm(line)
         t = np.linspace(-2.0, 2.0, 128)
         positions = t[:, None] * line + rng.normal(scale=0.01, size=(128, 3))
-        camera = gf.visualize.Camera.auto(positions)
+        camera = tg.visualize.Camera.auto(positions)
         direction = np.asarray(camera.position) - np.asarray(camera.target)
         direction /= np.linalg.norm(direction)
         self.assertAlmostEqual(abs(float(direction @ line)), 0.0, delta=0.05)
@@ -210,7 +210,7 @@ class CameraTest(unittest.TestCase):
 
         rng = np.random.default_rng(2)
         positions = rng.normal(size=(200, 3)) + np.array([5.0, -3.0, 1.0])
-        camera = gf.visualize.Camera.auto(positions)
+        camera = tg.visualize.Camera.auto(positions)
         ndc, _, visible = camera.world_to_ndc(positions)
         self.assertTrue(visible.all())
         self.assertLessEqual(np.abs(ndc).max(), 1.0)
@@ -221,7 +221,7 @@ class CameraTest(unittest.TestCase):
     def test_world_to_ndc_matches_handwritten_reference(self):
         import numpy as np
 
-        camera = gf.visualize.Camera(
+        camera = tg.visualize.Camera(
             position=(0.0, 0.0, 3.0), target=(0.0, 0.0, 0.0),
             fov=90.0, up=(0.0, 1.0, 0.0))
         points = np.array([
@@ -246,7 +246,7 @@ class ParticlesTest(unittest.TestCase):
         import numpy as np
 
         positions = [[-1.0, -1.0], [1.0, -1.0], [0.0, 1.0]]
-        raster = gf.visualize.particles(
+        raster = tg.visualize.particles(
             positions, values=[10.0, 1.0, 1.0],
             width=64, height=64, point_radius=1.0)
         image = raster.to_numpy()
@@ -259,7 +259,7 @@ class ParticlesTest(unittest.TestCase):
 
     def test_particles_density_field_without_values(self):
         positions = [[0.0, 0.0], [0.0, 0.0], [1.0, 1.0]]
-        raster = gf.visualize.particles(
+        raster = tg.visualize.particles(
             positions, width=32, height=32, point_radius=1.0)
         self.assertEqual(raster.to_numpy().shape, (32, 32, 3))
 
@@ -268,7 +268,7 @@ class ParticlesTest(unittest.TestCase):
 
         positions = [[-1.0, -1.0], [1.0, -1.0], [0.0, 1.0]]
         values = [float("nan"), 0.5, 1.0]  # e.g. a degree-0 mean reduction
-        raster = gf.visualize.particles(
+        raster = tg.visualize.particles(
             positions, values=values, width=64, height=64, point_radius=1.0)
         image = raster.to_numpy()
         self.assertTrue(np.isfinite(image).all())
@@ -278,7 +278,7 @@ class ParticlesTest(unittest.TestCase):
         # point at (-1, -1) (lower-left quadrant) contributes nothing
         self.assertLess(peak_y, 32)
         self.assertFalse(peak_x < 32 and peak_y > 32)
-        raster = gf.visualize.delaunay(
+        raster = tg.visualize.delaunay(
             positions, values=values, width=64, height=64)
         self.assertTrue(np.isfinite(raster.to_numpy()).all())
 
@@ -290,7 +290,7 @@ class ParticlesTest(unittest.TestCase):
             self.skipTest("CUDA is unavailable")
         positions = torch.randn(32, 3, device="cuda")
         values = torch.rand(32, device="cuda")
-        raster = gf.visualize.particles(
+        raster = tg.visualize.particles(
             positions, values=values, width=32, height=32)
         self.assertEqual(raster.to_numpy().shape, (32, 32, 3))
 
@@ -300,11 +300,11 @@ class ParticlesTest(unittest.TestCase):
         positions = [[-1.0, -1.0], [1.0, -1.0], [0.0, 1.0]]
         faces = [[0, 1, 2]]
         renderers = (
-            lambda **color: gf.visualize.particles(
+            lambda **color: tg.visualize.particles(
                 positions, width=32, height=32, point_radius=1.0, **color),
-            lambda **color: gf.visualize.delaunay(
+            lambda **color: tg.visualize.delaunay(
                 positions, width=32, height=32, **color),
-            lambda **color: gf.visualize.mesh(
+            lambda **color: tg.visualize.mesh(
                 positions, faces, width=32, height=32, **color),
         )
         for render in renderers:
@@ -327,7 +327,7 @@ class DelaunayTest(unittest.TestCase):
     def test_delaunay_fills_triangles_with_gradient(self):
         import numpy as np
 
-        raster = gf.visualize.delaunay(
+        raster = tg.visualize.delaunay(
             self._CORNERS, values=self._VALUES, width=64, height=64)
         image = raster.to_numpy()
         luminance = image.sum(axis=-1)
@@ -338,13 +338,13 @@ class DelaunayTest(unittest.TestCase):
     def test_delaunay_wireframe_and_3d_projection(self):
         import numpy as np
 
-        wireframe = gf.visualize.delaunay(
+        wireframe = tg.visualize.delaunay(
             self._CORNERS, values=self._VALUES,
             width=64, height=64, wireframe=True)
         wire_image = wireframe.to_numpy()
         self.assertGreater((wire_image.sum(axis=-1) > 0).mean(), 0.0)
         rng = np.random.default_rng(3)
-        raster = gf.visualize.delaunay(
+        raster = tg.visualize.delaunay(
             rng.normal(size=(40, 3)), width=64, height=64)
         self.assertEqual(raster.to_numpy().shape, (64, 64, 3))
 
@@ -367,7 +367,7 @@ f 1 3 4 2
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "quad.obj"
             path.write_text(self._MINI)
-            positions, faces = gf.visualize.load_obj(path)
+            positions, faces = tg.visualize.load_obj(path)
         np.testing.assert_allclose(
             positions,
             [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0],
@@ -381,16 +381,16 @@ f 1 3 4 2
             empty = Path(directory) / "empty.obj"
             empty.write_text("# nothing here\n")
             with self.assertRaises(ValueError):
-                gf.visualize.load_obj(empty)
+                tg.visualize.load_obj(empty)
             no_faces = Path(directory) / "points.obj"
             no_faces.write_text("v 0.0 0.0 0.0\nv 1.0 0.0 0.0\n")
             with self.assertRaises(ValueError):
-                gf.visualize.load_obj(no_faces)
+                tg.visualize.load_obj(no_faces)
             out_of_range = Path(directory) / "oob.obj"
             out_of_range.write_text(
                 "v 0.0 0.0 0.0\nv 1.0 0.0 0.0\nv 0.0 1.0 0.0\nf 1 2 7\n")
             with self.assertRaises(ValueError):
-                gf.visualize.load_obj(out_of_range)
+                tg.visualize.load_obj(out_of_range)
 
 
 @unittest.skipUnless(importlib.util.find_spec("numpy"), "NumPy is unavailable")
@@ -400,7 +400,7 @@ class MeshTest(unittest.TestCase):
     def test_single_triangle_coverage(self):
         import numpy as np
 
-        raster = gf.visualize.mesh(
+        raster = tg.visualize.mesh(
             self._TRIANGLE, [[0, 1, 2]], width=64, height=64)
         image = raster.to_numpy()
         background = image[0, 0]  # uniform value -> one fill + background
@@ -411,7 +411,7 @@ class MeshTest(unittest.TestCase):
     def test_painters_algorithm_near_triangle_wins(self):
         import numpy as np
 
-        camera = gf.visualize.Camera(
+        camera = tg.visualize.Camera(
             position=(0.0, 0.0, 5.0), target=(0.0, 0.0, 0.0),
             fov=45.0, up=(0.0, 1.0, 0.0))
         positions = [
@@ -420,7 +420,7 @@ class MeshTest(unittest.TestCase):
         ]
         faces = [[0, 1, 2], [3, 4, 5]]
         values = [1.0, 1.0, 1.0, 0.0, 0.0, 0.0]  # near bright, far dark
-        raster = gf.visualize.mesh(
+        raster = tg.visualize.mesh(
             positions, faces, values=values, camera=camera,
             width=64, height=64, vmin=0.0, vmax=1.0)
         image = raster.to_numpy()
@@ -433,18 +433,18 @@ class MeshTest(unittest.TestCase):
     def test_wireframe_and_non_finite_values(self):
         import numpy as np
 
-        raster = gf.visualize.mesh(
+        raster = tg.visualize.mesh(
             self._TRIANGLE, [[0, 1, 2]], width=64, height=64,
             wireframe=True)
         self.assertGreater((raster.to_numpy().sum(axis=-1) > 0).mean(), 0.0)
         values = [float("nan"), 0.5, 1.0]  # e.g. a degree-0 mean reduction
-        raster = gf.visualize.mesh(
+        raster = tg.visualize.mesh(
             self._TRIANGLE, [[0, 1, 2]], values=values,
             width=64, height=64)
         image = raster.to_numpy()
         self.assertTrue(np.isfinite(image).all())
         # all-non-finite triangles are skipped without failing
-        raster = gf.visualize.mesh(
+        raster = tg.visualize.mesh(
             self._TRIANGLE, [[0, 1, 2]],
             values=[float("nan")] * 3, width=64, height=64)
         self.assertTrue(np.isfinite(raster.to_numpy()).all())
@@ -462,7 +462,7 @@ class SaveVideoTest(unittest.TestCase):
         from PIL import Image
 
         with tempfile.TemporaryDirectory() as directory:
-            path = gf.visualize.save_video(
+            path = tg.visualize.save_video(
                 self._frames(), Path(directory) / "frames.gif", fps=10)
             with Image.open(path) as image:
                 self.assertEqual(image.n_frames, 4)
@@ -471,7 +471,7 @@ class SaveVideoTest(unittest.TestCase):
     @unittest.skipUnless(shutil.which("ffmpeg"), "ffmpeg is unavailable")
     def test_mp4_streams_through_ffmpeg(self):
         with tempfile.TemporaryDirectory() as directory:
-            path = gf.visualize.save_video(
+            path = tg.visualize.save_video(
                 self._frames(), Path(directory) / "frames.mp4", fps=10)
             self.assertGreater(path.stat().st_size, 0)
 
@@ -480,10 +480,19 @@ class SaveVideoTest(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as directory:
             with self.assertRaises(ValueError):
-                gf.visualize.save_video(self._frames(), Path(directory) / "x.avi")
+                tg.visualize.save_video(self._frames(), Path(directory) / "x.avi")
             frames = [np.zeros((8, 8, 3)), np.zeros((4, 4, 3))]
             with self.assertRaises(ValueError):
-                gf.visualize.save_video(frames, Path(directory) / "x.gif")
+                tg.visualize.save_video(frames, Path(directory) / "x.gif")
+
+    def test_invalid_frame_rate_is_rejected_before_writing(self):
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / "not-created" / "frame.gif"
+            for fps in (0, -1, True, float("nan"), float("inf"), "30"):
+                with self.subTest(fps=fps):
+                    with self.assertRaisesRegex(ValueError, "finite positive"):
+                        tg.visualize.save_video([], target, fps=fps)
+                    self.assertFalse(target.parent.exists())
 
 
 @unittest.skipUnless(importlib.util.find_spec("numpy"), "NumPy is unavailable")
@@ -545,7 +554,7 @@ class ExchangeTest(unittest.TestCase):
         import numpy as np
 
         with tempfile.TemporaryDirectory() as directory:
-            path = gf.visualize.export_ply(
+            path = tg.visualize.export_ply(
                 Path(directory) / "mesh.ply", self._POSITIONS,
                 faces=self._FACES, values=self._VALUES)
             parsed = self._parse_ply(path)
@@ -571,7 +580,7 @@ class ExchangeTest(unittest.TestCase):
 
     def test_ply_without_values_has_no_color(self):
         with tempfile.TemporaryDirectory() as directory:
-            path = gf.visualize.export_ply(
+            path = tg.visualize.export_ply(
                 Path(directory) / "points.ply", self._POSITIONS)
             parsed = self._parse_ply(path)
         self.assertEqual(len(parsed["vertex"]), 4)
@@ -582,7 +591,7 @@ class ExchangeTest(unittest.TestCase):
         import numpy as np
 
         with tempfile.TemporaryDirectory() as directory:
-            path = gf.visualize.export_ply(
+            path = tg.visualize.export_ply(
                 Path(directory) / "flat.ply",
                 [[1.0, 2.0], [3.0, 4.0]])
             parsed = self._parse_ply(path)
@@ -598,7 +607,7 @@ class ExchangeTest(unittest.TestCase):
         values = rng.random(1_000_000)
         with tempfile.TemporaryDirectory() as directory:
             start = time.monotonic()
-            path = gf.visualize.export_ply(
+            path = tg.visualize.export_ply(
                 Path(directory) / "cloud.ply", positions, values=values)
             elapsed = time.monotonic() - start
             parsed = self._parse_ply(path)
@@ -609,9 +618,9 @@ class ExchangeTest(unittest.TestCase):
         import numpy as np
 
         with tempfile.TemporaryDirectory() as directory:
-            path = gf.visualize.export_obj(
+            path = tg.visualize.export_obj(
                 Path(directory) / "mesh.obj", self._POSITIONS, self._FACES)
-            positions, faces = gf.visualize.load_obj(path)
+            positions, faces = tg.visualize.load_obj(path)
         np.testing.assert_allclose(positions, self._POSITIONS, atol=1e-15)
         np.testing.assert_array_equal(faces, self._FACES)
 
@@ -620,7 +629,7 @@ class ExchangeTest(unittest.TestCase):
     def test_export_vdb_requires_pyopenvdb(self):
         with (tempfile.TemporaryDirectory() as directory,
               self.assertRaises(ModuleNotFoundError) as caught):
-            gf.visualize.export_vdb(
+            tg.visualize.export_vdb(
                 Path(directory) / "cloud.vdb", self._POSITIONS, self._VALUES)
         self.assertIn("pyopenvdb", str(caught.exception))
 
@@ -628,10 +637,10 @@ class ExchangeTest(unittest.TestCase):
         import numpy as np
 
         with tempfile.TemporaryDirectory() as directory:
-            path = gf.visualize.export_ply(
+            path = tg.visualize.export_ply(
                 Path(directory) / "mesh.ply", self._POSITIONS,
                 faces=self._FACES, values=self._VALUES)
-            positions, faces, extras = gf.visualize.load_ply(path)
+            positions, faces, extras = tg.visualize.load_ply(path)
         np.testing.assert_allclose(positions, self._POSITIONS, atol=1e-6)
         np.testing.assert_array_equal(faces, self._FACES)
         np.testing.assert_allclose(
@@ -652,7 +661,7 @@ class ExchangeTest(unittest.TestCase):
                 "property list uchar int vertex_indices\n"
                 "end_header\n"
                 "0 0 0 0.1\n1 0 0 0.2\n0 1 0 0.3\n3 0 1 2\n")
-            positions, faces, extras = gf.visualize.load_ply(path)
+            positions, faces, extras = tg.visualize.load_ply(path)
         self.assertEqual(positions.shape, (3, 3))
         np.testing.assert_array_equal(faces, [[0, 1, 2]])
         np.testing.assert_allclose(extras["f_dc_0"], [0.1, 0.2, 0.3])
@@ -662,25 +671,30 @@ class ExchangeTest(unittest.TestCase):
             path = Path(directory) / "bad.ply"
             path.write_text("not a ply\n")
             with self.assertRaises(ValueError):
-                gf.visualize.load_ply(path)
+                tg.visualize.load_ply(path)
             path.write_text("ply\nformat ascii 1.0\nend_header\n")
             with self.assertRaises(ValueError):
-                gf.visualize.load_ply(path)
+                tg.visualize.load_ply(path)
 
 
 @unittest.skipUnless(importlib.util.find_spec("numpy"), "NumPy is unavailable")
 class SplatsTest(unittest.TestCase):
     _CAMERA = None
 
+    def test_gaussians_public_name_and_legacy_alias(self):
+        self.assertIn("gaussians", tg.visualize.__all__)
+        self.assertIs(tg.visualize.gaussians, tg.visualize.splats)
+        self.assertEqual(tg.visualize.gaussians.__name__, "gaussians")
+
     def setUp(self):
-        self._camera = gf.visualize.Camera(
+        self._camera = tg.visualize.Camera(
             position=(0.0, 0.0, 3.0), target=(0.0, 0.0, 0.0),
             up=(0.0, 1.0, 0.0))
 
     def test_single_gaussian_blobs_at_center(self):
         import numpy as np
 
-        raster = gf.visualize.splats(
+        raster = tg.visualize.gaussians(
             [[0.0, 0.0, 0.0]], [(1.0, 0.0, 0.0)], [0.3],
             opacities=[0.9], camera=self._camera, width=64, height=64)
         image = raster.to_numpy()
@@ -689,11 +703,11 @@ class SplatsTest(unittest.TestCase):
         self.assertEqual(image.shape, (64, 64, 3))
 
     def test_near_gaussian_occludes_far_one(self):
-        raster = gf.visualize.splats(
+        raster = tg.visualize.splats(
             [[0.0, 0.0, 0.0], [0.0, 0.0, 0.5]],
             [(0.0, 0.0, 1.0), (1.0, 0.0, 0.0)],
             [0.4, 0.4], opacities=[1.0, 1.0],
-            camera=gf.visualize.Camera(
+            camera=tg.visualize.Camera(
                 position=(0.0, 0.0, 3.0), target=(0.0, 0.0, 0.25),
                 up=(0.0, 1.0, 0.0)),
             width=64, height=64)
@@ -704,7 +718,7 @@ class SplatsTest(unittest.TestCase):
     def test_anisotropic_rotated_gaussian_renders(self):
         import numpy as np
 
-        raster = gf.visualize.splats(
+        raster = tg.visualize.splats(
             [[0.0, 0.0, 0.0]], [(0.0, 1.0, 0.0)], [(0.5, 0.05, 0.05)],
             rotations=[[0.9238795, 0.0, 0.0, 0.3826834]],  # 45° about x
             camera=self._camera, width=64, height=64)
@@ -714,10 +728,10 @@ class SplatsTest(unittest.TestCase):
 
     def test_splats_validate_shapes(self):
         with self.assertRaises(ValueError):
-            gf.visualize.splats(
+            tg.visualize.splats(
                 [[0.0, 0.0, 0.0]], [(1.0, 0.0)], [0.3], camera=self._camera)
         with self.assertRaises(ValueError):
-            gf.visualize.splats(
+            tg.visualize.splats(
                 [[0.0, 0.0, 0.0]], [(1.0, 0.0, 0.0)], [0.0],
                 camera=self._camera)
 
@@ -727,7 +741,7 @@ class VolumeTest(unittest.TestCase):
     def test_constant_density_fully_occludes(self):
         import numpy as np
 
-        raster = gf.visualize.volume(
+        raster = tg.visualize.volume(
             np.ones((16, 16, 16)), camera=(30, -60), width=64, height=64,
             steps=64, cmap="gray", vmin=0.0, vmax=1.0, scale=8.0)
         image = raster.to_numpy()
@@ -737,7 +751,7 @@ class VolumeTest(unittest.TestCase):
     def test_empty_volume_shows_background(self):
         import numpy as np
 
-        raster = gf.visualize.volume(
+        raster = tg.visualize.volume(
             np.zeros((8, 8, 8)), camera=(30, -60), width=32, height=32,
             steps=16, background=(1.0, 0.0, 0.0))
         np.testing.assert_allclose(
@@ -748,9 +762,9 @@ class VolumeTest(unittest.TestCase):
         import numpy as np
 
         with self.assertRaises(ValueError):
-            gf.visualize.volume(np.zeros((4, 4)))
+            tg.visualize.volume(np.zeros((4, 4)))
         with self.assertRaises(ValueError):
-            gf.visualize.volume(np.zeros((4, 4, 4)), steps=0)
+            tg.visualize.volume(np.zeros((4, 4, 4)), steps=0)
 
 
 if __name__ == "__main__":

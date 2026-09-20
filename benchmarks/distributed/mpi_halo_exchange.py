@@ -11,7 +11,7 @@ import time
 
 from mpi4py import MPI
 
-import tiga as gf
+import tiga as tg
 from tiga.distributed import (
     create_transport, exchange_packed, pack_halo, unpack_halo,
 )
@@ -36,7 +36,7 @@ def main() -> None:
         (destination + args.entities // 2) % args.entities
         for destination in range(args.entities)
     ]
-    halo = gf.collective_halo_maps(
+    halo = tg.collective_halo_maps(
         rows, columns, num_entities=args.entities, world_size=world)[rank]
     element_bytes = 4 * args.features
     owned = bytearray(halo.owned_entities * element_bytes)

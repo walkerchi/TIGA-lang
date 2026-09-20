@@ -2,12 +2,12 @@
 
 import torch
 
-import tiga as gf
+import tiga as tg
 
 
 # --8<-- [start:core]
-class WeightedAggregation(gf.MessagePassing):
-    reducer = gf.sum()
+class WeightedAggregation(tg.MessagePassing):
+    reducer = tg.sum()
 
     def edge(self, src, dst, edge):
         return edge.weight * src.x
@@ -15,11 +15,11 @@ class WeightedAggregation(gf.MessagePassing):
 
 row_ptr = torch.tensor([0, 2, 4], dtype=torch.int64)  # (M+1,)
 col_idx = torch.tensor([0, 1, 1, 2], dtype=torch.int64)  # (E,)
-graph = gf.Graph.from_csr(row_ptr, col_idx, num_src=3)
+graph = tg.Graph.from_csr(row_ptr, col_idx, num_src=3)
 x = torch.tensor([1.0, 2.0, 4.0], requires_grad=True)  # (N,)
 weight = torch.tensor([2.0, 3.0, 5.0, 7.0], requires_grad=True)  # (E,)
 
-operation = gf.interop.torch.register_message_passing(
+operation = tg.interop.torch.register_message_passing(
     WeightedAggregation(),
     graph=graph,
     src={"x": x},

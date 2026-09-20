@@ -16,7 +16,7 @@ import time
 
 import torch
 
-import tiga as gf
+import tiga as tg
 from tiga.compiler.gpu_tensor import compile_tensor
 from benchmarks.common.hardware_roofline import measure_roofs, samples_ms
 from benchmarks.common.output_layout import operation_dir
@@ -63,9 +63,9 @@ def main() -> None:
         (args.lanes, args.sequence, 1, args.value_width),
         device=device, dtype=torch.float32, generator=generator,
     )
-    q = gf.from_torch(q_fla[:, :, 0])
-    k = gf.from_torch(k_fla[:, :, 0])
-    v = gf.from_torch(v_fla[:, :, 0])
+    q = tg.from_torch(q_fla[:, :, 0])
+    k = tg.from_torch(k_fla[:, :, 0])
+    v = tg.from_torch(v_fla[:, :, 0])
     state_shape = (
         args.lanes, args.sequence, args.key_width, args.value_width,
     )

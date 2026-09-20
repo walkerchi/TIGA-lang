@@ -1,5 +1,26 @@
 # Development
 
+Prerequisite: [IR by example](ir-walkthrough.md) for the compiler model, or
+[Getting started](getting-started.md) for installation alone. This page covers
+changing the project, not requirements for running a first program.
+
+## Make a first compiler change
+
+1. Reproduce a problem with a small Python test or MLIR fixture.
+2. Use the walkthrough's `gf-opt` commands to locate the first incorrect stage.
+3. Change the relevant verifier or pass and add a regression test.
+4. Run the Python/MLIR checks below; regenerate IR documentation only if the
+   compiler output intentionally changed.
+
+| Change | Implementation starting point |
+|---|---|
+| Public fields and call validation | `python/tiga/message_passing/` |
+| Domain operations and verification | `include/graphforge/Dialect/Domain/`, `lib/Dialect/Domain/` |
+| Relation traversal | `lib/Transforms/LowerDomainToIter.cpp` |
+| Kernel representation and schedule | `lib/Transforms/LowerIterToKernel.cpp`, `SelectKernelSchedule.cpp` |
+| Distributed task dependencies | `lib/Transforms/PlanDistributedTasks.cpp` |
+| Target TTIR emission | `lib/Target/Triton/Translate.cpp` |
+
 ## Repository layout
 
 ```text
@@ -9,7 +30,7 @@ lib/Dialect/                 verifiers and dialect implementation
 lib/Transforms/              target-independent analyses and passes
 lib/Target/                  provider translators
 tools/                       gf-opt and gf-translate
-python/tiga/           stable public façade only at package root
+python/tiga/           public façade at package root
 python/tiga/tensor/    Tensor metadata, views, capture and creation
 python/tiga/autograd/  semantic reverse-mode transforms
 python/tiga/graph/     logical relation plus dynamic builders
@@ -30,20 +51,57 @@ tests/python/                frontend/runtime/differential tests
 output/roofline/             checked benchmark artifacts by operation/case
 ```
 
-`PROJECT.md` is the canonical design specification. Public documentation may
-explain and demonstrate that design but must not introduce a conflicting IR or
-runtime contract.
+`PROJECT.md` contains internal architecture plans and historical implementation
+notes; `DESIGN_DECISION_TIMELINE.md` records why designs were adopted or rejected.
+Neither is an unconditional current support contract. The [API reference](api.md),
+[support matrix](roadmap.md) and implementation tests define the current boundary.
+`SECURITY.md` is the public policy for privately reporting vulnerabilities.
 
 ## Building and checks
 
-Tiga is a standard out-of-tree MLIR project; it never downloads or
-modifies the user's LLVM. Development builds require a prebuilt MLIR SDK:
+Install an editable package and the test/documentation extras as described in
+[Getting started](getting-started.md#source-build), replacing its install
+command with:
 
 ```bash
-cmake -S . -B build -G Ninja \
-  -DMLIR_DIR=/opt/llvm-22.1.8/lib/cmake/mlir \
-  -DCMAKE_BUILD_TYPE=Release
-cmake --build build --target gf-opt gf-translate
+python -m pip install -e ".[test,docs]"
+python -m pytest tests/python -q
+python -m mkdocs build --strict
+python tools/render_api_reference.py --check
+python tools/check_docs_links.py site
+```
+
+### MLIR tests
+
+API tables and minimal examples are maintained in `tools/render_api_reference.py`;
+`tests/python/test_api_reference.py` checks bilingual freshness and executes the
+CPU examples. Add parameter contracts and usage examples together with API changes.
+All published pages must have English and Chinese counterparts. Reporting and
+publication requirements are in [support](support.md).
+
+The editable wheel build disables compiler tests. Use a separate CMake
+directory for the [lit](https://en.wikipedia.org/wiki/LLVM) suite.
+Set `TIGA_LLVM_ROOT` to a prebuilt LLVM/MLIR 22.1.8 SDK first.
+
+Some binary SDKs omit FileCheck, not, count and lit. The following helper
+downloads the pinned LLVM source archive, verifies its checksum, and builds
+only these test utilities into a separate directory; it does not modify the SDK.
+An existing source archive can be supplied with `--archive`.
+
+```bash
+python tools/bootstrap_llvm_test_tools.py \
+  --llvm-root "$TIGA_LLVM_ROOT" \
+  --output "$PWD/build/llvm-test-tools"
+
+cmake -S . -B build/compiler -G Ninja \
+  -DMLIR_DIR="$TIGA_LLVM_ROOT/lib/cmake/mlir" \
+  -DLLVM_DIR="$TIGA_LLVM_ROOT/lib/cmake/llvm" \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DTIGA_INCLUDE_TESTS=ON \
+  -DLLVM_EXTERNAL_LIT="$PWD/build/llvm-test-tools/lit/lit.py" \
+  -DTIGA_LLVM_TEST_TOOLS_DIR="$PWD/build/llvm-test-tools/bin"
+cmake --build build/compiler --target check-tiga --parallel 2
+python tools/render_ir_docs.py --gf-opt build/compiler/bin/gf-opt --check
 ```
 
 The release toolchain is pinned to LLVM/MLIR 22.1.8 (`llvmorg-22.1.8`).
@@ -57,24 +115,56 @@ TTIR plus a launch manifest, because a vendor Triton/MLIR revision may be
 incompatible with the pinned Tiga revision and MLIR C++ objects must
 never be shared in one address space.
 
+### CUDA and package checks
+
 ```bash
-PYTHONPATH=python python -m pytest tests/python -q
-cmake --build build --target check-tiga
-mkdocs build --strict
-export CMAKE_ARGS="-DMLIR_DIR=/path/to/llvm-22.1.8/lib/cmake/mlir -DLLVM_DIR=/path/to/llvm-22.1.8/lib/cmake/llvm"
+python -m pip install -e ".[cuda,test]"
+python tools/gpu_gate.py
+python -m pip install build
 python -m build
 ```
 
+These commands retain the `CMAKE_ARGS` SDK configuration from installation.
+CUDA tests need a supported NVIDIA GPU and driver; they are not CPU setup
+requirements. Compiler tool discovery can use the installed package tools.
+
+`tools/gpu_gate.py` runs the CUDA forward/backward, cache, and diagnostics
+suite. CUDA, Triton and the built compiler tools are required. Skipped,
+deselected and expected-failure checks make the gate fail. GPU verification
+also runs against the repaired release wheel on a trusted self-hosted runner
+labelled `tiga-cuda`. Configure the `release-validation` environment and runner
+before tagging: without them, publication remains blocked. GPU jobs run only
+in the release workflow, not on untrusted pull requests.
+
+Publication additionally requires the reusable CPU/MLIR/docs workflow,
+wheels rebuilt from the same sdist, and exact tag/source/archive metadata
+checks. Configure the `pypi` environment and PyPI trusted publisher separately;
+local builds never publish. First-release artifacts cover Linux x86-64,
+CPython 3.11/3.12 and glibc 2.38 or newer.
+
+Read the Docs uses `.readthedocs.yaml` and `docs/requirements.txt` without
+installing Tiga or LLVM. Import the GitHub repository into RTD after making it
+public. `READTHEDOCS_CANONICAL_URL` selects the documentation base URL.
+Local documentation can be viewed with `mkdocs serve`.
+
 The wheel's CMake install component bundles the native Python compiler
 extension, `gf-opt` and `gf-translate`, the Tiga runtime, and the real
-`libMLIR`/`libLLVM` SONAME files of the shared-SDK build; the extension and
-tools carry relative RPATHs. Release CI must reproduce the local
+`libMLIR`/`libLLVM` SONAME files when using a shared SDK. Static-SDK builds link
+these libraries into the binaries instead. Shared dependencies use relative
+RPATHs. Release CI must reproduce the
 clean-environment smoke test in a manylinux image, run `auditwheel
 show/repair` (or the platform equivalent), and test installation without
-developer SDK paths. The post-install command is:
+developer SDK paths. Install the repaired wheel and its declared dependencies into that clean
+environment first. The Torch-free post-install check exercises tensor and
+message-passing forward/backward execution and asserts the native CPU JIT.
+Run it without developer `PYTHONPATH`, `LD_LIBRARY_PATH`, `TIGA_OPT`,
+`TIGA_TRANSLATE`, `MLIR_DIR` or `LLVM_DIR` overrides:
+
 
 ```bash
-/path/to/clean/venv/bin/python tests/wheel_smoke.py
+# Run outside the checkout, in a fresh environment without Torch or SDK paths.
+cd /tmp
+/path/to/clean/venv/bin/python -I /path/to/tiga-lang/tests/smoke/wheel_without_torch.py
 ```
 
 ## Contribution policy
@@ -107,6 +197,18 @@ Claim discipline:
 
 ## Documentation
 
+- Use `import tiga as tg` and `tg.*` in Python examples; preserve compiler IR
+  namespaces and existing compatibility anchors.
+- Keep the user learning path separate from compiler implementation; explain how
+  to run a program before introducing internal IR.
+- State prerequisites and next steps. Use reproducible compiler output for IR
+  examples and verify the checked snapshots with `tools/render_ir_docs.py --check`
+  (supplying the built `--gf-opt` path).
+- Keep English and Chinese pages aligned; use neutral prose without second person.
+- Preserve English technical terms and link their first occurrence to Wikipedia
+  (Chinese terms to Baidu Baike).
+- Put formulas in standalone `$$` blocks and link example commands to their source.
+- Give each diagram one focus and inspect a rendered screenshot after changing it.
 - Prefer semantic HTML for page structure and native SVG for architecture.
 - Publish benchmark charts as interactive HTML when hover/filtering adds real
   value; keep a committed SVG fallback and PNG only for raster-only clients.

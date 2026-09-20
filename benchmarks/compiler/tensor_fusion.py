@@ -16,7 +16,7 @@ import statistics
 import tempfile
 import time
 
-import tiga as gf
+import tiga as tg
 from tiga.compiler.cpu_tensor import compile_tensor
 
 try:
@@ -40,7 +40,7 @@ def _measure(function, repeat: int, warmup: int = 12) -> dict[str, object]:
     }
 
 
-def _graphforge_run(x: gf.Tensor, scale: gf.Tensor) -> gf.Tensor:
+def _graphforge_run(x: tg.Tensor, scale: tg.Tensor) -> tg.Tensor:
     output = (x * scale + x).sum(axis=1)
     output.realize()
     return output
@@ -76,16 +76,16 @@ def main() -> None:
             complex(1.0 + (index % 17) / 17.0, (index % 7) / 19.0)
             for index in range(args.cols)
         ]
-        gf_dtype = gf.complex64
+        gf_dtype = tg.complex64
     else:
         values = [
             ((index % 251) - 125) / 251.0
             for index in range(args.rows * args.cols)
         ]
         scales = [1.0 + (index % 17) / 17.0 for index in range(args.cols)]
-        gf_dtype = gf.float32
-    x = gf.tensor(values, dtype=gf_dtype).reshape(args.rows, args.cols)
-    scale = gf.tensor(scales, dtype=gf_dtype).reshape(1, args.cols)
+        gf_dtype = tg.float32
+    x = tg.tensor(values, dtype=gf_dtype).reshape(args.rows, args.cols)
+    scale = tg.tensor(scales, dtype=gf_dtype).reshape(1, args.cols)
 
     old_backend = os.environ.get("TIGA_TENSOR_BACKEND")
     old_cache = os.environ.get("TIGA_CACHE_DIR")
@@ -125,7 +125,7 @@ def main() -> None:
         },
         "tiga": {
             "cold_ms": cold_ms,
-            "version": gf.__version__,
+            "version": tg.__version__,
             "warm_median_ms": warm["median_ms"],
             "warm_samples_ms": warm["samples_ms"],
             "warmup": warm["warmup"],

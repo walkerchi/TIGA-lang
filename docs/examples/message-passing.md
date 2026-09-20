@@ -1,5 +1,11 @@
 # Message passing and graph algorithms
 
+Inputs and outputs use Torch tensors with `torch.autograd.grad` by default.
+The custom reducer and PageRank control-flow probe still require native tensors
+because their Torch execution paths are not implemented. The measured compilation
+artifacts below are historical native-path captures, not artifacts guaranteed by
+the current Torch examples; inspect `kernel.explain()` for the actual plan.
+
 Static-topology MessagePassing programs and a fixed-iteration graph algorithm
 probe. The compiler generates the relation traversal and its VJP; the user
 writes only the UDFs. The [message passing guide](../message-passing.md)
@@ -12,7 +18,7 @@ complete runnable program is one click away in the collapsed source block.
 - [`python examples/custom_reducer.py`](https://github.com/walkerchi/TIGA-lang/blob/main/examples/custom_reducer.py)
 - [`python examples/compiler_probes/pagerank.py`](https://github.com/walkerchi/TIGA-lang/blob/main/examples/compiler_probes/pagerank.py)
 
-### Basic aggregation { #basic-aggregation }
+<span id="basic-aggregation"></span>
 
 ## GCN aggregation { #gcn-aggregation }
 
@@ -30,7 +36,7 @@ $$
 \text{out}_{i,f} \;=\; \sum_{e\,=\,(j \to i)} w_e \cdot x_{j,f}
 $$
 
-Native multi-feature aggregation with edge broadcasting and automatic
+Torch multi-feature aggregation with edge broadcasting and automatic
 gradients, matching the GCN tensor shape. The GCN layer is user code, not a
 library operator.
 
@@ -57,7 +63,7 @@ library operator.
         remark: [planning] edge/node UDFs remain in the differentiable Tensor DAG
         remark: [planning] gf-tensor-vjp generates CSR gather/segment-sum adjoints
         remark: [planning] reducer lowering: builtin-additive-state
-        executable cache: hits=0, misses=1
+        variant cache: hits=0, misses=1
         ```
 
     === "CUDA"
@@ -71,7 +77,7 @@ library operator.
         remark: [planning] edge/node UDFs remain in the differentiable Tensor DAG
         remark: [planning] gf-tensor-vjp generates CSR gather/segment-sum adjoints
         remark: [planning] reducer lowering: builtin-additive-state
-        executable cache: hits=0, misses=1
+        variant cache: hits=0, misses=1
         ```
 
 ## Directional diffusion { #directional-diffusion }
@@ -118,7 +124,7 @@ gradients.
         remark: [planning] edge/node UDFs remain in the differentiable Tensor DAG
         remark: [planning] gf-tensor-vjp generates CSR gather/segment-sum adjoints
         remark: [planning] reducer lowering: builtin-additive-state
-        executable cache: hits=0, misses=1
+        variant cache: hits=0, misses=1
         ```
 
     === "CUDA"
@@ -132,10 +138,10 @@ gradients.
         remark: [planning] edge/node UDFs remain in the differentiable Tensor DAG
         remark: [planning] gf-tensor-vjp generates CSR gather/segment-sum adjoints
         remark: [planning] reducer lowering: builtin-additive-state
-        executable cache: hits=0, misses=1
+        variant cache: hits=0, misses=1
         ```
 
-### Custom UDFs and reducers { #custom-udfs-and-reducers }
+<span id="custom-udfs-and-reducers"></span>
 
 ## Differentiable MessagePassing UDF { #differentiable-messagepassing-udf }
 
@@ -152,11 +158,9 @@ $$
 \text{out}_i \;=\; b_i \;+\; \sum_{e\,=\,(j \to i)} c_e \cdot T_j
 $$
 
-and then differentiates `sum(out)` with respect to all three inputs. The
-compiler generates the relation gather/segment primitives and the VJP from
-the same IR; only the UDFs are user code. The example also shows the explicit
-`save` checkpoint; on CUDA `auto` chooses between saved relation gathers and
-recomputation.
+and differentiates `sum(out)` with respect to all three Torch inputs using
+`torch.autograd.grad`. Native-only checkpoint policy inspection is separate:
+[`python examples/native_checkpoint.py`](https://github.com/walkerchi/TIGA-lang/blob/main/examples/native_checkpoint.py).
 
 ```python
 --8<-- "examples/message_passing_autograd.py:core"
@@ -181,7 +185,7 @@ recomputation.
         remark: [planning] edge/node UDFs remain in the differentiable Tensor DAG
         remark: [planning] gf-tensor-vjp generates CSR gather/segment-sum adjoints
         remark: [planning] reducer lowering: builtin-additive-state
-        executable cache: hits=0, misses=1
+        variant cache: hits=0, misses=1
         ```
 
     === "CUDA"
@@ -195,7 +199,7 @@ recomputation.
         remark: [planning] edge/node UDFs remain in the differentiable Tensor DAG
         remark: [planning] gf-tensor-vjp generates CSR gather/segment-sum adjoints
         remark: [planning] reducer lowering: builtin-additive-state
-        executable cache: hits=0, misses=1
+        variant cache: hits=0, misses=1
         ```
 
 ## User-defined reducer { #user-defined-reducer }
@@ -223,7 +227,7 @@ Where each method runs — the same computation as an ordinary Python loop:
 for i in range(num_dst):                 # per destination node
     state = identity()                   # (0.0, 0.0) — before its edges
     for e in edges_into(i):
-        message = edge(src, dst, edge)   # your edge() UDF, here src.value
+        message = edge(src, dst, edge)   # the edge() UDF, here src.value
         state = combine(state, lift(message))
     out[i] = finalize(state)             # s / n — after its edges
 
@@ -261,7 +265,7 @@ the backward through the mean as well.
         remark: [planning] edge/node UDFs remain in the differentiable Tensor DAG
         remark: [planning] gf-tensor-vjp generates CSR gather/segment-sum adjoints
         remark: [planning] reducer lowering: proved-componentwise-additive-udf
-        executable cache: hits=0, misses=1
+        variant cache: hits=0, misses=1
         ```
 
     === "CUDA"
@@ -275,10 +279,10 @@ the backward through the mean as well.
         remark: [planning] edge/node UDFs remain in the differentiable Tensor DAG
         remark: [planning] gf-tensor-vjp generates CSR gather/segment-sum adjoints
         remark: [planning] reducer lowering: proved-componentwise-additive-udf
-        executable cache: hits=0, misses=1
+        variant cache: hits=0, misses=1
         ```
 
-### Iterative control flow { #iterative-control-flow }
+<span id="iterative-control-flow"></span>
 
 ## Fixed-iteration PageRank probe { #fixed-iteration-pagerank-probe }
 
@@ -298,7 +302,7 @@ $$
 \text{rank}'_i = \text{base} + d \sum_{e\,=\,(j \to i)} \frac{\text{rank}_j}{\mathrm{deg}^{\text{out}}_j}
 $$
 
-The iteration is a plain Python `for` loop under `@gf.jit`; 20 iterations are
+The iteration is a plain Python `for` loop under `@tg.jit`; 20 iterations are
 captured once as a single `gf_control.repeat` op — the loop stays rolled, no
 unrolling (the tests verify this IR shape and the rank values against a
 framework-independent reference). It is a compiler probe, not a
@@ -327,7 +331,7 @@ workload-specific core operator or a performance claim.
         remark: [planning] edge/node UDFs remain in the differentiable Tensor DAG
         remark: [planning] gf-tensor-vjp generates CSR gather/segment-sum adjoints
         remark: [planning] reducer lowering: builtin-additive-state
-        executable cache: hits=0, misses=1
+        variant cache: hits=0, misses=1
         ```
 
     === "CUDA"
@@ -341,5 +345,5 @@ workload-specific core operator or a performance claim.
         remark: [planning] edge/node UDFs remain in the differentiable Tensor DAG
         remark: [planning] gf-tensor-vjp generates CSR gather/segment-sum adjoints
         remark: [planning] reducer lowering: builtin-additive-state
-        executable cache: hits=0, misses=1
+        variant cache: hits=0, misses=1
         ```

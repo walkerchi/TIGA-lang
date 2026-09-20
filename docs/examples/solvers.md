@@ -1,121 +1,111 @@
 # Linear solvers and control flow
 
-Matrix-free linear solvers: a MessagePassing kernel bound to a Graph is the
-operator — never an assembled matrix — and the iteration loop is expressed as
-device-side control flow (`gf_control.repeat` / `gf_control.while`) or as
-natural Python `for`/`while` under `@gf.jit`.
+Define an operator that maps one vector to another, then pass it to a solver.
+Start with the three-step Poisson example below; dynamic neighborhoods,
+iteration algorithms and nonlinear equations follow afterward.
 
-- [`python examples/fem_poisson.py`](https://github.com/walkerchi/TIGA-lang/blob/main/examples/fem_poisson.py)
+- [`python examples/fem_poisson_minimal.py`](https://github.com/walkerchi/TIGA-lang/blob/main/examples/fem_poisson_minimal.py)
 - [`python examples/meshfree_linear_solve.py`](https://github.com/walkerchi/TIGA-lang/blob/main/examples/meshfree_linear_solve.py)
 - [`python examples/nonlinear_solve.py`](https://github.com/walkerchi/TIGA-lang/blob/main/examples/nonlinear_solve.py)
 
-!!! note "gf.Tensor vs torch.Tensor"
+??? note "Native solver tensors and Torch interoperability"
 
     A kernel call accepts either — `src`/`dst`/`edge` fields may be torch
-    tensors directly, and `gf.from_torch(x)` / `.to_torch()` are zero-copy in
-    both directions. The solver drivers on this page are different:
+    tensors directly, without a wrapper. The advanced solver drivers on this page are different:
     `linear_solve` / `nonlinear_solve` capture the iteration loop as
     device-side control flow (`gf_control.repeat` / `gf_control.while`), so
-    their vectors must be `gf.Tensor`. Wrap torch storage at the boundary with
-    `gf.from_torch(x)` and read the result back with `.to_torch()` — neither
-    direction copies.
+    their vectors must be `tg.Tensor`. Wrap torch storage at the boundary with
+    `tg.from_torch(x)` when entering native expression capture. Only a value
+    that still owns Torch storage supports zero-copy `.to_torch()`; a native
+    solver result requires `.to_torch(copy=True)` and contiguous storage.
+    Sharing storage does not bridge native gradients into PyTorch autograd.
 
-### Matrix-free linear solves { #matrix-free-linear-solves }
+<span id="matrix-free-linear-solves"></span>
 
-## Matrix-free FEM operator and solver loop { #matrix-free-fem-operator-and-solver-loop }
+## Solve Poisson with neighbor sums { #matrix-free-fem-operator-and-solver-loop }
 
-**What it is.** The finite element method (FEM) turns a differential equation
-into a system of linear equations by sampling the unknown function at mesh
-points. Here the equation is the Poisson equation −u″(x) = 1 on the unit
-interval with u fixed to zero at both ends — the steady shape of a uniformly
-loaded string, whose exact answer is the parabola u(x) = x(1−x)/2. With N
-equally spaced interior points, each row of the system couples one point to its
-two immediate neighbors through the piecewise-linear ("P1") stencil. The system
-is solved by conjugate gradient (CG), an iterative method for symmetric
-positive-definite systems that only ever applies the operator to a vector and
-never needs the matrix itself.
-
-![P1 FEM stencil on a uniform mesh: boundary nodes fixed at zero, each interior row couples node i to itself with weight 2/h and to its two neighbors with weight −1/h](../assets/examples/fem-poisson.svg)
+Solve the [Poisson equation](https://en.wikipedia.org/wiki/Poisson%27s_equation)
+on a line, with both endpoints fixed to zero and seven unknown interior nodes.
 
 $$
-\frac{2u_i - u_{i-1} - u_{i+1}}{h} \;=\; h,
-\qquad
-u_0 = u_{N+1} = 0
+-u''(x)=1,\qquad u(0)=u(1)=0
 $$
 
-$$
-h = \frac{1}{N+1},
-\qquad
-u_{\text{exact}}(x) = \tfrac{1}{2}\,x(1-x)
-$$
+Define only how to compute `A(u)`: each node takes twice its own value minus
+its two neighbors, then divides by the grid spacing. **The solver owns the
+iteration loop; no handwritten CG loop is needed.**
 
-One `solve()` drives the whole example: by default the stopping condition is
-the residual norm at tolerance 10⁻⁶ (captured as one mandatory-bounded
-`gf_control.while`, lowered to CPU LLVM without host polling); passing
-`iterations=k` switches to a fixed-count `gf_control.repeat` instead.
-`load_gradient()` then differentiates sum(u) with respect to the load through
-the captured iterations (reverse-mode automatic differentiation, i.e. a
-vector–Jacobian product).
-
-The stiffness matrix is never assembled: the mesh topology is a `Graph`
-built in one line (`Graph.stencil` with the three P1 offsets), the
-stencil weights ride on its edges, and applying the operator is an ordinary
-MessagePassing UDF (`edge.value * src.u` summed per destination). See
-[linear solvers and implicit differentiation](../linear-solvers.md) for the
-remaining GPU/distributed loop and implicit-VJP contracts.
+The complete computation follows. `linear_solve` is the repository helper
+[examples/solvers.py](https://github.com/walkerchi/TIGA-lang/blob/main/examples/solvers.py),
+not a built-in `tg` API.
 
 ```python
---8<-- "examples/fem_poisson.py:core"
+--8<-- "examples/fem_poisson_minimal.py:core"
 ```
 
-??? example "Full source: examples/fem_poisson.py (runs as-is)"
+Run [`python examples/fem_poisson_minimal.py`](https://github.com/walkerchi/TIGA-lang/blob/main/examples/fem_poisson_minimal.py):
 
-    ```python
-    --8<-- "examples/fem_poisson.py"
-    ```
+```text
+[0.0546875, 0.09375, 0.1171875, 0.125, 0.1171875, 0.09375, 0.0546875]
+max error: 0.00e+00
+```
 
-??? info "Measured compilation artifacts (Ryzen 7 255 · RTX 5070 Ti)"
+“Matrix-free” means no assembled stiffness matrix: `Graph.stencil` supplies
+adjacency, `edge()` negates the neighbor value, and `node()` adds twice the
+center. The graph still has CSR topology; there is no separate stiffness
+matrix or per-edge stiffness array.
 
-    === "CPU"
+This example uses `tg.Tensor` because the current solver helper captures native
+control flow, not because ordinary message passing requires replacing Torch tensors.
 
-        ```text
-        ### StiffnessApply
-        backend: cpu:0
-        provider: tiga-runtime
-        lowering: gf-tensor-relation-autograd
-        passes: bind-static-csr-snapshot, capture-message-passing-udf, analyze-reducer-algebra, lower-csr-to-gather-segment, fuse-edge-node-regions
-        remark: [planning] edge/node UDFs remain in the differentiable Tensor DAG
-        remark: [planning] gf-tensor-vjp generates CSR gather/segment-sum adjoints
-        remark: [planning] reducer lowering: builtin-additive-state
-        executable cache: hits=0, misses=2
+??? info "Why FEM, and how are boundaries handled?"
 
-        ### StiffnessApply
-        backend: cpu:0
-        provider: tiga-runtime
-        lowering: gf-tensor-relation-autograd
-        passes: bind-static-csr-snapshot, capture-message-passing-udf, analyze-reducer-algebra, lower-csr-to-gather-segment, fuse-edge-node-regions
-        remark: [planning] edge/node UDFs remain in the differentiable Tensor DAG
-        remark: [planning] gf-tensor-vjp generates CSR gather/segment-sum adjoints
-        remark: [planning] reducer lowering: builtin-additive-state
-        executable cache: hits=0, misses=2
-        ```
+    Piecewise-linear P1 [finite elements](https://en.wikipedia.org/wiki/Finite_element_method)
+    on a uniform 1-D grid produce the following equation. `h` is the spacing
+    and `b` is the load vector for a unit source:
+
+    $$
+    (Au)_i=\frac{2u_i-u_{i-1}-u_{i+1}}{h},\qquad b_i=h
+    $$
+
+    The graph contains only interior nodes and omits out-of-grid neighbors.
+    Those boundary values are zero, but the diagonal coefficient in `node()`
+    remains `2`. **Do not replace it with the valid-neighbor count.**
+
+    ![One-dimensional P1 stencil: interior nodes read their two neighbors; boundary values remain zero.](../assets/examples/fem-poisson.svg)
+
+    The exact solution checks the nodal values:
+
+    $$
+    u_{\mathrm{exact}}(x)=\frac{x(1-x)}{2}
+    $$
+
+??? info "Stopping, fixed iterations and gradients"
+
+    `tolerance=1e-6` checks the absolute residual norm; `max_iterations=32`
+    bounds the loop. Reaching the limit does not guarantee convergence, so the
+    example also checks the analytic-solution error.
+
+    Fixed-count iteration and load gradients remain in the
+    [advanced fem_poisson.py example](https://github.com/walkerchi/TIGA-lang/blob/main/examples/fem_poisson.py).
+    See [linear solvers](../linear-solvers.md) for control-flow and differentiation contracts.
 
 ## Dynamic-radius matrix-free linear solve { #dynamic-radius-matrix-free-linear-solve }
 
 **What it is.** Here there is no mesh file at all — the graph is generated from
-data. Given N points in the plane, any two points closer than a cutoff radius r
+data. Given N points in the plane, any two distinct points at distance at most r
 become neighbors (a radius graph). On that graph the example solves
 (m·I + L) u = b, where L is the graph Laplacian: for each point, the sum over
 its neighbors of the difference between the point's own value and the
 neighbor's value. The mass shift m = 1 keeps the operator positive definite,
 and the right-hand side is the periodic pattern b_i = 1 + (i mod 3).
 
-![Radius relation: points in the plane become neighbors when closer than the cutoff r; the operator at point i is m·u_i plus the sum over neighbors of u_i − u_j](../assets/examples/meshfree-radius.svg)
+![Radius relation: distinct points at distance at most r become neighbors; the operator at point i is m·u_i plus the sum over neighbors of u_i − u_j](../assets/examples/meshfree-radius.svg)
 
 $$
 \big((mI + L)\,u\big)_i
 \;=\;
-m\,u_i \;+ \sum_{j \,:\, \lVert p_i - p_j \rVert < r} (u_i - u_j)
+m\,u_i \;+ \sum_{j\ne i \,:\, \lVert p_i - p_j \rVert \le r} (u_i - u_j)
 \;=\;
 b_i,
 \qquad
@@ -155,7 +145,7 @@ matrix is written by the user.
         remark: [planning] edge/node UDFs remain in the differentiable Tensor DAG
         remark: [planning] gf-tensor-vjp generates CSR gather/segment-sum adjoints
         remark: [planning] reducer lowering: builtin-additive-state
-        executable cache: hits=0, misses=3
+        variant cache: hits=0, misses=3
         ```
 
     === "CUDA"
@@ -169,10 +159,10 @@ matrix is written by the user.
         remark: [planning] edge/node UDFs remain in the differentiable Tensor DAG
         remark: [planning] gf-tensor-vjp generates CSR gather/segment-sum adjoints
         remark: [planning] reducer lowering: builtin-additive-state
-        executable cache: hits=0, misses=3
+        variant cache: hits=0, misses=3
         ```
 
-### Shared solver entry { #shared-solver-entry }
+<span id="shared-solver-entry"></span>
 
 ## Shared solver sugar: `linear_solve` { #shared-solver-sugar-linear_solve }
 
@@ -233,7 +223,7 @@ r_k = s - \omega_k A s
 $$
 
 `solvers.py` composes these from `gf_control` primitives, with the loops
-written as natural Python `for`/`while` under `@gf.jit`. Each example wraps
+written as natural Python `for`/`while` under `@tg.jit`. Each example wraps
 its operator construction in a local `solve()`; the solver itself is one
 `linear_solve(operator, rhs, method="cg", …)` call — there is nothing else
 named solve. The module is deliberately not part of the core package — it is
@@ -245,7 +235,7 @@ grammar sugar, not a primitive.
     --8<-- "examples/solvers.py"
     ```
 
-### Nonlinear solves { #nonlinear-solves }
+<span id="nonlinear-solves"></span>
 
 ## Nonlinear diffusion by Picard iteration { #nonlinear-diffusion-by-picard-iteration }
 
@@ -307,7 +297,7 @@ cross-checks the gradient against a finite difference of the same map.
         remark: [planning] edge/node UDFs remain in the differentiable Tensor DAG
         remark: [planning] gf-tensor-vjp generates CSR gather/segment-sum adjoints
         remark: [planning] reducer lowering: builtin-additive-state
-        executable cache: hits=0, misses=3
+        variant cache: hits=0, misses=3
 
         ### NonlinearDiffusionApply
         backend: cpu:0
@@ -317,5 +307,5 @@ cross-checks the gradient against a finite difference of the same map.
         remark: [planning] edge/node UDFs remain in the differentiable Tensor DAG
         remark: [planning] gf-tensor-vjp generates CSR gather/segment-sum adjoints
         remark: [planning] reducer lowering: builtin-additive-state
-        executable cache: hits=0, misses=1
+        variant cache: hits=0, misses=1
         ```

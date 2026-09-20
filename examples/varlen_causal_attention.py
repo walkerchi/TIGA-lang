@@ -1,30 +1,33 @@
-"""Varlen causal attention: packed sequences + cu_seqlens as one CSR graph."""
+"""Varlen causal attention: compose independent triangular graph blocks."""
 
 import torch
 
-import tiga as gf
+import tiga as tg
 
 heads, width = 4, 64
-lengths = torch.tensor([384, 1, 96, 640, 57], device="cuda")     # (S,) variable sequence lengths
-cu_seqlens = torch.cat([lengths.new_zeros(1), lengths.cumsum(0)])  # (S+1,)
-total = int(cu_seqlens[-1])                   # packed positions N = sum(lengths)
+lengths = [384, 1, 96, 640, 57]
+boundaries = torch.tensor([0, *lengths], device="cuda").cumsum(0)
+cu_seqlens = boundaries  # Compatibility with per-sequence reference checks.
+total = sum(lengths)
 
 # --8<-- [start:core]
 # Block-diagonal causal relation: position i attends j <= i inside its own
-# sequence — exactly the mask flash-attn's varlen API encodes with cu_seqlens,
-# written out as explicit CSR edges. Vectorized, built directly on device.
-graph = gf.Graph.cu_seqlens(cu_seqlens, causal=True)
+# sequence. cat currently materializes CSR, rather than retaining an implicit
+# composite representation. No edge is added between sequences.
+graph = tg.Graph.cat([
+    tg.Graph.triangular(length, device="cuda") for length in lengths
+])
 
 generator = torch.Generator(device="cuda").manual_seed(20260821)
 query = torch.randn(
     total, heads, width, device="cuda", dtype=torch.float16,
     generator=generator)                                         # (N, H, D)
-key = torch.randn_like(query)                                    # (N, H, D)
-value = torch.randn_like(query)                                  # (N, H, D)
+key = torch.randn(query.shape, device="cuda", dtype=query.dtype, generator=generator)
+value = torch.randn(query.shape, device="cuda", dtype=query.dtype, generator=generator)
 
 
-class VarlenCausalAttention(gf.MessagePassing):
-    reducer = gf.online_softmax()
+class VarlenCausalAttention(tg.MessagePassing):
+    reducer = tg.online_softmax()
 
     def edge(self, src, dst, edge, scale):
         score = (src.key * dst.query).sum(dim=-1) * scale

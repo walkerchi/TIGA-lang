@@ -78,7 +78,63 @@ def test_message_passing_autograd_example_results():
     assert module.d_temperature.tolist() == [7.0, 10.0, 3.0]
     assert module.d_conductivity.tolist() == [1.0, 3.0, 2.0, 1.0, 2.0]
     assert module.d_bias.tolist() == [1.0, 1.0, 1.0]
+    assert isinstance(module.output, torch.Tensor)
+    assert isinstance(module.d_temperature, torch.Tensor)
+
+
+def test_native_checkpoint_example_results():
+    module = _load("native_checkpoint", "native_checkpoint.py")
+    assert module.saved_d_conductivity.tolist() == [1., 3., 2., 1., 2.]
     assert "checkpoint" in module.saved_d_conductivity.expression()
+
+
+def test_torch_quickstart_results():
+    if not CUDA:
+        pytest.skip("Quickstart requires CUDA; exercised by GPU release gate")
+    module = _load("torch_quickstart", "torch_quickstart.py")
+    torch.testing.assert_close(module.output, module.output.new_tensor([11.1, 8.2, 17.3]))
+    torch.testing.assert_close(module.d_temperature, module.output.new_tensor([7., 10., 3.]))
+    torch.testing.assert_close(module.d_conductivity, module.output.new_tensor([1., 3., 2., 1., 2.]))
+    torch.testing.assert_close(module.d_bias, torch.ones_like(module.d_bias))
+
+
+def test_ir_csr_walkthrough_results():
+    module = _load("ir_csr_walkthrough", "ir_csr_walkthrough.py")
+    output, gradient = module.main()
+    torch.testing.assert_close(output, torch.tensor([23., 6., 0.]))
+    torch.testing.assert_close(gradient, torch.tensor([4., 7.]))
+
+
+@pytest.mark.parametrize("device", ["cpu", "cuda"])
+def test_default_torch_interface_backward_and_reuse(device):
+    if device == "cuda" and not CUDA:
+        pytest.skip("CUDA is unavailable")
+    import tiga as tg
+
+    class WeightedSum(tg.MessagePassing):
+        reducer = tg.sum()
+
+        def edge(self, src, dst, edge):
+            return src.x * edge.weight
+
+    graph = tg.Graph.from_csr(
+        torch.tensor([0, 2, 3, 3], device=device),
+        torch.tensor([0, 1, 1], device=device),
+        num_src=2, validate="full",
+    )
+    kernel = WeightedSum()
+    # Reusing the kernel must bind current Torch inputs, including their graph.
+    for scale in (1., 2.):
+        x = torch.tensor([2. * scale, 3. * scale], device=device, requires_grad=True)
+        weight = torch.tensor([4., 5., 2.], device=device, requires_grad=True)
+        out = kernel(graph=graph, src={"x": x}, dst={}, edge={"weight": weight})
+        assert isinstance(out, torch.Tensor)
+        assert out.device == x.device and out.dtype == x.dtype
+        torch.testing.assert_close(out, x.new_tensor([23., 6., 0.]) * scale)
+        # Ordinary Torch operations remain connected to both input gradients.
+        (out * 2).sum().backward()
+        torch.testing.assert_close(x.grad, x.new_tensor([8., 14.]))
+        torch.testing.assert_close(weight.grad, x.new_tensor([4., 6., 6.]) * scale)
 
 
 def test_gcn_example_results():
@@ -242,7 +298,8 @@ def test_hierarchical_memory_example_round_trip(tmp_path, monkeypatch):
     monkeypatch.setenv("TIGA_SPILL_DIR", str(tmp_path))
     module = _load("hierarchical_memory", "hierarchical_memory.py")
     assert module.back.tolist() == [float(i) for i in range(8)]
-    assert (tmp_path / "layer-3-activations.gfspill").exists()
+    assert module.gradients.tolist() == [float(2 * i) for i in range(8)]
+    assert module.restored.tolist() == module.back.tolist()
 
 
 def test_paged_giant_graph_example_round_trip(tmp_path, monkeypatch, capsys):

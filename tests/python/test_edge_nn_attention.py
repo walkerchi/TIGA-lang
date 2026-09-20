@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import unittest
 
-import tiga as gf
+import tiga as tg
 import torch
 from torch import nn
 
@@ -20,12 +20,12 @@ def _cuda_available() -> bool:
     return torch.cuda.is_available()
 
 
-class GAT(gf.MessagePassing):
-    reducer = gf.online_softmax()
+class GAT(tg.MessagePassing):
+    reducer = tg.online_softmax()
 
     def __init__(self, attn, value="src", **trace_kwargs):
         super().__init__()
-        self.attn = gf.nn.trace(attn, **trace_kwargs)
+        self.attn = tg.nn.trace(attn, **trace_kwargs)
         self._value = value
 
     def edge(self, src, dst, edge):
@@ -41,7 +41,7 @@ def _problem(nodes=192, dim=3, width=8, cutoff=0.30, seed=7, device="cuda"):
     generator = torch.Generator(device=device).manual_seed(seed)
     positions = torch.rand(nodes, dim, device=device, generator=generator)
     x = torch.randn(nodes, width, device=device, generator=generator)
-    graph = gf.Graph.radius(positions, cutoff=cutoff)
+    graph = tg.Graph.radius(positions, cutoff=cutoff)
     return graph, positions, x
 
 
@@ -195,7 +195,7 @@ class EdgeNNAttentionTest(unittest.TestCase):
         positions = torch.rand(64, 3, device="cuda", generator=generator)
         positions[0] += 10.0  # far away: no neighbors
         x = torch.randn(64, 8, device="cuda", generator=generator)
-        graph = gf.Graph.radius(positions, cutoff=0.2)
+        graph = tg.Graph.radius(positions, cutoff=0.2)
         attn = nn.Sequential(nn.Linear(19, 1)).cuda()
         program = GAT(attn)
         with torch.no_grad():
@@ -281,7 +281,7 @@ class EdgeNNAttentionTest(unittest.TestCase):
         graph, positions, x = _problem()
         positions = positions.double()
         x = x.double()
-        graph = gf.Graph.radius(positions, cutoff=0.30)
+        graph = tg.Graph.radius(positions, cutoff=0.30)
         program = GAT(attn)
         out = program(graph=graph, src={"x": x}, dst={"x": x})
         self.assertNotIn("gf-python-emit-edge-nn-attention",
@@ -306,8 +306,8 @@ class EdgeNNAttentionTest(unittest.TestCase):
     def test_plain_score_does_not_take_nn_path(self):
         # A non-nn score (bare field expression) stays on the oracle path
         # and remains correct.
-        class PlainAttention(gf.MessagePassing):
-            reducer = gf.online_softmax()
+        class PlainAttention(tg.MessagePassing):
+            reducer = tg.online_softmax()
 
             def edge(self, src, dst, edge):
                 return self.reducer(edge.sim, src.x)

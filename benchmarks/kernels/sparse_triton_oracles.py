@@ -269,6 +269,7 @@ if triton is not None:
         dimensions: tl.constexpr,
         neighbor_cells: tl.constexpr,
         BLOCK_D: tl.constexpr,
+        HASH_GRID: tl.constexpr = False,
     ):
         """Generate radius edges from a compact cell directory and consume."""
         row = tl.program_id(0)
@@ -283,9 +284,12 @@ if triton is not None:
                     neighbor_offsets + neighbor * dimensions + axis)
                 neighbor_coordinate = coordinate + offset
                 extent = tl.load(extents + axis)
-                valid_cell &= (
-                    (neighbor_coordinate >= 0)
-                    & (neighbor_coordinate < extent))
+                if HASH_GRID:
+                    neighbor_coordinate = neighbor_coordinate & (extent - 1)
+                else:
+                    valid_cell &= (
+                        (neighbor_coordinate >= 0)
+                        & (neighbor_coordinate < extent))
                 cell_key += neighbor_coordinate * tl.load(strides + axis)
             safe_key = tl.where(valid_cell, cell_key, 0)
             start = tl.load(cell_ptr + safe_key)
@@ -692,6 +696,7 @@ class GeneratedRadiusDistancePlan:
             cutoff_squared=directory.cutoff * directory.cutoff,
             dimensions=self.dimensions,
             neighbor_cells=directory.neighbor_offsets.shape[0],
+            HASH_GRID=directory.hash_grid,
             BLOCK_D=self.block_d,
             num_warps=self.num_warps,
         )

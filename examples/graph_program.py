@@ -2,7 +2,7 @@
 
 import torch
 
-import tiga as gf
+import tiga as tg
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 nodes, degree = 4096, 16
@@ -12,20 +12,20 @@ w1 = torch.randn(nodes * degree, device=device)                              # (
 
 
 # --8<-- [start:core]
-class WeightedSum(gf.MessagePassing):
-    reducer = gf.sum()
+class WeightedSum(tg.MessagePassing):
+    reducer = tg.sum()
 
     def edge(self, src, dst, edge):
         return src.x * edge.weight
 
 
 # Regular degree-16 relation: dst i gathers from sources (i*degree + k) % N.
-graph = gf.Graph.regular(nodes, degree, device=device)
+graph = tg.Graph.regular(nodes, degree, device=device)
 
 
-@gf.jit
+@tg.jit
 def two_observables():
-    # @gf.jit captures the two sibling kernel calls automatically; there is
+    # @tg.jit captures the two sibling kernel calls automatically; there is
     # no explicit gf.compile() and no separate composition decorator.
     return (
         WeightedSum()(graph=graph, src={"x": x}, dst={},

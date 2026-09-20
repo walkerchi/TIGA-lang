@@ -1,15 +1,15 @@
 """Tiga compiler, minimal Tensor runtime, and semantic autograd.
 
-Torch integration is lazy and optional. The compiler tools and native CPU
-Tensor/runtime surface can be imported without Torch; accessing Graph,
-MessagePassing or the bootstrap Torch adapter loads it on demand.
+Ordinary Torch applications use Torch tensors, installed separately by the user.
+Torch is optional: lazy imports keep the native compiler, Tensor/runtime and
+MessagePassing/autograd paths usable without it.
 """
 
 from __future__ import annotations
 
 from importlib import import_module
 
-from . import autograd, compiler, control, math, nn, runtime, visualize
+from . import autograd, compiler, control, math, nn, runtime, stencil, visualize
 from ._version import __version__
 from .control import repeat, while_loop
 from .distributed import (
@@ -23,6 +23,7 @@ from .distributed import (
 )
 from .program import GraphProgram, ProgramValue, program
 from .runtime import Device, DeviceType
+from .runtime.memory import execution
 from .tensor import (
     DType,
     Tensor,
@@ -66,20 +67,39 @@ _LAZY_EXPORTS = {
 
 
 def load(path, *, device="cpu"):
-    """Open a versioned persistent Graph without eager topology loading."""
+    """Lazily open a Tensor snapshot file or a versioned Graph directory.
+
+    Tensor snapshots restore values, not autograd history. Payload validation
+    occurs on attachment; native allocation is deferred until first use.
+    """
+    from pathlib import Path
+    if Path(path).is_file():
+        from .tensor.spill import load_tensor
+        return load_tensor(path, device=device)
     from .graph import Graph
 
     return Graph.open(path, device=device)
 
 
-def save(graph, path, *, fields=None) -> None:
-    """Persist a static CSR Graph in the versioned Tiga format.
+def save(graph, path, *, fields=None, overwrite=False) -> None:
+    """Persist a Tensor value snapshot or a static CSR Graph.
+
+    Tensor snapshots refuse existing paths unless ``overwrite=True``. They
+    do not evict the value or serialize its autograd graph. Graph overwriting
+    is unsupported; use a new directory.
 
     ``fields`` optionally stores node/edge payloads inside the ``.gfg`` as
     fixed-row binary files — ``{"src": {...}, "dst": {...}, "edge": {...}}``.
-    ``gf.load(path).fields(role)`` exposes them as disk-backed shell Tensors
+    ``tg.load(path).fields(role)`` exposes them as disk-backed shell Tensors
     for bounded-memory paged execution.
     """
+    if isinstance(graph, Tensor):
+        if fields is not None:
+            raise TypeError("fields applies only to Graph snapshots")
+        graph.save(path, overwrite=overwrite)
+        return
+    if overwrite:
+        raise ValueError("Graph overwrite is not supported; save to a new directory")
     from .graph import save_graph
 
     save_graph(graph, path, fields=fields)
@@ -107,7 +127,7 @@ def __getattr__(name: str):
     except ModuleNotFoundError as error:
         if error.name == "torch":
             raise ModuleNotFoundError(
-                f"tiga.{name} currently uses the optional Torch adapter; "
+                f"tiga.{name} requires the Torch adapter; "
                 "install tiga-lang[torch]. Tensor/runtime/autograd "
                 "remain available without Torch."
             ) from error
@@ -117,6 +137,8 @@ def __getattr__(name: str):
 
 
 __all__ = [
+    "stencil",
+    "execution",
     "AnalysisFinding",
     "ByDestination",
     "CompiledVariant",

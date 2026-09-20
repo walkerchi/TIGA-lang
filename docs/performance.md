@@ -6,7 +6,7 @@ peer. Raw samples and device metadata — not a screenshot — are the source of
 truth. The interactive evidence report lives on
 [benchmark results](benchmark-results.md); it is generated from
 `benchmarks/evidence_manifest.json` and fails if a registered case, filter or
-provider is missing, so a stale chart is never silently reused.
+provider is missing. Each report identifies its measurement snapshot.
 
 ## Semantic matching
 
@@ -87,6 +87,8 @@ optimistic_roof = min(measured_FP32_peak,
 reduces real DRAM traffic, so it may exceed physical bandwidth and must never
 be presented as profiler-measured DRAM bytes.
 
+The following is the contract for new measurements, not a claim that every historical file satisfies it. See [chart reproduction](benchmark-reproducibility.md) for archived inputs and provenance gaps.
+
 ## Artifact contract
 
 ```text
@@ -151,8 +153,9 @@ equivalent implementation in the same environment:
 ## Reproduce
 
 ```bash
-export TIGA_OPT="$PWD/build/bin/gf-opt"
-export TIGA_TRANSLATE="$PWD/build/bin/gf-translate"
+# Optional overrides for the development compiler test build:
+export TIGA_OPT="$PWD/build/compiler/bin/gf-opt"
+export TIGA_TRANSLATE="$PWD/build/compiler/bin/gf-translate"
 
 python -m benchmarks.compiler.provider_gate --fail-on-gate
 python -m benchmarks.sparse_compute.weighted_aggregation

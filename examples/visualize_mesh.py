@@ -11,11 +11,11 @@ from pathlib import Path
 
 import numpy as np
 
-import tiga as gf
+import tiga as tg
 
 
-class Diffusion(gf.MessagePassing):
-    reducer = gf.mean()
+class Diffusion(tg.MessagePassing):
+    reducer = tg.mean()
 
     def edge(self, src, dst, edge):
         return src.u
@@ -24,7 +24,7 @@ class Diffusion(gf.MessagePassing):
         return dst.u + rate * (flux - dst.u)
 
 
-def mesh_graph(faces: np.ndarray, num_vertices: int) -> gf.Graph:
+def mesh_graph(faces: np.ndarray, num_vertices: int) -> tg.Graph:
     """Undirected vertex-adjacency CSR from the unique edges of ``faces``."""
     pairs = set()
     for a, b, c in faces.tolist():
@@ -39,19 +39,19 @@ def mesh_graph(faces: np.ndarray, num_vertices: int) -> gf.Graph:
     for dst, sources in enumerate(by_dst):
         col_idx.extend(sorted(sources))
         row_ptr[dst + 1] = len(col_idx)
-    return gf.Graph.from_csr(
-        gf.tensor(row_ptr.tolist(), dtype=gf.int64),  # (N+1,)
-        gf.tensor(col_idx, dtype=gf.int64),           # (E,)
+    return tg.Graph.from_csr(
+        tg.tensor(row_ptr.tolist(), dtype=tg.int64),  # (N+1,)
+        tg.tensor(col_idx, dtype=tg.int64),           # (E,)
         num_src=num_vertices,
     )
 
 
-def diffuse(graph: gf.Graph, u0: np.ndarray, steps: int, rate: float):
+def diffuse(graph: tg.Graph, u0: np.ndarray, steps: int, rate: float):
     kernel = Diffusion()
-    u = gf.tensor(u0.tolist())  # (N,)
+    u = tg.tensor(u0.tolist())  # (N,)
     for _ in range(steps):
         u = kernel(graph=graph, ndata={"u": u}, rate=rate)  # (N,)
-        u = gf.tensor(u.to_numpy().tolist())
+        u = tg.tensor(u.to_numpy().tolist())
     return u.to_numpy()
 
 
@@ -63,7 +63,7 @@ def main() -> None:
     parser.add_argument("--output", default="output/examples")
     args = parser.parse_args()
 
-    positions, faces = gf.visualize.load_obj(args.model)  # (N, 3), (M, 3)
+    positions, faces = tg.visualize.load_obj(args.model)  # (N, 3), (M, 3)
     graph = mesh_graph(faces, len(positions))
     direction = np.array([1.0, 0.0, 0.35])  # off-axis so the orbit reads
     top = positions[np.argmax(positions @ direction)]  # bump vertex (3,)
@@ -74,37 +74,37 @@ def main() -> None:
 
     output = Path(args.output)
     # --8<-- [start:core]
-    camera = gf.visualize.Camera.from_angles(
+    camera = tg.visualize.Camera.from_angles(
         25, -60, positions=positions)  # fixed elevation/azimuth view
 
-    gf.visualize.mesh(                            # fill the given triangles
+    tg.visualize.mesh(                            # fill the given triangles
         positions, faces, values=u_render, camera=camera,
         width=args.size, height=args.size, vmin=0.0, vmax=vmax,
     ).save(output / "mesh_flat.png")
-    gf.visualize.mesh(                            # same mesh as wireframe
+    tg.visualize.mesh(                            # same mesh as wireframe
         positions, faces, values=u_render, camera=camera,
         width=args.size, height=args.size, wireframe=True,
         vmin=0.0, vmax=vmax,
     ).save(output / "mesh_wireframe.png")
-    gf.visualize.particles(                       # vertices splatted as disks
+    tg.visualize.particles(                       # vertices splatted as disks
         positions, values=u_render, camera=camera,
         width=args.size, height=args.size, point_radius=2.0,
         vmin=0.0, vmax=vmax,
     ).save(output / "mesh_particles.png")
 
     frames = (                                    # 12-frame azimuth orbit
-        gf.visualize.mesh(
+        tg.visualize.mesh(
             positions, faces, values=u_render,
-            camera=gf.visualize.Camera.from_angles(
+            camera=tg.visualize.Camera.from_angles(
                 25, azimuth, positions=positions),
             width=256, height=256, vmin=0.0, vmax=vmax)
         for azimuth in range(0, 360, 30)
     )
-    gf.visualize.save_video(frames, output / "mesh_orbit.gif", fps=6)
+    tg.visualize.save_video(frames, output / "mesh_orbit.gif", fps=6)
 
-    gf.visualize.export_ply(                      # Blender-ready binary dump
+    tg.visualize.export_ply(                      # Blender-ready binary dump
         output / "mesh.ply", positions, faces=faces, values=u_render)
-    gf.visualize.export_obj(                      # geometry-only, load_obj-symmetric
+    tg.visualize.export_obj(                      # geometry-only, load_obj-symmetric
         output / "mesh.obj", positions, faces)
     # --8<-- [end:core]
 

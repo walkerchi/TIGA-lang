@@ -232,7 +232,7 @@ def heatmap(
 
     ``values`` must be a contiguous rank-two floating Tensor. By default the
     built-in ``viridis`` colormap is used. ``cmap`` selects another
-    multi-stop colormap — a name from ``gf.visualize.colormaps()``, a list
+    multi-stop colormap — a name from ``tg.visualize.colormaps()``, a list
     of evenly spaced RGB colors, or a list of ``(position, RGB)`` stops with
     strictly increasing positions in [0, 1]. Passing ``low``/``high``
     instead defines a plain two-color ramp (a missing end falls back to the
@@ -326,7 +326,7 @@ def _apply_cmap_host(values, cmap):
 from .camera import Camera
 from .exchange import export_obj, export_ply, export_vdb, load_ply
 from .geometry import delaunay, load_obj, mesh, particles
-from .splats import splats
+from .splats import gaussians, splats
 from .video import save_video
 from .volume import volume
 
@@ -338,6 +338,7 @@ __all__ = [
     "export_obj",
     "export_ply",
     "export_vdb",
+    "gaussians",
     "heatmap",
     "load_obj",
     "load_ply",

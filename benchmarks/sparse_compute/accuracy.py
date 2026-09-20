@@ -6,18 +6,18 @@ import argparse
 
 import torch
 
-import tiga as gf
+import tiga as tg
 
 
-class Diffusion(gf.MessagePassing):
-    reducer = gf.sum()
+class Diffusion(tg.MessagePassing):
+    reducer = tg.sum()
 
     def edge(self, src, dst, edge):
         return edge.weight * (src.u - dst.u)
 
 
-class NonlinearVector(gf.MessagePassing):
-    reducer = gf.sum()
+class NonlinearVector(tg.MessagePassing):
+    reducer = tg.sum()
 
     def edge(self, src, dst, edge, eps):
         delta = src.u - dst.u
@@ -43,7 +43,7 @@ def irregular_csr(nodes: int, max_degree: int, device: str):
 
 def check(device: str, nodes: int, max_degree: int):
     row_ptr, col_idx = irregular_csr(nodes, max_degree, device)
-    graph = gf.Graph.from_csr(row_ptr, col_idx, num_src=nodes)
+    graph = tg.Graph.from_csr(row_ptr, col_idx, num_src=nodes)
     dst_index = graph.destination_index()
     weight = torch.randn(col_idx.numel(), device=device)
 

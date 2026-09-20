@@ -1,0 +1,152 @@
+# Current experiment revisions — 2026-09-19
+
+The downloadable evidence ZIP includes:
+
+- data/comparison-v3/REPRODUCE.md: current 36-configuration performance matrix,
+  pure Torch chunked builders and kNN through 131,072 points; exact source,
+  helper implementation, raw samples, hashes and independent allocation audits.
+- data/distributed-spatial/REPRODUCE.md: current spatial hexahedral meshes,
+  two-rank NCCL, 32/64/96 cube sides, verified surface-area halo traffic,
+  both rank records and exact source/commands.
+- data/billion/: unchanged fully checked 10M/100M/1B capacity results.
+- data/paging-1b/REPRODUCE.md: the new fully checked 1B-edge profile, exclusive
+  host stages, Nsight capture/CSVs and exact source. No extrapolation from 10M.
+- data/three-questions/: older comparison/ring/large-halo results and the
+  10M paging diagnostic. These retain their original source snapshot.
+
+Run tools/build_three_questions.py from the paper to validate and replot current
+figures; tools/build_spatial_results.py checks the mesh geometry and paired ranks.
+The old protocol below describes the previous comparison/distributed revision,
+not the current pure-Torch or spatial-mesh curves.
+
+# Archived experiment protocol — 2026-09-19
+
+This artifact is a local technical-report experiment, not a release benchmark.
+No result exceeds 1B edges; the existing nine-run 1B archive is reused unchanged.
+All new performance runs are forward-only. No benchmark GPU processes overlap.
+Existing voice services remain running on both hosts.
+
+## Environment
+
+- Local: Ryzen 7 255, about 44 GiB RAM, RTX 5070 Ti 16 GiB, driver 595.84.
+- Remote: RTX 4070 Ti SUPER 16 GiB, Ubuntu/WSL; approximately 12 GiB is occupied
+  by existing applications. Both rank records retain device/driver metadata.
+- Python: `/home/walkerchi/Code/ComfyUI/.venv/bin/python`, Torch 2.11.0+cu128,
+  Triton 3.6.0, PyG 2.8.0.post1. `torch_cluster` 1.6.3+pt211cu128 and
+  `pyg_lib` 0.9.0+pt211cu128 were installed with `--target` into the isolated
+  `/tmp/tiga-paper-v2-deps.AW5KyW`; no service environment was changed.
+- Official wheel index: https://data.pyg.org/whl/torch-2.11.0+cu128.html
+- `TIGA_OPT=/tmp/tiga-docs-review/compiler/bin/gf-opt` and
+  `TIGA_TRANSLATE=/tmp/tiga-docs-review/compiler/bin/gf-translate`; recorded hashes
+  match on both hosts. Build from the included source with LLVM/MLIR 22.1.8.
+- Native runtime and compiler C-ABI libraries are the existing local build:
+  runtime SHA256 `84d646d4cf0826c3a827c5e341c7b331dc2bf01c78026c986b84e88d0482c75e`,
+  compiler SHA256 `e912da833a32996194286e5d82d9feb3dad82972fbb82bea21e6ddb77dd294ca`.
+  Native libraries were not rebuilt for these experiments.
+
+## Q1: one process per workload / shape / provider
+
+Run from the extracted implementation source. Use a fresh output directory.
+
+```bash
+export PYTHONPATH=python:.:/path/to/isolated-pyg-dependencies
+export TIGA_OPT=/path/to/gf-opt
+export TIGA_TRANSLATE=/path/to/gf-translate
+export OMP_NUM_THREADS=1
+python -m benchmarks.graph_operations.run_paper_comparison --output /path/to/new-results
+```
+
+The formal matrix is `comparison-v2`: 27 successful configurations, four warmups
+and ten checked samples per worker. Provider order is seeded and randomized across
+the matrix, not interleaved within a worker. Ordinary calls include dispatch and
+dynamic coordinate updates. Both dynamic snapshots have complete edge-set checks;
+every output is checked. Radius uses binary-grid points and a cutoff between exact
+squared-distance levels, with a nontruncating cap verified against full CSR.
+kNN uses uniform FP32 points and direct-distance reference selection.
+
+`comparison-commands.json` retains the actual commands and stdout/stderr.
+`audit-*.json` are separate two-sample largest-shape native-allocation audits, not
+extra timing trials: all three report zero Tiga-native device allocations. The
+main memory figures measure Torch live allocated bytes, not reserved memory or
+context/module storage. The initial `comparison/` exploratory matrix failed
+selected floating-point edge-boundary checks and is excluded entirely; no failed
+configuration is relabeled as a passed measurement.
+
+## Q2: preserved 1B sweep plus a bounded diagnostic
+
+The original `data/billion/` archive has its own measured source snapshot, nine
+records, ingest commands and independent full-output oracle. Do not rerun the 1B
+sweep merely to regenerate a figure. The new profile uses the existing 10M fixture:
+
+```bash
+export PYTHONPATH=python:.
+export TIGA_TENSOR_BACKEND=native
+python -m benchmarks.memory_hierarchy.profile_paging \
+  --cache-dir /path/to/fixtures --output /path/to/paging-warm.json
+nsys profile --trace=cuda --sample=none --cpuctxsw=none \
+  --capture-range=cudaProfilerApi --capture-range-end=stop \
+  --output=/path/to/paging-trace \
+  python -m benchmarks.memory_hierarchy.profile_paging \
+  --cache-dir /path/to/fixtures --cuda-capture --evict-fixture \
+  --output /path/to/paging-profile.json
+nsys stats --report cuda_gpu_kern_sum,cuda_gpu_mem_time_sum,cuda_gpu_mem_size_sum \
+  --format csv --output /path/to/paging-cuda /path/to/paging-trace.nsys-rep
+```
+
+Nsight Systems 2025.3.2 captures only forward, excluding output validation. The
+actual order was eviction-hint+Nsight, then unprofiled warm-page-cache. The profiled
+host window excludes profiler start/stop overhead; `forward_s` in its underlying
+worker record includes that overhead and must not replace `profile.forward_seconds`.
+Exclusive host timers subtract nested intervals. CUDA kernel/copy times are
+contained within those host intervals, not additional stacked stages. Process
+physical-read bytes include runtime/compiler files, not solely fixture IO.
+Only the three fixture files receive eviction hints, not the global OS cache.
+These two runs diagnose 10M edges; neither is a 1B time decomposition or a
+guaranteed cold-NVMe bandwidth benchmark.
+
+## Q3: two hosts, two topologies, paired critical-path samples
+
+Launch one rank per host with reachable trusted private addresses and matching
+source/compiler/NCCL library versions. The actual local deployment commands and
+environment are in `distributed-commands.json`. No keys or credentials are stored.
+
+```bash
+export PYTHONPATH=python:.
+export TIGA_TENSOR_BACKEND=native
+export NCCL_SOCKET_IFNAME=tiga-wg0
+export NCCL_SOCKET_FAMILY=AF_INET
+export NCCL_IB_DISABLE=1
+export TIGA_NCCL_LIBRARY=/path/to/matching/libnccl.so.2
+python -m benchmarks.distributed.paper_scaling \
+  --rank 0 --host PRIVATE_RANK0_IP --port 29732 --transport nccl \
+  --sizes 32768,131072,524288 --features 16 --boundary-every 0 \
+  --warmup 2 --repeats 5 --output /path/to/local-rank0.json
+```
+
+Rank 1 uses identical arguments except rank/output. Repeat with `--boundary-every 4`
+and a fresh port/output. Equal contiguous ownership; topology replicated for setup;
+runtime source fields owned-only before halo. NCCL 2.28.9 uses Socket over an
+existing isolated WireGuard interface with MTU 1200, not RDMA/NVLink. The launcher
+restores only that interface when absent; default routes/firewall/services are
+unchanged. Formal records are `distributed-final`; initial smoke and exploratory
+timing runs are excluded. Every sampled output is fully checked, with input scales
+changing. Take max(rank0,rank1) per sample, then median. Host-stage stacks use the
+critical rank of the median paired sample so stages sum to its actual duration.
+Do not interpret the final stream wait alone as total communication cost.
+
+## Replot and validate
+
+From the paper project:
+
+```bash
+python tools/build_three_questions.py --check
+python tools/build_three_questions.py
+make check
+make tectonic
+```
+
+Validators check all 27 comparisons, both NCCL ranks/topologies, full output checks,
+source/compiler equality, host-phase accounting, native-allocation audits and
+archive hashes. Replotting requires no GPU and is not remeasurement. The source
+snapshot includes implementation, benchmark drivers and regression tests; compiler
+executables and dependency wheels are not embedded.

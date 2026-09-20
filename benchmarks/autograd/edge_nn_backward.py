@@ -15,7 +15,7 @@ import json
 import statistics
 from pathlib import Path
 
-import tiga as gf
+import tiga as tg
 import torch
 from torch import nn
 
@@ -28,10 +28,10 @@ HIDDEN = 16
 OUT = 8
 
 
-class EdgeMLP(gf.MessagePassing):
+class EdgeMLP(tg.MessagePassing):
     def __init__(self, module):
         super().__init__()
-        self.mlp = gf.nn.trace(module)
+        self.mlp = tg.nn.trace(module)
 
     def edge(self, src, dst, edge):
         return self.mlp(edge.displacement, src.x)
@@ -66,7 +66,7 @@ def main() -> None:
         nn.Linear(DIMS + X_WIDTH, HIDDEN), nn.GELU(), nn.Linear(HIDDEN, OUT),
     ).to(device)
 
-    graph = gf.Graph.radius(positions, cutoff=cutoff)
+    graph = tg.Graph.radius(positions, cutoff=cutoff)
     row_ptr, col_idx = graph.resolve_csr()
     edges = col_idx.numel()
     rows = torch.repeat_interleave(

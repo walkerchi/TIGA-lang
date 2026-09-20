@@ -25,7 +25,7 @@ func.func @periodic_distance_sum(
   return %0 : tensor<?xf32>
 }
 
-// CHECK: graphforge.launch entry=gf_generated_radius_distance_sum
+// CHECK: tiga.launch entry=gf_generated_radius_distance_sum
 // CHECK-SAME: neighbor_offsets,lattice,inverse_lattice,positions,x,out
 // CHECK: %neighbor_coord_shifted0 = arith.addi
 // CHECK: %neighbor_coord0 = arith.remui

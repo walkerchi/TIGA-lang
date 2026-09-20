@@ -21,11 +21,11 @@ from pathlib import Path
 import resource
 import time
 
-import tiga as gf
+import tiga as tg
 
 
-class Smoothing(gf.MessagePassing):
-    reducer = gf.sum()
+class Smoothing(tg.MessagePassing):
+    reducer = tg.sum()
 
     def edge(self, src, dst, edge):
         return src.x
@@ -56,8 +56,8 @@ def main() -> None:
     graph_path = args.cache_dir / f"graphforge_paged_bench_{args.grid}.gfg"
     if not graph_path.exists():
         started = time.perf_counter()
-        gf.save(
-            gf.Graph.stencil(
+        tg.save(
+            tg.Graph.stencil(
                 (args.grid, args.grid), ((-1, 0), (1, 0), (0, -1), (0, 1))),
             graph_path,
         )
@@ -66,8 +66,8 @@ def main() -> None:
     if args.build_only:
         return
 
-    graph = gf.load(graph_path)
-    x = gf.tensor(
+    graph = tg.load(graph_path)
+    x = tg.tensor(
         [float(node % 977) for node in range(graph.schema.num_dst)])
     started = time.perf_counter()
     output = Smoothing()(graph=graph, src={"x": x}, dst={},

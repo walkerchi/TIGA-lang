@@ -39,7 +39,7 @@ func.func @csr_tuple(%row: tensor<?xi64>, %col: tensor<?xi64>,
   return %out : tensor<?xf32>
 }
 
-// CHECK: graphforge.launch entry=gf_csr_scalar_reduce
+// CHECK: tiga.launch entry=gf_csr_scalar_reduce
 // CHECK: tt.func public @gf_csr_scalar_reduce
 // CHECK: %[[STATE:.*]]:2 = scf.for
 // CHECK: tt.load %gf_col_ptr

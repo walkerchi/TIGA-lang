@@ -9,7 +9,7 @@ zero-copy storage/current-stream bindings and never executes the expression.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import hashlib
 import os
 from pathlib import Path
@@ -72,6 +72,7 @@ class GPUExecutable:
             arguments = tuple(
                 self._storage_argument(value) for value in (*self.inputs, output)
             )
+
             event = self.driver_launcher.launch(self.grid, arguments)
             output.ready_event = event
             return event
@@ -113,27 +114,28 @@ class GPUExecutable:
             )
 
             prepare = getattr(self.driver_launcher, "prepare", None)
+            output_buffer = output._buffer
             if prepare is not None:
                 submit = prepare(self.grid, arguments)
 
                 def launch_prepared():
                     if self.zero_output:
-                        buffer = output._buffer
+                        buffer = output_buffer
                         if getattr(buffer, "_graphforge_torch_buffer", False):
                             buffer.tensor.zero_()
                         else:
-                            buffer.write(bytes(output.nbytes))
+                            buffer.write(bytes(buffer.nbytes))
                     return submit()
 
                 return launch_prepared
 
             def launch():
                 if self.zero_output:
-                    buffer = output._buffer
+                    buffer = output_buffer
                     if getattr(buffer, "_graphforge_torch_buffer", False):
                         buffer.tensor.zero_()
                     else:
-                        buffer.write(bytes(output.nbytes))
+                        buffer.write(bytes(buffer.nbytes))
                 return self.driver_launcher.launch(self.grid, arguments)
 
             return launch
@@ -560,6 +562,8 @@ def _physicalize_storage(
         if expression is None:
             memo[id(value)] = value
             return value
+        if value._spill is not None or (value._expr is not None and value._expr.op == "device_copy"):
+            value.realize()
         if (value is not output and value._buffer is not None
                 and expression.op not in {"reshape", "permute", "broadcast"}):
             # Keep the semantic/autograd DAG intact, but bind any explicitly
@@ -638,7 +642,7 @@ def _physicalize_storage(
         # ABI leaf for its consumer. This also makes the dependency boundary
         # available to bundle/pipeline planning.
         if value is not output and expression.op in {
-            "sum", "segment_sum", "csr_segment_product",
+            "sum", "segment_sum", "csr_segment_sum", "csr_segment_product",
             "csr_segment_product_vjp",
         }:
             was_materialized = value._buffer is not None
@@ -659,8 +663,10 @@ def _physicalize_storage(
             memo[id(value)] = rewritten
             return rewritten
         if value is output and expression.op in {
-            "csr_segment_product", "csr_segment_product_vjp",
-        }:
+            "csr_segment_product", "csr_segment_product_vjp", "csr_segment_sum",
+        } and (expression.op != "csr_segment_sum" or (
+            value.dtype.name == "float32" and len(value.shape) in (1, 2)
+            and int(expression.attr("degree_max")) > 0)):
             # Product reductions have a dedicated row-tiled TTIR skeleton.
             # Make arbitrary message/cotangent producers explicit ABI leaves;
             # topology leaves remain untouched and no operation-specific
@@ -823,8 +829,9 @@ def _physicalize_storage(
             )
             memo[id(value)] = rewritten
             return rewritten
-        if expression.op == "gather":
-            # A gather performs an arbitrary cross-lane read. Its source and
+        if expression.op in {"gather", "scatter_rows"}:
+            # Indexed placement/gather performs an arbitrary cross-lane read.
+            # Its source and
             # index therefore have to be physical ABI inputs; a pointwise
             # producer cannot be substituted into the current lane. This
             # generic barrier also covers VJPs that gather from a previously
@@ -1141,7 +1148,8 @@ def compile_tensor(
         if uses_torch_storage:
             from ..interop.torch.provider import current_cuda_stream
 
-            stream_provider = lambda: current_cuda_stream(output.device)
+            stream_device = output.device
+            stream_provider = lambda: current_cuda_stream(stream_device)
         started = time.perf_counter_ns()
         rows, inner = inputs[0].shape
         columns = inputs[1].shape[1]
@@ -1163,7 +1171,7 @@ def compile_tensor(
             provider, uses_torch_storage, materialize_ms, saved_bytes,
             saved_compile_ms, checkpoint_plan,
         )
-        _LIBRARY_EXECUTABLES[key] = executable
+        _LIBRARY_EXECUTABLES[key] = replace(executable, inputs=())
         return executable
 
     # Provider identity includes vendor backend, architecture, warp size and
@@ -1218,7 +1226,8 @@ def compile_tensor(
     if uses_torch_storage:
         from ..interop.torch.provider import current_cuda_stream
 
-        stream_provider = lambda: current_cuda_stream(output.device)
+        stream_device = output.device
+        stream_provider = lambda: current_cuda_stream(stream_device)
     result = compile_ttir(
         ttir,
         target=target,
@@ -1262,7 +1271,7 @@ def compile_tensor(
             int(physical_output._expr.attr("num_rows")) * feature_count)
     elif entry in {
         "gf_tensor_segment_sum", "gf_tensor_fused_reduce",
-        "gf_tensor_csr_product", "gf_tensor_csr_product_vjp",
+        "gf_tensor_csr_product", "gf_tensor_csr_product_vjp", "gf_tensor_csr_sum",
     }:
         launch_extent = physical_output.numel
     elif entry == "gf_tensor_matmul":
@@ -1295,7 +1304,7 @@ def compile_tensor(
         uses_torch_storage,
         entry == "gf_tensor_csr_euclidean_distance_sum_vjp",
     )
-    _EXECUTABLES[key] = executable
+    _EXECUTABLES[key] = replace(executable, inputs=())
     return executable
 
 

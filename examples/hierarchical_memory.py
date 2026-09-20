@@ -1,19 +1,26 @@
-"""Chainable tensor spill: .disk() writes, .cpu() reads — gf owns the files."""
-
-import torch
-
-import tiga as gf
+"""Temporary residency is distinct from persistent value snapshots."""
 
 # --8<-- [start:core]
-values = gf.from_torch(torch.arange(8, dtype=torch.float32))  # (8,)
-values.disk()  # write the payload to the spill store, free the buffer
-back = values.cpu()  # read it back — any later use would reload lazily anyway
+from pathlib import Path
+import tempfile
 
-# Persist across processes: name the spill. Another process attaches it with
-#   gf.from_disk("layer-3-activations")
-values.disk(name="layer-3-activations")
+import tiga as tg
+
+with tempfile.TemporaryDirectory(prefix="tiga-memory-example-") as directory:
+    with tg.execution(memory={"host": "1MiB", "nvme": "1MiB"},
+                      spill_dir=directory) as run:
+        values = tg.tensor([float(i) for i in range(8)], requires_grad=True)
+        loss = (values * values).sum()
+        loss.spill()  # temporary residency; autograd history survives
+        gradients = tg.autograd.grad(loss, values)
+        assert gradients.tolist() == [float(2 * i) for i in range(8)]
+        back = values.cpu()
+        path = Path(directory) / "activations.tiga"
+        tg.save(values, path)  # persistent value snapshot, not an eviction
+        restored = tg.load(path)  # metadata only until first observation
+        assert restored.tolist() == back.tolist()
+        print(run.memory_report())
 # --8<-- [end:core]
 
-# Anonymous spills are deleted when the tensor is collected or the process
-# exits. Named spills live in TIGA_SPILL_DIR or ~/.cache/tiga/spill
-# until you delete them.
+# This example owns its temporary directory. Application snapshots otherwise
+# remain until explicitly removed; tg.load does not restore an autograd graph.

@@ -183,7 +183,7 @@ class Kernel:
     def explain(self) -> str:
         return "\n".join((
             self.last_variant.explain(),
-            f"executable cache: hits={self._cache_hits}, misses={self._cache_misses}",
+            f"variant cache: hits={self._cache_hits}, misses={self._cache_misses}",
         ))
 
     @property
@@ -196,6 +196,12 @@ class Kernel:
 
     @property
     def cache_info(self) -> dict[str, int]:
+        """Kernel variant lookups, including capture before native execution.
+
+        These counters do not measure native compilation. Deferred Tensor
+        results report the actual backend and executable cache lookup in
+        ``Tensor.execution`` after realization.
+        """
         return {
             "hits": self._cache_hits,
             "misses": self._cache_misses,

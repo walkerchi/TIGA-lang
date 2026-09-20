@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import unittest
 
-import tiga as gf
+import tiga as tg
 import torch
 from torch import nn
 
@@ -18,10 +18,10 @@ def _cuda_available() -> bool:
     return torch.cuda.is_available()
 
 
-class EdgeMLP(gf.MessagePassing):
+class EdgeMLP(tg.MessagePassing):
     def __init__(self, module):
         super().__init__()
-        self.mlp = gf.nn.trace(module)
+        self.mlp = tg.nn.trace(module)
 
     def edge(self, src, dst, edge):
         return self.mlp(edge.displacement, src.x)
@@ -33,7 +33,7 @@ def _problem(nodes=128, dim=3, width=8, cutoff=0.35, seed=7, device="cuda"):
         nodes, dim, device=device, generator=generator, requires_grad=True)
     x = torch.randn(
         nodes, width, device=device, generator=generator, requires_grad=True)
-    graph = gf.Graph.radius(positions, cutoff=cutoff)
+    graph = tg.Graph.radius(positions, cutoff=cutoff)
     return graph, positions, x
 
 
@@ -51,10 +51,13 @@ def _eager(graph, positions, x, mlp, out_width):
 
 
 def _assert_grads_close(test_case, fused, eager, rtol=2e-4, atol=1e-5):
-    for name, got, want in zip(
-            ("x", "positions", "W0", "b0", "W1", "b1"), fused, eager):
+    test_case.assertEqual(len(fused), len(eager))
+    names = ["x", "positions"] + [f"parameter[{i}]" for i in range(len(fused) - 2)]
+    for name, got, want in zip(names, fused, eager):
         if want is None:
+            test_case.assertIsNone(got, name)
             continue
+        test_case.assertIsNotNone(got, name)
         test_case.assertTrue(
             torch.allclose(got, want, rtol=rtol, atol=atol),
             f"{name} gradient mismatch: "
@@ -120,10 +123,10 @@ class EdgeNNVjpTest(unittest.TestCase):
     def test_unsupported_udf_still_trains_via_eager(self):
         # edge.distance is outside the tile proof envelope: the call falls
         # back to the eager oracle and autograd still flows.
-        class DistanceNet(gf.MessagePassing):
+        class DistanceNet(tg.MessagePassing):
             def __init__(self, module):
                 super().__init__()
-                self.mlp = gf.nn.trace(module)
+                self.mlp = tg.nn.trace(module)
 
             def edge(self, src, dst, edge):
                 return self.mlp(edge.distance.unsqueeze(-1), src.x)
@@ -134,6 +137,61 @@ class EdgeNNVjpTest(unittest.TestCase):
         out.sum().backward()
         self.assertIsNotNone(x.grad)
         self.assertTrue(torch.isfinite(x.grad).all())
+
+
+class EdgeNNCPUGradientTest(unittest.TestCase):
+    def test_inputs_edge_fields_and_parameters_match_torch_and_finite_difference(self):
+        """Fixed CSR avoids differentiating a discrete neighbor selection."""
+        torch.manual_seed(123)
+        module = nn.Sequential(nn.Linear(3, 4), nn.Tanh(), nn.Linear(4, 2)).double()
+
+        class Program(tg.MessagePassing):
+            reducer = tg.sum()
+
+            def __init__(self):
+                super().__init__()
+                self.net = tg.nn.trace(module)
+
+            def edge(self, src, dst, edge):
+                return self.net(src.x, edge.attr)
+
+        rows = torch.tensor([0, 2, 3, 3], dtype=torch.int64)
+        cols = torch.tensor([0, 1, 1], dtype=torch.int64)
+        graph = tg.Graph.from_csr(rows, cols, num_src=2)
+        x = torch.randn(2, 2, dtype=torch.float64, requires_grad=True)
+        attr = torch.randn(3, 1, dtype=torch.float64, requires_grad=True)
+        program = Program()
+
+        def forward(x, attr):
+            return program(graph=graph, src={"x": x}, dst={}, edge={"attr": attr})
+
+        output = forward(x, attr)
+        destination = torch.tensor([0, 0, 1])
+        reference = torch.zeros(3, 2, dtype=torch.float64).index_add(
+            0, destination, module(torch.cat([x[cols], attr], dim=-1)))
+        torch.testing.assert_close(output, reference, rtol=1e-10, atol=1e-10)
+        cotangent = torch.randn_like(output)
+        inputs = (x, attr, *module.parameters())
+        actual = torch.autograd.grad((output * cotangent).sum(), inputs)
+        expected = torch.autograd.grad((reference * cotangent).sum(), inputs)
+        self.assertEqual(len(actual), len(expected))
+        for got, want in zip(actual, expected):
+            torch.testing.assert_close(got, want, rtol=1e-9, atol=1e-10)
+        self.assertTrue(torch.autograd.gradcheck(forward, (x, attr)))
+        # Check a weight derivative independently of either autograd graph.
+        parameter = next(module.parameters())
+        original = parameter[0, 0].item()
+        epsilon = 1e-6
+        try:
+            with torch.no_grad():
+                parameter[0, 0] = original + epsilon
+                plus = (forward(x, attr) * cotangent).sum().item()
+                parameter[0, 0] = original - epsilon
+                minus = (forward(x, attr) * cotangent).sum().item()
+        finally:
+            with torch.no_grad():
+                parameter[0, 0] = original
+        self.assertAlmostEqual(actual[2][0, 0].item(), (plus - minus) / (2 * epsilon), places=7)
 
 
 if __name__ == "__main__":

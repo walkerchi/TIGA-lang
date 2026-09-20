@@ -18,7 +18,7 @@ from pathlib import Path
 
 import torch
 
-import tiga as gf
+import tiga as tg
 from benchmarks.common.hardware_roofline import measure_roofs, samples_ms
 from benchmarks.common.output_layout import artifact_path
 from benchmarks.common.perf_protocol import evaluate_sota_gates
@@ -56,8 +56,8 @@ if triton is not None:
         tl.store(out1 + row, tl.sum(value * b, axis=1), mask=row < rows)
 
 
-class WeightedAggregation(gf.MessagePassing):
-    reducer = gf.sum()
+class WeightedAggregation(tg.MessagePassing):
+    reducer = tg.sum()
 
     def edge(self, src, dst, edge):
         return src.x * edge.weight
@@ -181,7 +181,7 @@ def main():
     x = torch.randn(nodes, device=device)
     w0 = torch.randn(edges, device=device)
     w1 = torch.randn(edges, device=device)
-    graph = gf.Graph.from_csr(row, col, num_src=nodes, validate="basic")
+    graph = tg.Graph.from_csr(row, col, num_src=nodes, validate="basic")
     leaf = WeightedAggregation()
     compiler_plan, compile_ms, kernel_ir, ttir = compile_fused(
         domain_program(nodes, degree, args.index_dtype), row, col, nodes)

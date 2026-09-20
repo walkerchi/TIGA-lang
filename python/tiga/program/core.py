@@ -597,8 +597,8 @@ def active_program() -> GraphProgram | None:
 def capture_boundary(function):
     """Activate a fresh GraphProgram context for the duration of one call.
 
-    This is the shared capture boundary behind ``@gf.program`` (kept as a
-    compatibility entry point) and the automatic capture in ``@gf.jit``.
+    This is the shared capture boundary behind ``@tg.program`` (kept as a
+    compatibility entry point) and the automatic capture in ``@tg.jit``.
     Stacking the two is legal and idempotent: an already-active program is
     reused instead of replaced. When the call registers no kernel leaves the
     boundary is a no-op and the result passes through unchanged; when the
@@ -640,11 +640,11 @@ def capture_boundary(function):
 
 
 def program(function):
-    """Compatibility capture boundary; ``@gf.jit`` now captures automatically.
+    """Compatibility capture boundary; ``@tg.jit`` now captures automatically.
 
     Straight-line code that cannot offer source access (or simply predates
-    the unified entry point) can still use ``@gf.program`` to activate the
-    program context without AST rewriting. New code should use ``@gf.jit``.
+    the unified entry point) can still use ``@tg.program`` to activate the
+    program context without AST rewriting. New code should use ``@tg.jit``.
     """
     return capture_boundary(function)
 

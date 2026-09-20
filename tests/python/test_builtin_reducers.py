@@ -2,19 +2,19 @@ from __future__ import annotations
 
 import unittest
 
-import tiga as gf
+import tiga as tg
 
 
-class MeanAggregation(gf.MessagePassing):
-    reducer = gf.mean()
+class MeanAggregation(tg.MessagePassing):
+    reducer = tg.mean()
 
     def edge(self, src, dst, edge):
         del dst, edge
         return self.reducer(src.x)
 
 
-class ProductAggregation(gf.MessagePassing):
-    reducer = gf.prod()
+class ProductAggregation(tg.MessagePassing):
+    reducer = tg.prod()
 
     def edge(self, src, dst, edge):
         del dst, edge
@@ -23,50 +23,50 @@ class ProductAggregation(gf.MessagePassing):
 
 class BuiltinReducerNativeTest(unittest.TestCase):
     def setUp(self):
-        self.graph = gf.Graph.from_csr(
-            gf.tensor([0, 2, 3, 5], dtype=gf.int64),
-            gf.tensor([0, 2, 1, 0, 1], dtype=gf.int64),
+        self.graph = tg.Graph.from_csr(
+            tg.tensor([0, 2, 3, 5], dtype=tg.int64),
+            tg.tensor([0, 2, 1, 0, 1], dtype=tg.int64),
             num_src=3,
             validate="full",
         )
 
     def test_builtin_mean_forward_and_vjp(self):
-        x = gf.tensor([1.0, 2.0, 4.0], requires_grad=True)
+        x = tg.tensor([1.0, 2.0, 4.0], requires_grad=True)
         kernel = MeanAggregation()
 
         output = kernel(graph=self.graph, src={"x": x}, dst={})
-        dx = gf.autograd.grad(output.sum(), x)
+        dx = tg.autograd.grad(output.sum(), x)
 
         self.assertEqual(output.tolist(), [2.5, 2.0, 1.5])
         self.assertEqual(dx.tolist(), [1.0, 1.5, 0.5])
         self.assertIn("proved-componentwise-additive-udf", kernel.explain())
 
     def test_builtin_prod_forward_and_vjp(self):
-        graph = gf.Graph.from_csr(
-            gf.tensor([0, 2, 2, 5], dtype=gf.int64),
-            gf.tensor([0, 1, 0, 1, 2], dtype=gf.int64),
+        graph = tg.Graph.from_csr(
+            tg.tensor([0, 2, 2, 5], dtype=tg.int64),
+            tg.tensor([0, 1, 0, 1, 2], dtype=tg.int64),
             num_src=3,
             validate="full",
         )
-        x = gf.tensor([2.0, 3.0, 5.0], requires_grad=True)
+        x = tg.tensor([2.0, 3.0, 5.0], requires_grad=True)
         kernel = ProductAggregation()
 
         output = kernel(graph=graph, src={"x": x}, dst={})
-        dx = gf.autograd.grad(output.sum(), x)
+        dx = tg.autograd.grad(output.sum(), x)
 
         self.assertEqual(output.tolist(), [6.0, 1.0, 30.0])
         self.assertEqual(dx.tolist(), [18.0, 12.0, 6.0])
         self.assertIn("proved-product-monoid", kernel.explain())
 
     def test_builtin_mean_degree_zero_row_is_nan(self):
-        graph = gf.Graph.from_csr(
-            gf.tensor([0, 2, 2, 4], dtype=gf.int64),
-            gf.tensor([0, 2, 0, 1], dtype=gf.int64),
+        graph = tg.Graph.from_csr(
+            tg.tensor([0, 2, 2, 4], dtype=tg.int64),
+            tg.tensor([0, 2, 0, 1], dtype=tg.int64),
             num_src=3,
             validate="full",
         )
         output = MeanAggregation()(
-            graph=graph, src={"x": gf.tensor([2.0, 4.0, 8.0])}, dst={})
+            graph=graph, src={"x": tg.tensor([2.0, 4.0, 8.0])}, dst={})
         values = output.tolist()
         self.assertEqual(values[0], 5.0)
         self.assertTrue(values[1] != values[1])
@@ -87,7 +87,7 @@ class BuiltinReducerTorchTest(unittest.TestCase):
         import torch
 
         self.torch = torch
-        self.graph = gf.Graph.from_csr(
+        self.graph = tg.Graph.from_csr(
             torch.tensor([0, 2, 3, 5]),
             torch.tensor([0, 2, 1, 0, 1]),
             num_src=3,
@@ -106,7 +106,7 @@ class BuiltinReducerTorchTest(unittest.TestCase):
 
     def test_torch_prod_matches_native(self):
         torch = self.torch
-        graph = gf.Graph.from_csr(
+        graph = tg.Graph.from_csr(
             torch.tensor([0, 2, 2, 5]),
             torch.tensor([0, 1, 0, 1, 2]),
             num_src=3,
@@ -135,7 +135,7 @@ class BuiltinReducerTorchTest(unittest.TestCase):
 
     def test_torch_empty_row_semantics(self):
         torch = self.torch
-        graph = gf.Graph.from_csr(
+        graph = tg.Graph.from_csr(
             torch.tensor([0, 2, 2, 4]),
             torch.tensor([0, 2, 0, 1]),
             num_src=3,

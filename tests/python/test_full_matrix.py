@@ -107,7 +107,7 @@ class FullMatrixTest(unittest.TestCase):
 
             zh = zh_path.read_text(encoding="utf-8")
             self.assertIn("### weighted_sum { #matrix-weighted_sum }", zh)
-            self.assertIn("| 用例 | 分桶 |", zh)
+            self.assertIn("| 存档用例 | 测试条件 |", zh)
             self.assertIn("加速比", zh)
             self.assertIn("通过", zh)
             self.assertIn("4.21×", zh)

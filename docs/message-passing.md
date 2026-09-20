@@ -1,18 +1,18 @@
 # Message passing
 
-`gf.MessagePassing` is the main way to write a graph program: declare what
-travels along each edge and how messages combine; the compiler generates the
-relation traversal, the parallel schedule and the reverse-mode VJP.
-
-![MessagePassing data flow: fields are gathered per edge, transformed by the edge UDF, combined by the reducer, finalized by the node UDF; the VJP is compiler-generated](assets/message-passing-flow.svg)
+Prerequisite: [Programming model](programming-model.md). This is the public
+interface contract: a complete program first, then fields, calls, allowed
+expressions and supported graphs. See [execution and troubleshooting](execution.md)
+for failures; optional nn and compiler inspection details come later.
 
 ## A complete program in three pieces
 
 ```python
-import tiga as gf
+import torch
+import tiga as tg
 
-class WeightedSum(gf.MessagePassing):
-    reducer = gf.sum()                       # 1. how messages combine
+class WeightedSum(tg.MessagePassing):
+    reducer = tg.sum()                       # 1. how messages combine
 
     def edge(self, src, dst, edge):          # 2. what each edge sends
         return edge.weight * src.x
@@ -20,21 +20,182 @@ class WeightedSum(gf.MessagePassing):
     def node(self, dst, aggregate):          # 3. optional node update
         return aggregate + dst.bias
 
-x = gf.tensor([1.0, 2.0, 3.0], requires_grad=True)
-weight = gf.tensor([0.5] * num_edges, requires_grad=True)
+graph = tg.Graph.from_csr(
+    torch.tensor([0, 2, 3, 5], dtype=torch.int64),
+    torch.tensor([0, 2, 1, 0, 1], dtype=torch.int64),
+    num_src=3,
+)
+num_edges = 5
+bias = torch.tensor([0.1, 0.2, 0.3])
+x = torch.tensor([1.0, 2.0, 3.0], requires_grad=True)
+weight = torch.tensor([0.5] * num_edges, requires_grad=True)
 out = WeightedSum()(graph=graph, src={"x": x}, dst={"bias": bias},
                     edge={"weight": weight})
-dx, dw = gf.autograd.grad(out.sum(), (x, weight))
+dx, dw = torch.autograd.grad(out.sum(), (x, weight))
+print(out.tolist())  # approximately [2.1, 1.2, 1.8]
+print(dx.tolist())   # [1.0, 1.0, 0.5]
 ```
 
-No backward function is written anywhere — `gf.autograd.grad` uses the
-compiler-generated VJP.
+No handwritten backward is needed. The Torch-facing result participates in
+`torch.autograd.grad` and `.backward()`.
+
+## The subclass contract
+
+- `reducer` — class attribute (default `tg.sum()`), or set it per instance in
+  `__init__`. Supported algebras depend on the execution path; see [Reducers](#reducers).
+- `edge(self, src, dst, edge, **params)` — **required**. Returns the message
+  for one edge.
+- `node(self, dst, aggregate, **params)` — **optional**; default returns the
+  aggregate unchanged.
+
+Extra call-time keyword arguments are forwarded as `params`. If the UDF
+declares `**params` it receives all of them; otherwise only the names present
+in its signature are passed, so `def node(self, dst, aggregate, dt)` picks up
+`dt=...` from the call site.
+
+The positional namespaces `src, dst, edge` are always passed, so the
+signature must accept them — but an unused one is simply never referenced.
+Only the attributes actually read enter the captured IR; there is no need
+to `del` an unused namespace (older revisions of the examples did this as a
+convention, it has no effect on compilation).
+
+## Field namespaces
+
+Edges are directed — each is a `(j→i)` pair — and `src`/`dst` name the two
+endpoint *roles*, not two node sets. Inside `edge`, three staged namespaces
+expose the fields passed at the call:
+
+| Namespace | Per-edge value | Source |
+|---|---|---|
+| `src.<name>` | gathered source field | `src={...}` |
+| `dst.<name>` | expanded destination field | `dst={...}` |
+| `edge.<name>` | edge field | `edge={...}` plus implicit graph fields |
+
+On a homogeneous relation the same node set plays both roles, so one
+`ndata={...}` mapping binds every field to both `src` and `dst` — no double
+declaration:
+
+```python
+kernel(graph=ring, ndata={"u": u}, edge={"conductivity": c}, dt=0.1)
+```
+
+`ndata=` cannot be combined with `src=`/`dst=`, and a bipartite relation
+(`num_src != num_dst`, e.g. attention's query vs key/value nodes) requires
+the explicit `src=`/`dst=` pair — that is exactly the case `ndata` cannot
+name.
+
+Generated relations contribute implicit edge fields — `Graph.radius` and
+`Graph.knn` provide differentiable `edge.displacement` and `edge.distance`.
+Shadowing a graph-provided name in `edge={...}` is an error, not silent
+override.
+
+`node` receives the *ungathered* destination namespace plus the reduced
+`aggregate`.
+
+## Calling and execution
+
+The call is keyword-only. Torch fields produce a `torch.Tensor` of shape
+`(num_dst, *feature_shape)`:
+
+```python
+out = kernel(graph=graph, src={...}, dst={...}, edge={...}, dt=0.1)
+```
+
+- Native path: field values must be `tg.Tensor` with leading dimension
+  `num_src` / `num_dst` / `num_edges` respectively, on the graph's device.
+- Default path: use `torch.Tensor` fields directly. The adapter handles internal
+  bindings; no public `from_torch` / `to_torch` conversion is needed.
+- An all-native call returns a native `tg.Tensor`; this is an advanced interface.
+- Native calls capture deferred expressions. Observation triggers execution;
+  `auto` may use `python-oracle` for small expressions, while
+  `TIGA_TENSOR_BACKEND=native` requires native compilation. Inspect
+  `out.execution` after realization. `kernel.cache_info` counts capture
+  variants, not native compilations.
+
+## Reducers
+
+A reducer is captured algebra, not a string like `"sum"` — the full contract,
+built-in signatures and the lowering ladder live in the
+[reducers guide](reducers.md). Distinguish the rule from the message:
+`reducer = tg.sum()` declares the aggregation rule, while `edge()` returns
+each edge's message. Ordinary sum/mean/prod need no additional reducer call.
+
+The current online-softmax interface below takes two inputs, `score` and `value`.
+`self.reducer(score, value)` packages those inputs as a staged item; **it does
+not aggregate inside one edge**. Aggregation still combines incoming edges.
+This multi-input interface currently requires the explicit binding, not a raw
+`return score, value` tuple.
+
+```python
+class Attention(tg.MessagePassing):
+    reducer = tg.online_softmax()
+
+    def edge(self, src, dst, edge, scale):
+        score = (src.key * dst.query).sum(dim=-1) * scale
+        return self.reducer(score, src.value)   # online-softmax item
+```
+
+User reducers subclass `tg.Reducer` and may carry tuple state — a mean is
+`(sum, count)`, see the runnable
+[custom reducer](examples/message-passing.md#user-defined-reducer).
+
+## What UDF code may contain
+
+UDFs build a lazy Tensor expression DAG, not arbitrary Python. Supported:
+broadcasting arithmetic with tensors and scalars, unary `-`, `exp`, `sqrt`,
+`conj`, `matmul`/`@`, comparisons, `reshape`/`permute`/`transpose`,
+`unsqueeze`/`squeeze`, `broadcast_to`, `.sum(dim=...)`, `gather`, `cumsum`.
+Rejected, failing closed:
+
+- Python truthiness on a tensor (`if tensor:`) raises `TypeError`;
+- with `tg.sum()`, `edge` must return exactly one staged Tensor expression;
+- multi-message returns require a custom reducer and share one trailing
+  feature shape.
+
+MessagePassing UDFs are never AST-transformed — [`@tg.jit` control
+flow](api.md#control) applies around kernels, not inside them.
+
+## Autograd and checkpoints
+
+Default Torch inputs use `torch.autograd.grad` or `.backward()`, as in the
+complete example above. The following `tg.autograd` and checkpoint policies
+are advanced native-Tensor interfaces; they do not accept Torch tensors.
+
+```text
+tg.autograd.grad(output, inputs, *, grad_output=None,
+                 allow_unused=False, checkpoint="auto")
+```
+
+Any `src`/`dst`/`edge` field with `requires_grad=True` is differentiable
+(float/complex dtypes), as are the implicit `distance`/`displacement` fields
+of a radius relation — position gradients flow through generated geometry.
+`checkpoint="save"` inserts explicit `Tensor.checkpoint()` saves in the VJP,
+`"recompute"` fuses the primal into the backward, and `"auto"` leaves the
+budget decision to the compiler.
+
+## Which graphs a kernel can consume
+
+Every `Graph` constructor works with the same `MessagePassing` call; what
+differs is which execution paths can serve it:
+
+| Constructor | Torch-tensor call | Compiled CUDA specialization | Native `tg.Tensor` + generated VJP |
+|---|---|---|---|
+| `Graph.from_csr` / `from_coo` | ✓ eager oracle | weighted-sum, edge-nn tile, nn-attention kernels | ✓ |
+| `Graph.radius` | ✓ eager oracle | generated radius kernel, edge-nn tiles | ✓, including position VJP |
+| `Graph.knn` | ✓ eager oracle | fixed-degree weighted-sum kernel | — |
+| `Graph.dense` / `triangular` | ✓ eager oracle | dense streaming attention kernels | — |
+| `graph.halo(...)` | — | — | distributed rank-local execution |
+
+The Torch adapter provides an eager reference for its supported semantics;
+that is not a universal native fallback. Unsupported native relations or
+lowerings can raise an error. Gradients also have a narrower support envelope
+than forward evaluation. See the [per-path support matrix](roadmap.md).
 
 ## Usage patterns
 
 Every supported way to drive `MessagePassing`, each with its semantics as a
-formula and a runnable example. Notation: $e = (j \to i)$ is one edge,
-$m_e$ its message, and the result is per destination node $i$.
+formula and a runnable example. Notation: `e = (j → i)` is one edge,
+`m_e` its message, and the result is per destination node `i`.
 
 **Scalar message sum.** [message_passing_autograd.py](examples/message-passing.md#differentiable-messagepassing-udf).
 
@@ -54,7 +215,7 @@ $$
 m_{ji} = u_j - u_i
 $$
 
-**Per-edge data.** $c$ lives on the relation itself; [message_passing_autograd.py](examples/message-passing.md#differentiable-messagepassing-udf).
+**Per-edge data.** `c` lives on the relation itself; [message_passing_autograd.py](examples/message-passing.md#differentiable-messagepassing-udf).
 
 $$
 m_e = c_e\, T_j
@@ -126,127 +287,21 @@ $$
 \mathbf{x}^{(t+1)} = \mathbf{x}^{(t)} + \omega\,(\mathbf{b} - A \mathbf{x}^{(t)})
 $$
 
-**Distributed halo exchange.** $\text{out}^{(r)}_i$ computed rank-locally over a partitioned relation; [distributed_halo.py](examples/distributed-memory.md#two-process-halo-exchange).
-
-## The subclass contract
-
-- `reducer` — class attribute (default `gf.sum()`), or set it per instance in
-  `__init__`. Any `gf.Reducer` works; see [Reducers](#reducers).
-- `edge(self, src, dst, edge, **params)` — **required**. Returns the message
-  for one edge.
-- `node(self, dst, aggregate, **params)` — **optional**; default returns the
-  aggregate unchanged.
-
-Extra call-time keyword arguments are forwarded as `params`. If the UDF
-declares `**params` it receives all of them; otherwise only the names present
-in its signature are passed, so `def node(self, dst, aggregate, dt)` picks up
-`dt=...` from the call site.
-
-The positional namespaces `src, dst, edge` are always passed, so the
-signature must accept them — but an unused one is simply never referenced.
-Only the attributes actually read enter the captured IR; there is no need
-to `del` an unused namespace (older revisions of the examples did this as a
-convention, it has no effect on compilation).
-
-## Field namespaces
-
-Edges are directed — each is a `(j→i)` pair — and `src`/`dst` name the two
-endpoint *roles*, not two node sets. Inside `edge`, three staged namespaces
-expose the fields passed at the call:
-
-| Namespace | Per-edge value | Source |
-|---|---|---|
-| `src.<name>` | gathered source field | `src={...}` |
-| `dst.<name>` | expanded destination field | `dst={...}` |
-| `edge.<name>` | edge field | `edge={...}` plus implicit graph fields |
-
-On a homogeneous relation the same node set plays both roles, so one
-`ndata={...}` mapping binds every field to both `src` and `dst` — no double
-declaration:
-
-```python
-kernel(graph=ring, ndata={"u": u}, edge={"conductivity": c}, dt=0.1)
-```
-
-`ndata=` cannot be combined with `src=`/`dst=`, and a bipartite relation
-(`num_src != num_dst`, e.g. attention's query vs key/value nodes) requires
-the explicit `src=`/`dst=` pair — that is exactly the case `ndata` cannot
-name.
-
-Generated relations contribute implicit edge fields — `Graph.radius` and
-`Graph.knn` provide differentiable `edge.displacement` and `edge.distance`.
-Shadowing a graph-provided name in `edge={...}` is an error, not silent
-override.
-
-`node` receives the *ungathered* destination namespace plus the reduced
-`aggregate`.
-
-## Calling and execution
-
-The call is keyword-only and returns one `gf.Tensor` of shape
-`(num_dst, *feature_shape)`:
-
-```python
-out = kernel(graph=graph, src={...}, dst={...}, edge={...}, dt=0.1)
-```
-
-- Native path: field values must be `gf.Tensor` with leading dimension
-  `num_src` / `num_dst` / `num_edges` respectively, on the graph's device.
-- If any value is a Torch tensor, the call routes to the optional Torch
-  interop adapter (zero-copy `from_torch` adaptation).
-- The first call captures, specializes, lowers and caches; later calls with
-  the same structure reuse the compiled variant. There is no separate compile
-  step.
-
-## Reducers
-
-A reducer is captured algebra, not a string like `"sum"` — the full contract,
-built-in signatures and the lowering ladder live in the
-[reducers guide](reducers.md). The one thing this page needs: streaming
-reducers are *called inside `edge`* and return a staged item.
-
-```python
-class Attention(gf.MessagePassing):
-    reducer = gf.online_softmax()
-
-    def edge(self, src, dst, edge, scale):
-        score = (src.key * dst.query).sum(dim=-1) * scale
-        return self.reducer(score, src.value)   # online-softmax item
-```
-
-User reducers subclass `gf.Reducer` and may carry tuple state — a mean is
-`(sum, count)`, see the runnable
-[custom reducer](examples/message-passing.md#user-defined-reducer).
-
-## What UDF code may contain
-
-UDFs build a lazy Tensor expression DAG, not arbitrary Python. Supported:
-broadcasting arithmetic with tensors and scalars, unary `-`, `exp`, `sqrt`,
-`conj`, `matmul`/`@`, comparisons, `reshape`/`permute`/`transpose`,
-`unsqueeze`/`squeeze`, `broadcast_to`, `.sum(dim=...)`, `gather`, `cumsum`.
-Rejected, failing closed:
-
-- Python truthiness on a tensor (`if tensor:`) raises `TypeError`;
-- with `gf.sum()`, `edge` must return exactly one `gf.Tensor`;
-- multi-message returns require a custom reducer and share one trailing
-  feature shape.
-
-MessagePassing UDFs are never AST-transformed — [`@gf.jit` control
-flow](api.md#control) applies around kernels, not inside them.
+**Distributed halo exchange.** `out_rank[i]` computed rank-locally over a partitioned relation; [distributed_halo.py](examples/distributed-memory.md#two-process-halo-exchange).
 
 ## Edge nn modules (CUDA, torch interop)
 
-`gf.nn.trace` wraps a `torch.nn` module so it can be called inside `edge()`.
+`tg.nn.trace` wraps a `torch.nn` module so it can be called inside `edge()`.
 One source drives two paths: eager execution concatenates the arguments and
 calls the module; the compiler proves the chain structure and emits one
 fused tile kernel in which the message never leaves the tile — no O(E)
 message tensor is materialized anywhere.
 
 ```python
-class EdgeMLP(gf.MessagePassing):
+class EdgeMLP(tg.MessagePassing):
     def __init__(self, mlp):
         super().__init__()
-        self.mlp = gf.nn.trace(mlp)          # nn.Sequential(Linear, ReLU, Linear)
+        self.mlp = tg.nn.trace(mlp)          # nn.Sequential(Linear, ReLU, Linear)
 
     def edge(self, src, dst, edge):
         # message_e = MLP([pos_src − pos_dst ‖ x_src]); out = Σ_e message_e
@@ -266,9 +321,9 @@ oracle, results unchanged:
 | Scalar arithmetic | constants anywhere in the chain — `x * c`, `x + c`, `c - x`, `x / c`, `c / x`, `x ** p`, `-x` — for temperature scaling and affine shifts |
 | `nn.LayerNorm(width)` | normalizes each edge's message vector over its own feature axis (edge-local by construction), with symbolic gradients for `weight`/`bias`; `elementwise_affine=False` works too; `nn.Identity` is skipped |
 | Inputs | per-edge field gathers (`src`/`dst`/`edge` fields, plus implicit `displacement`); fields and weights are float32 |
-| Reducers that fuse | `gf.sum()` → edge-centric tile (this section); `gf.online_softmax()` → GAT-style attention where the nn produces a scalar score per edge and `value` is a field gather, compiled to a row-centric online-softmax tile kernel, forward and fused backward ([example](examples/attention.md#gat-edge-attention-with-an-nn-score)) |
-| Launch geometry | a tuning knob, not semantics: `gf.nn.trace(mlp, block_e=256, num_warps=8)` sets the tile size (power of two, 16–1024). Defaults are per-lowering: 128/4 for sum tiles — the sweet spot of a sweep on the 4M-edge radius workload (2.9 ms fwd+bwd vs 3.3 ms at 64 and 3.5 ms at 256) — and 16/1 for attention tiles, where small chunks waste fewer lanes at typical attention degrees |
-| Unsupported structure | rejected at `gf.nn.trace` time with `NotImplementedError`: `BatchNorm` (statistics are taken across the edge batch — inherently cross-edge), dropout (stochastic state the recompute VJP cannot replay), branches/residuals (outside the proven linear-chain structure); calls outside the runtime envelope (reducer, dtypes, devices) fall back to the exact eager oracle |
+| Reducers that fuse | `tg.sum()` → edge-centric tile (this section); `tg.online_softmax()` → GAT-style attention where the nn produces a scalar score per edge and `value` is a field gather, compiled to a row-centric online-softmax tile kernel, forward and fused backward ([example](examples/attention.md#gat-edge-attention-with-an-nn-score)) |
+| Launch geometry | a tuning knob, not semantics: `tg.nn.trace(mlp, block_e=256, num_warps=8)` sets the tile size (power of two, 16–1024). Defaults are per-lowering: 128/4 for sum tiles — the sweet spot of a sweep on the 4M-edge radius workload (2.9 ms fwd+bwd vs 3.3 ms at 64 and 3.5 ms at 256) — and 16/1 for attention tiles, where small chunks waste fewer lanes at typical attention degrees |
+| Unsupported structure | rejected at `tg.nn.trace` time with `NotImplementedError`: `BatchNorm` (statistics are taken across the edge batch — inherently cross-edge), dropout (stochastic state the recompute VJP cannot replay), branches/residuals (outside the proven linear-chain structure); calls outside the runtime envelope (reducer, dtypes, devices) fall back to the exact eager oracle |
 | Training | fused too: a grad-mode call runs the same tile forward under an autograd bridge whose backward is a symbolic-VJP recompute tile kernel — per-edge activations are replayed inside the tile, so no `[E, ·]` tensor exists in either direction. Gradients flow to fields, positions and all module weights |
 | Emission backend | the TTIR is produced by the Python emission backend (phase 1 forward, phase 2 VJP); a later phase moves the emitter into the C++ `gf-kernel-to-ttir` translation |
 
@@ -294,37 +349,6 @@ activation memory. The training step
 faster than eager Torch autograd with **18×** lower peak memory (65 MiB vs
 1.2 GiB).
 
-## Autograd and checkpoints
-
-```python
-gf.autograd.grad(output, inputs, *, grad_output=None,
-                 allow_unused=False, checkpoint="auto")
-```
-
-Any `src`/`dst`/`edge` field with `requires_grad=True` is differentiable
-(float/complex dtypes), as are the implicit `distance`/`displacement` fields
-of a radius relation — position gradients flow through generated geometry.
-`checkpoint="save"` inserts explicit `Tensor.checkpoint()` saves in the VJP,
-`"recompute"` fuses the primal into the backward, and `"auto"` leaves the
-budget decision to the compiler.
-
-## Which graphs a kernel can consume
-
-Every `Graph` constructor works with the same `MessagePassing` call; what
-differs is which execution paths can serve it:
-
-| Constructor | Torch-tensor call | Compiled CUDA specialization | Native `gf.Tensor` + generated VJP |
-|---|---|---|---|
-| `Graph.from_csr` / `from_coo` | ✓ eager oracle | weighted-sum, edge-nn tile, nn-attention kernels | ✓ |
-| `Graph.radius` | ✓ eager oracle | generated radius kernel, edge-nn tiles | ✓, including position VJP |
-| `Graph.knn` | ✓ eager oracle | fixed-degree weighted-sum kernel | — |
-| `Graph.dense` / `triangular` | ✓ eager oracle | dense streaming attention kernels | — |
-| `graph.halo(...)` | — | — | distributed rank-local execution |
-
-The eager oracle is always available and defines the semantics; compiled
-specializations must match it exactly. A call no specialization can serve
-still runs — through the oracle, with correct results and autograd.
-
 ## Inspecting the compilation
 
 Every kernel instance doubles as an inspection handle:
@@ -339,8 +363,8 @@ print(kernel.explain())
 # lowering: (unspecified)
 # passes: validate-domain, select-reference-csr
 # remark: [planning] reference evaluator selected; no performance codegen artifact exists
-# remark: [planning] cross-apply fusion is handled by the @gf.jit/@gf.program capture boundary rather than ...
-# executable cache: hits=0, misses=1
+# remark: [planning] cross-apply fusion is handled by the @tg.jit/@tg.program capture boundary rather than ...
+# variant cache: hits=0, misses=1
 ```
 
 A call served by a compiled CUDA specialization reports its real lowering

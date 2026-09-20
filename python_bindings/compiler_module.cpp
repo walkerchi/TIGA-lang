@@ -1590,7 +1590,8 @@ static PyObject *domainIR(PyObject *, PyObject *descriptor) {
     PyOwned cutoffObject(attribute(graph.value, "cutoff"));
     PyOwned dimensionsObject(attribute(graph.value, "dimensions"));
     PyOwned periodicObject(attribute(graph.value, "periodic"));
-    if (!cutoffObject || !dimensionsObject || !periodicObject) return nullptr;
+    PyOwned hashGridObject(attribute(graph.value, "hash_grid"));
+    if (!cutoffObject || !dimensionsObject || !periodicObject || !hashGridObject) return nullptr;
     double cutoff = PyFloat_AsDouble(cutoffObject.value);
     FailureOr<int64_t> dimensions = integer(dimensionsObject.value);
     if (PyErr_Occurred() || failed(dimensions)) return nullptr;
@@ -1603,6 +1604,8 @@ static PyObject *domainIR(PyObject *, PyObject *descriptor) {
                                builder.getI64IntegerAttr(*dimensions));
     relationState.addAttribute(
         "periodic", builder.getBoolAttr(PyObject_IsTrue(periodicObject.value)));
+    relationState.addAttribute(
+        "hash_grid", builder.getBoolAttr(PyObject_IsTrue(hashGridObject.value)));
     relationState.addAttribute("num_entities",
                                builder.getI64IntegerAttr(*numDst));
     relationState.addAttribute("version", builder.getI64IntegerAttr(0));

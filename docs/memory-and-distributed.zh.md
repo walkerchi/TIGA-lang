@@ -1,78 +1,42 @@
 # 内存层级与分布式执行 { #memory-hierarchy-and-distributed-execution }
 
-这些是编译器维度，而不是另一套用户 API。同一个 `MessagePassing`
-程序必须在关系驻留于单块 GPU、从 [NVMe](https://en.wikipedia.org/wiki/NVM_Express)
-流式读取、或跨 rank 分区时都保持有效。
+普通程序使用[内存与存储](memory.zh.md)入口；本页介绍编译器侧的 [memory hierarchy](https://en.wikipedia.org/wiki/Memory_hierarchy) 与分布式执行机制。
 
-!!! note "当前状态"
+!!! note "当前边界"
 
-    单机带容量记账的 RAM/pinned/[HBM](https://en.wikipedia.org/wiki/High_Bandwidth_Memory)/NVMe
-    执行已实现，包括编译器规划的 transfer/release 和原生异步
-    [DMA](https://en.wikipedia.org/wiki/Direct_memory_access)。带类型的
-    owned/ghost/halo task、分页 `.gfg` 分片，以及真实双进程
-    [MPI](https://en.wikipedia.org/wiki/Message_Passing_Interface) 前向/VJP
-    路径均已可执行。CPU 通信/内部计算重叠已有受控链路基准；
-    [CUDA](https://en.wikipedia.org/wiki/CUDA) 已有原生缓冲区绑定和经过验证的
-    stream 依赖排序。单 rank 的 NCCL 测试只证明了 provider 绑定，尚未证明对等通信。
-    真实 2 卡以上 GPU 的 NCCL/RCCL 正确性、profiler 重叠与性能仍是未关闭的门禁。
+    原生 Tensor 的 [LRU 换出](memory.zh.md#automatic-eviction)、编译器物理实例与图分页分别管理 ownership 和预算。CUDA 分页支持 FP32 前向，使用 host staging 和驻留输出；分页 backward 仅支持 CPU。分布式 TCP/NCCL 支持前向/VJP，先通信再计算。完整覆盖范围见[支持矩阵](roadmap.zh.md#feature-support)，工作负载结果见[性能测量](experiments.zh.md)。
 
 ## 内存层级 { #memory-hierarchy }
 
-Tiga 将**逻辑值**与其**物理实例**分离。版本 7 的 `state`
-字段可能同时以 HBM 缓冲区、pinned 暂存缓冲区和 NVMe 换出页的形式存在；
-runtime 负责跟踪哪些实例存活、哪一份最新。
+一个逻辑值可以有多个显式管理的物理实例。`HierarchyRuntime` 跟踪逻辑名、版本、容量和完成状态，不会自动把所有公开 Tensor 转成这些实例。
 
-![内存层级阶梯：register、shared、device、host-pinned、RAM、NVMe 与 remote 各层及其管理者与传输机制](assets/memory-hierarchy-ladder.svg)
+![内存层级与各层管理者](assets/memory-hierarchy-ladder.svg)
 
-阶梯上有三种管理方式：
-
-- **kernel 管理**（`register`、`shared`）——永远不可分配，由生成的
-  kernel 代码持有；
-- **runtime 可分配**（`device`、`host-pinned`、`ram`、`nvme`）——通过
-  `HierarchyRuntime.allocate` 创建，通过
-  `HierarchyRuntime.transfer` 传输；
-- **传输管理**（`remote`）——属于其他 rank 的分片，只能通过
-  halo 交换到达（见下一节）。
+Register/shared 存储由生成的 kernel 管理；`device`、`host-pinned`、`ram`、`nvme` 可由 runtime 分配。`remote` 属于 transport，不是本地可分配的 buffer。
 
 ### 容量与版本记账 { #capacity-and-version-accounting }
 
-每个实例创建时都带有显式的字节容量，每一层都有预算。记账规则是硬门禁，
-不是提示：
+实例分配检查所属 runtime 的逐层预算；原生 buffer 与临时 NVMe 实例还参与活跃 `tg.execution` 的记账。这是两种范围的检查，不是同一统计里重复收费；容量不是进程 RSS。
 
-$$
-\text{live}(t) \;=\; \sum_{i\ \text{live on}\ t} \text{capacity}_i \;\le\; \text{budget}(t)
-$$
+Transfer 要求逻辑名、版本和容量一致，返回带 `.ready` / `.wait()` 的完成句柄。关闭源实例时先等待未完成的读取；重写目标也先等待其已有读取。`latest(name)` 选择存活实例中的最高版本，同版本副本没有隐含的层级优先顺序。
 
-超出预算会抛出 `MemoryError`——**换出（spill）是显式的跨层
-transfer，绝不是运行时偷偷做的决定**。两条契约保证实例一致性：
-
-- 一次 `transfer(source, destination)` 要求相同的逻辑名、相同的
-  `version` 和相同的字节大小，并在启动前等待双方各自的挂起工作
-  （WAW 顺序）；
-- `runtime.latest("state")` 解析出存活实例中版本最高的那一份，
-  编译器计划永远不必猜测哪份拷贝是当前的。
-
-所有 transfer 都是异步完成（`transfer(...)` 返回带 `.ready` /
-`.wait()` 的句柄）：缓冲区拷贝搭乘带池化事件的 CUDA 或 CPU
-`Stream`，NVMe 页则搭乘 runtime 的文件 I/O 线程池。
-
-用户侧的 `.disk()` 换出和编译器 bundle 计划最终都落到这个 runtime 上。
-直接调用就能写出一次手动的 RAM → NVMe 换出：
+下面是完整 CPU 例子，经 NVMe 搬运八字节并验证往返：
 
 ```python
-nbytes, version = 256 << 20, 7        # a 256 MiB logical tensor "state" at version 7
+import tiga as tg
 
-with gf.runtime.HierarchyRuntime(budgets={"ram": 1 << 30, "nvme": 4 << 30}) as rt:
-    hot = rt.allocate("state", version, tier="ram",  capacity_bytes=nbytes)
-    cold = rt.allocate("state", version, tier="nvme", capacity_bytes=nbytes)
-    rt.transfer(hot, cold).wait()       # async spill; same name + version + size required
-    hot.close()                         # live("ram") drops; latest("state") is now cold
+with tg.runtime.HierarchyRuntime(budgets={"ram": 16, "nvme": 8}) as rt:
+    hot = rt.allocate("state", 7, tier="ram", capacity_bytes=8)
+    hot.buffer.write(b"tiga1234")
+    cold = rt.allocate("state", 7, tier="nvme", capacity_bytes=8)
+    rt.transfer(hot, cold).wait()
+    hot.close()
+    back = rt.allocate("state", 7, tier="ram", capacity_bytes=8)
+    rt.transfer(cold, back).wait()
+    assert back.buffer.read() == b"tiga1234"
 ```
 
-可运行版本（含往返完整性校验）见
-[examples/hierarchical_memory.py](examples/distributed-memory.md#spilling-tensors-to-disk)；
-pinned↔HBM 与 RAM↔NVMe 带宽由
-`python -m benchmarks.memory_hierarchy.transfer --quick` 测量。
+这个 runtime 作用域拥有物理实例，退出时关闭它们；execution 策略作用域则不会使返回的公开 Tensor 失效。RAM↔NVMe 按有界块搬运，设备拷贝使用原生 stream/event 定序。目前不存在为任意程序自动插入完整 spill/reload 决策的编译器调度。
 
 ### 编译器打包计划 { #compiler-bundle-plans }
 
@@ -92,14 +56,14 @@ runtime 之上是编译器的物理计划：`ExecutableBundlePlan` 是一份经�
 只是附加声明式放置——没有数据移动，也不出现 subtype：
 
 ```python
-mesh = gf.DeviceMesh("cuda", (2, 4), names=("rack", "gpu"))
-graph = graph.halo(mesh, partition=gf.ByDestination(mesh_axis="gpu"), depth="auto")
+mesh = tg.DeviceMesh("cuda", (2, 4), names=("rack", "gpu"))
+graph = graph.halo(mesh, partition=tg.ByDestination(mesh_axis="gpu"), depth="auto")
 ```
 
 ### 精确定义：owned 与 ghost { #ownership-and-ghosts-exactly }
 
-设有 $N$ 个目标实体和 $W$ 个 rank，默认的均衡分区把连续的行区间分给
-rank $r$：
+设有 `N` 个目标实体和 `W` 个 rank，默认的均衡分区把连续的行区间分给
+rank `r`：
 
 $$
 \text{owned}_r \;=\; \big[\, r\big\lfloor \tfrac{N}{W} \big\rfloor + \min(r,\; N \bmod W),
@@ -116,30 +80,24 @@ $$
 `.gfg` 存储，每个 rank 只读取自己的行区间，因此任何 rank 都不会物化
 全局邻接结构。
 
-![halo 交换：两个 rank 上的 8 节点环；ghost 在边界处被读取，前向中数值从 owner 流向 ghost，VJP 中余切累积回 owner；内部计算与交换重叠](assets/halo-exchange.svg)
+![先交换 halo，再计算全部 owned 行](assets/halo-exchange.svg)
 
-### 前向：内部/边界拆分与通信重叠 { #forward-interiorboundary-split-and-overlap }
+### 前向：先通信，再计算 { #forward-interiorboundary-split-and-overlap }
 
-执行前，编译器把 owned 行拆分为**内部（interior）**（只引用 owned
-源——无 halo 依赖）和**边界（boundary）**（可能引用 ghost）。调度为
-`interior ‖ halo → boundary`：
+分布式前向按以下顺序执行：
 
-- halo 交换（`pack_halo` → `exchange_packed` → `unpack_halo`，数值从
-  owner 流向 ghost）最先启动；
-- 内部计算立即启动，与交换并行；
-- 边界计算等待 ghost 就绪。
+1. 打包并交换 halo，将数值从 owner 传到 ghost。
+2. 等待远端源数据就绪。
+3. 一次本地调用计算全部 owned 目标行。
 
-$$
-T_{\text{serial}} = t_{\text{comm}} + t_{\text{int}} + t_{\text{bnd}}
-\qquad\Longrightarrow\qquad
-T_{\text{overlap}} = \max(t_{\text{comm}},\, t_{\text{int}}) + t_{\text{bnd}}
-$$
+全部 owned 行写入同一份本地输出。Graph 和 edge function 无需调度选项。
+CPU、MPI、TCP 和 NCCL 遵循同一依赖顺序，
+transport 选择只影响数据传输方式。
 
-每次执行都会记录一条带类型的 trace
-（`DistributedRuntime.last_execution_trace`，schema 为
-`tiga.distributed-execution-trace.v1`），因此重叠结论来自实测调度，
-而不是期望。受控链路的 CPU 测量见
-[基准测试结果](benchmark-results.md) 页面（Distributed 标签页）。
+每次调用记录 `DistributedRuntime.last_execution_trace`（schema
+`tiga.distributed-execution-trace.v1`）。调度名为
+`host-staged-serialized` 或 `device-direct-serialized`，
+`interior_rows=0`、`measured_overlap_ms=0`。
 
 ### 反向：伴随同样是一次 halo 交换 { #backward-the-adjoint-is-also-a-halo-exchange }
 
@@ -157,13 +115,60 @@ $$
 在一个 8 节点环上端到端验证了这一点：每个 rank 的本地梯度均为 3，
 包括跨越 rank 边界的贡献。
 
+### 两台机器上的 CUDA sanity check { #two-host-cuda-sanity }
+
+[multi_host_gpu_gate.py](https://github.com/walkerchi/TIGA-lang/blob/main/benchmarks/distributed/multi_host_gpu_gate.py)
+核对两个 rank 的前向、VJP 和输入变化后的重复调用。分别从两台机器的仓库根目录运行：
+
+```bash
+# Host A: 使用 A 的可达内网地址
+PYTHONPATH=python python benchmarks/distributed/multi_host_gpu_gate.py \
+  --rank 0 --host 192.168.1.10 --port 29570 --device cuda:0 --output output/rank0.json
+
+# Host B: 同样连接 A，每台机器的本地设备序号都可以是 cuda:0
+PYTHONPATH=python python benchmarks/distributed/multi_host_gpu_gate.py \
+  --rank 1 --host 192.168.1.10 --port 29570 --device cuda:0 --output output/rank1.json
+```
+
+两份结果均须 `correct=true`。两端需要相同源码、已构建的编译器和兼容的 Triton、CUDA，
+可使用不同 GPU 架构。全局 rank 标识参与进程，本地 CUDA 序号选择该进程使用的 GPU。
+运行时间与分区规模的对比见[分布式性能测量](experiments.zh.md)。
+
+这条路径自动派生 halo，并固定先通信再计算；不会自动发现机器、启动远程进程或按显卡速度重新平衡分区。TCP 使用 host-staged 数据，非 NCCL/GPU-direct；原 transport 的对象消息含 pickle，只可连接可信内网 peer。`timeout` 同时限制建连和数据等待；对冷 JIT 留出充足时间。超过两 rank 的 full-mesh 要求对应监听端口互通。
+
+### 两台机器上的 NCCL { #two-host-nccl }
+
+使用 `--transport nccl` 检查 NCCL 路径的图计算前向、VJP 和重复调用。
+启动时通过 TCP 分发 communicator ID，随后由 NCCL 交换 device buffer。
+仅检查双向 1 MiB 数据交换时，运行
+[NCCL probe](https://github.com/walkerchi/TIGA-lang/blob/main/benchmarks/distributed/multi_host_nccl_probe.py)。
+
+以下命令选择 Socket 通信；将 `INTERFACE` 替换为双方可达的网络接口，
+`HOST` 替换为 rank 0 的地址：
+
+```bash
+# 两台机器分别使用 RANK=0/1，共用可达的 HOST 地址。
+NCCL_SOCKET_IFNAME=INTERFACE NCCL_SOCKET_FAMILY=AF_INET NCCL_IB_DISABLE=1 \
+  PYTHONPATH=python timeout 90s python benchmarks/distributed/multi_host_gpu_gate.py \
+  --rank RANK --host HOST --port 29659 --transport nccl --output rank-RANK.json
+```
+
+两份结果均须 `correct=true`，且源码与 NCCL library hash 一致。
+使用启动超时限制初始化等待；transport 端口仅向可信 peer 开放。
+
 ### Runtime 与 transport { #runtimes-and-transports }
+
+通信属于 runtime 执行阶段，与本地 kernel 编译分开。CPU halo VJP 先物化余切、
+交换梯度贡献，再作为后续 LLVM kernel 的输入；强制 native 模式也遵循这一边界。
+梯度物化结束前，runtime 必须保持活跃。
+
+### 绑定 runtime { #bind-runtime }
 
 执行要求有活跃的 runtime；没有 runtime 时调用分布式图会
 fail closed（`NotImplementedError`）：
 
 ```python
-with gf.distributed.DistributedRuntime(transport):
+with tg.distributed.DistributedRuntime(transport):
     out = Diffusion()(graph=graph, src={"u": local_u}, dst={"u": local_u})
 ```
 
@@ -178,10 +183,10 @@ transport 是进程初始化时选定的部署插件——kernel 与图代码从
   `ncclUniqueId`，由启动器广播）；
 - 第三方通过 `tiga.transport` entry-point 组注册。
 
-持久化拓扑保持同一套 API：`gf.save(graph, "mesh.gfg")` 写入带版本的分页存储
+持久化拓扑保持同一套 API：`tg.save(graph, "mesh.gfg")` 写入带版本的分页存储
 （manifest + `row_ptr.bin` + `col_idx.bin`），
-`gf.load("mesh.gfg").halo(mesh, depth="auto")` 回到同一个分区快照，
-每个 rank 只读取自己的页。`gf.load` 只读取 manifest；`resolve_csr()`
+`tg.load("mesh.gfg").halo(mesh, depth="auto")` 回到同一个分区快照，
+每个 rank 只读取自己的页。`tg.load` 只读取 manifest；`resolve_csr()`
 仍是显式的调试物化。
 
 这些路径的实测 transfer、halo 交换、重叠与 NCCL 证据汇总在

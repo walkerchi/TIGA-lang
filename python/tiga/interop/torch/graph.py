@@ -10,8 +10,10 @@ from typing import Any, Literal
 import warnings
 
 import torch
+from .state import tensor_version
 
 from ...distributed import ByDestination, DeviceMesh, GraphPlacement
+from ...stencil import Neighborhood, _resolve_offsets
 
 
 _INDEX_DTYPES = {torch.int32, torch.int64}
@@ -82,6 +84,7 @@ class DenseCellDirectory:
     inverse_lattice: torch.Tensor
     cutoff: float
     periodic: bool = False
+    hash_grid: bool = False
 
 
 class Graph:
@@ -340,7 +343,7 @@ class Graph:
     def stencil(
         cls,
         dims: tuple[int, ...],
-        offsets: tuple[tuple[int, ...], ...],
+        offsets: tuple[tuple[int, ...], ...] | Neighborhood | None = None,
         *,
         periodic: bool = False,
         device: torch.device | str = "cpu",
@@ -350,17 +353,11 @@ class Graph:
         Nodes are row-major linearized grid coordinates; each destination
         gathers from ``coord(dst) + offset`` for every offset in ``offsets``,
         in offsets order.  Non-periodic boundaries truncate out-of-grid
-        sources; periodic boundaries wrap with modulo.
+        sources; periodic boundaries wrap with modulo. ``offsets`` accepts
+        a ``tg.stencil`` neighborhood macro; None uses ``von_neumann()``
+        (radius one, including the center). Macros infer D from ``dims``.
         """
-        if not isinstance(dims, tuple) or not dims or any(
-                not isinstance(extent, int) or extent < 1 for extent in dims):
-            raise ValueError("dims must be a non-empty tuple of positive integers")
-        if not isinstance(offsets, tuple) or not offsets or any(
-                not isinstance(offset, tuple) or len(offset) != len(dims) or
-                any(not isinstance(shift, int) for shift in offset)
-                for offset in offsets):
-            raise ValueError(
-                "offsets must be a non-empty tuple of length-D offset tuples")
+        offsets = _resolve_offsets(dims, offsets)
         if not isinstance(periodic, bool):
             raise TypeError("periodic must be bool")
         num_nodes = math.prod(dims)
@@ -734,8 +731,10 @@ class Graph:
         """Build an O(N + cells) directory without materializing graph edges.
 
         This is a compiler-facing physical realization for the default scalar
-        Euclidean radius relation.  Custom metric/select and pathologically
-        sparse dense grids return ``None`` so the dispatcher can use CSR.
+        Euclidean radius relation. Contiguous CUDA FP32 non-periodic 2D/3D
+        inputs use modular hash buckets and reusable buffers; other supported
+        inputs retain the dense directory. Custom metric/select and excessive
+        dense-grid bounds return None so the dispatcher can use CSR.
         """
         if (
             self._positions is None
@@ -745,15 +744,16 @@ class Graph:
         ):
             return None
         cutoff_version = (
-            self._cutoff._version
+            tensor_version(self._cutoff)
             if isinstance(self._cutoff, torch.Tensor) else self._cutoff
         )
         cache_key = (
-            self._positions._version,
+            tensor_version(self._positions),
+            getattr(self, "_directory_mode", "auto"),
             cutoff_version,
             self._positions.data_ptr(),
             None if self._periodic is None else (
-                self._periodic.data_ptr(), self._periodic._version),
+                self._periodic.data_ptr(), tensor_version(self._periodic)),
         )
         if (
             self._cell_directory_cache is not None
@@ -764,6 +764,24 @@ class Graph:
         if cell_size is None or self._schema.num_dst == 0:
             return None
         positions = self._positions
+        if (getattr(self, "_directory_mode", "auto") != "dense"
+                and self._periodic is None and positions.is_cuda
+                and positions.dtype == torch.float32 and positions.is_contiguous()
+                and positions.shape[1] in (2, 3) and math.isfinite(cell_size)):
+            try:
+                from .radius_grid import build_hash_directory
+            except ImportError:
+                pass  # Optional CUDA provider unavailable: retain dense builder.
+            else:
+                if not hasattr(self, "_hash_directory_pool"):
+                    self._hash_directory_pool = []
+                # Release only this Graph's ownership. An outstanding autograd
+                # context or caller-held snapshot keeps its slot unavailable.
+                self._cell_directory_cache = None
+                directory = build_hash_directory(positions, cell_size, self._hash_directory_pool)
+                self._last_builder = "modular_hash_grid"
+                self._cell_directory_cache = (cache_key, directory)
+                return directory
         dimensions = positions.shape[1]
         periodic = self._periodic is not None
         if periodic:
@@ -924,20 +942,20 @@ class Graph:
             return row_ptr, col_idx
         assert self._positions is not None and self._cutoff is not None
         cutoff_key = (
-            (self._cutoff.data_ptr(), self._cutoff._version)
+            (self._cutoff.data_ptr(), tensor_version(self._cutoff))
             if isinstance(self._cutoff, torch.Tensor)
             else float(self._cutoff)
         )
         periodic_key = (
             None
             if self._periodic is None
-            else (self._periodic.data_ptr(), self._periodic._version)
+            else (self._periodic.data_ptr(), tensor_version(self._periodic))
         )
         snapshot_key = (
-            self._positions.data_ptr(), self._positions._version,
+            self._positions.data_ptr(), tensor_version(self._positions),
             cutoff_key, periodic_key,
             tuple(
-                (name, value.data_ptr(), value._version)
+                (name, value.data_ptr(), tensor_version(value))
                 for name, value in sorted(self._builder_fields.items())
             ),
             self._builder_udf_key, self._exclude_self,
@@ -1318,7 +1336,7 @@ class Graph:
                 cutoff,
                 self._exclude_self,
                 None if self._periodic is None else (
-                    tuple(self._periodic.shape), self._periodic._version,
+                    tuple(self._periodic.shape), tensor_version(self._periodic),
                     self._periodic.data_ptr(),
                 ),
             )
@@ -1327,6 +1345,7 @@ class Graph:
             self.source_index_span_ratio()
             if self._row_ptr is not None else "dynamic-locality",
             self._builder_udf_key, procedural,
+            getattr(self, "_directory_mode", "auto"),
             self._dense_boundary,
             None if self._placement is None else self._placement.specialization_key(),
         )
@@ -1349,18 +1368,24 @@ class Graph:
         if row_ptr is None:
             row_ptr, col_idx = self.resolve_csr()
         assert col_idx is not None
-        version = getattr(values, "_version", 0)
+        version = tensor_version(values)
         key = (id(values), version, tuple(values.shape), values.dtype, values.device)
-        can_cache = self._row_ptr is row_ptr and self._col_idx is col_idx
+        # A sparse wrapper of differentiable values owns an autograd node.
+        # Reusing it after backward reuses a freed tape, and a wrapper created
+        # under no_grad would silently disconnect a later training call.
+        can_cache = (self._row_ptr is row_ptr and self._col_idx is col_idx
+                     and not values.requires_grad)
         if can_cache and self._sparse_cache is not None and self._sparse_cache[0] == key:
             return self._sparse_cache[1]
-        flat = values.reshape(-1)
+        # cuSPARSE consumes contiguous CSR values; preserve the Torch gradient
+        # connection through the materialization of a strided input view.
+        flat = values.reshape(-1).contiguous()
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore", message="Sparse invariant checks.*")
             warnings.filterwarnings("ignore", message="Sparse CSR tensor support.*")
             sparse = torch.sparse_csr_tensor(
-                row_ptr,
-                col_idx,
+                row_ptr.contiguous(),
+                col_idx.contiguous(),
                 flat,
                 size=(self._schema.num_dst, self._schema.num_src),
                 check_invariants=False,
@@ -1470,8 +1495,17 @@ def from_native(graph) -> Graph:
         index_dtype=dtype,
         sorted_by_dst=graph.schema.sorted_by_dst,
     )
-    row_ptr = graph._row_ptr.to_torch() if graph._row_ptr is not None else None
-    col_idx = graph._col_idx.to_torch() if graph._col_idx is not None else None
+    def topology_tensor(value):
+        if value is None:
+            return None
+        value.realize()
+        # CPU-generated topology (e.g. Graph.stencil) can be Tiga-owned.
+        # Copy these integer indices once into the cached Torch view; keep
+        # Torch-owned topology zero-copy. This is not a gradient bridge.
+        return value.to_torch(copy=not getattr(value._buffer, "_graphforge_torch_buffer", False))
+
+    row_ptr = topology_tensor(graph._row_ptr)
+    col_idx = topology_tensor(graph._col_idx)
     positions = (
         graph._positions.to_torch() if graph._positions is not None else None
     )

@@ -18,7 +18,7 @@ module {
 }
 
 // DOMAIN: "gf_tensor.segment_sum"
-// TTIR: graphforge.tensor entry=gf_tensor_segment_sum block_rows=1 block_elements=8
+// TTIR: tiga.tensor entry=gf_tensor_segment_sum block_rows=1 block_elements=8
 // TTIR: tt.func public @gf_tensor_segment_sum
 // TTIR: arith.cmpi eq
 // TTIR: "tt.reduce"

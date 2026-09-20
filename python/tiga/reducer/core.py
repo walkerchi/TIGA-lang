@@ -123,7 +123,7 @@ class MeanReducer(Reducer):
     The algebra is proven componentwise additive from the captured regions,
     so the native path lowers it to two segment sums plus a final divide and
     generates the VJP.  A degree-0 row finalizes ``0 / 0`` and yields NaN;
-    use ``gf.sum()`` with a clamped degree if isolated nodes need zeros.
+    use ``tg.sum()`` with a clamped degree if isolated nodes need zeros.
     """
 
     name = "mean"

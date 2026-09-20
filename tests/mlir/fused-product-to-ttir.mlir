@@ -48,7 +48,7 @@ func.func @horizontal(%row: tensor<?xi64>, %col: tensor<?xi64>,
   return %out0, %out1 : tensor<?xf32>, tensor<?xf32>
 }
 
-// CHECK: graphforge.launch entry=gf_csr_product_additive_tile
+// CHECK: tiga.launch entry=gf_csr_product_additive_tile
 // CHECK-SAME: abi=row_ptr,col_idx,x,w0,{{x_[0-9]+}},w1,out0,out1
 // CHECK: tt.func public @gf_csr_product_additive_tile
 // CHECK-SAME: tt.divisibility = 16

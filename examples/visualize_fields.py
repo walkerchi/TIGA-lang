@@ -11,13 +11,13 @@ from pathlib import Path
 
 import numpy as np
 
-import tiga as gf
+import tiga as tg
 
 
-class HeatRelax(gf.MessagePassing):
+class HeatRelax(tg.MessagePassing):
     """One Jacobi sweep for ∇²T = 0; Dirichlet nodes stay fixed."""
 
-    reducer = gf.mean()
+    reducer = tg.mean()
 
     def edge(self, src, dst, edge):
         return src.T
@@ -39,7 +39,7 @@ def disc_points(rings: int, spokes: int, seed: int = 0):
                      r.ravel() * np.sin(a.ravel())], axis=1)  # (N, 2)
 
 
-def mesh_graph(faces: np.ndarray, num_vertices: int) -> gf.Graph:
+def mesh_graph(faces: np.ndarray, num_vertices: int) -> tg.Graph:
     """Undirected vertex-adjacency CSR from the unique edges of ``faces``."""
     by_dst = [set() for _ in range(num_vertices)]
     for a, b, c in faces.tolist():
@@ -50,9 +50,9 @@ def mesh_graph(faces: np.ndarray, num_vertices: int) -> gf.Graph:
     for dst, sources in enumerate(by_dst):
         col_idx.extend(sorted(sources))
         row_ptr[dst + 1] = len(col_idx)
-    return gf.Graph.from_csr(
-        gf.tensor(row_ptr.tolist(), dtype=gf.int64),  # (N+1,)
-        gf.tensor(col_idx, dtype=gf.int64),           # (E,)
+    return tg.Graph.from_csr(
+        tg.tensor(row_ptr.tolist(), dtype=tg.int64),  # (N+1,)
+        tg.tensor(col_idx, dtype=tg.int64),           # (E,)
         num_src=num_vertices,
     )
 
@@ -66,12 +66,12 @@ def relax(positions: np.ndarray, boundary: np.ndarray, steps: int):
     radius = np.hypot(positions[:, 0], positions[:, 1])  # (N,)
     temperature = np.where(radius <= 0.2, 1.0, 0.0)  # hot core, cold rim
     snapshots = [temperature]
-    T = gf.tensor(temperature.tolist())       # (N,)
-    fixed = gf.tensor(boundary.tolist())      # (N,)
+    T = tg.tensor(temperature.tolist())       # (N,)
+    fixed = tg.tensor(boundary.tolist())      # (N,)
     for _ in range(steps):
         T = kernel(graph=graph, ndata={"T": T, "boundary": fixed})  # (N,)
         snapshots.append(T.to_numpy())
-        T = gf.tensor(snapshots[-1].tolist())
+        T = tg.tensor(snapshots[-1].tolist())
     return snapshots
 
 
@@ -90,31 +90,31 @@ def main() -> None:
     snapshots = relax(positions, boundary, steps=args.steps)
     output = Path(args.output)
     # --8<-- [start:core]
-    gf.visualize.particles(                       # one disk per mesh node
+    tg.visualize.particles(                       # one disk per mesh node
         positions, values=snapshots[-1],
         width=args.size, height=args.size, point_radius=2.0,
         cmap="inferno",
     ).save(output / "fields_particles.png")
 
     frames = (                                    # generator: streamed, not buffered
-        gf.visualize.particles(
+        tg.visualize.particles(
             positions, values=T,
             width=256, height=256, point_radius=2.0,
             vmin=0.0, vmax=1.0, cmap="inferno")
         for T in snapshots[:: max(1, len(snapshots) // 24)]
     )
-    gf.visualize.save_video(frames, output / "fields_diffusion.gif", fps=8)
+    tg.visualize.save_video(frames, output / "fields_diffusion.gif", fps=8)
     # --8<-- [end:core]
 
     # --8<-- [start:delaunay]
-    gf.visualize.delaunay(                        # positions → faces: the FEM mesh
+    tg.visualize.delaunay(                        # positions → faces: the FEM mesh
         positions, values=snapshots[-1],
         width=args.size, height=args.size,
         vmin=0.0, vmax=1.0, cmap="inferno",
     ).save(output / "fields_delaunay.png")
     # --8<-- [end:delaunay]
 
-    # Inspect: raster.mlir(), gf.visualize.delaunay(...).execution
+    # Inspect: raster.mlir(), tg.visualize.delaunay(...).execution
 
 
 if __name__ == "__main__":

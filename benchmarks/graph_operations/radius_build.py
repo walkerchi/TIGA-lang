@@ -17,7 +17,7 @@ from pathlib import Path
 
 import torch
 
-import tiga as gf
+import tiga as tg
 from benchmarks.common.hardware_roofline import measure_roofs
 from benchmarks.common.output_layout import artifact_path
 from benchmarks.common.plotting import plot_latency, plot_roofline, write_report
@@ -49,7 +49,7 @@ def unit_ball_volume(dimensions: int) -> float:
     return math.pi ** (dimensions / 2) / math.gamma(dimensions / 2 + 1)
 
 
-def edge_keys(graph: gf.Graph, rows: int) -> torch.Tensor:
+def edge_keys(graph: tg.Graph, rows: int) -> torch.Tensor:
     row_ptr, col_idx = graph.resolve_csr()
     dst = graph.destination_index(row_ptr)
     return torch.sort(dst * rows + col_idx).values
@@ -57,7 +57,7 @@ def edge_keys(graph: gf.Graph, rows: int) -> torch.Tensor:
 
 def result(
     name: str,
-    graph: gf.Graph,
+    graph: tg.Graph,
     samples: list[float],
     *,
     dimensions: int,
@@ -167,16 +167,16 @@ def main() -> None:
     ) ** (1.0 / args.dimensions)
 
     def materialized_build():
-        return gf.Graph.radius(positions, cutoff).resolve_csr()
+        return tg.Graph.radius(positions, cutoff).resolve_csr()
 
     def directory_build():
-        return gf.Graph.radius(positions, cutoff).generated_cell_directory()
+        return tg.Graph.radius(positions, cutoff).generated_cell_directory()
 
     cell_samples = samples_ms(materialized_build, device, args.repeat)
-    cell_graph = gf.Graph.radius(positions, cutoff)
+    cell_graph = tg.Graph.radius(positions, cutoff)
     cell_graph.resolve_csr()
     logical_info = cell_graph.build_info
-    directory_graph = gf.Graph.radius(positions, cutoff)
+    directory_graph = tg.Graph.radius(positions, cutoff)
     directory_samples = samples_ms(directory_build, device, args.repeat)
     directory = directory_graph.generated_cell_directory()
     if directory is None:
@@ -205,7 +205,7 @@ def main() -> None:
             del src, dst
             return torch.linalg.vector_norm(edge.displacement, dim=-1)
 
-        all_pairs_graph = gf.Graph.radius(
+        all_pairs_graph = tg.Graph.radius(
             positions, cutoff, metric=euclidean_metric)
         expected = edge_keys(all_pairs_graph, args.particles)
         actual = edge_keys(cell_graph, args.particles)

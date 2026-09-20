@@ -9,9 +9,9 @@ import time
 import torch
 
 try:
-    import tiga as gf
+    import tiga as tg
 except ImportError:
-    gf = None
+    tg = None
 
 try:
     import triton
@@ -65,10 +65,10 @@ def reference(x, src, dst, weight):
     return out
 
 
-if gf is not None:
+if tg is not None:
 
-    class GraphForgeDiffusion(gf.MessagePassing):
-        reducer = gf.sum()
+    class GraphForgeDiffusion(tg.MessagePassing):
+        reducer = tg.sum()
 
         def edge(self, src, dst, edge):
             return edge.weight * (src.u - dst.u)
@@ -78,7 +78,7 @@ def graphforge_case(x, src, weight, degree):
     nodes = x.numel()
     row_ptr = torch.arange(
         0, src.numel() + 1, degree, device=x.device, dtype=src.dtype)
-    graph = gf.Graph.from_csr(row_ptr, src, num_src=nodes)
+    graph = tg.Graph.from_csr(row_ptr, src, num_src=nodes)
     kernel = GraphForgeDiffusion()
     return graph, kernel
 
@@ -115,7 +115,7 @@ def run_cpu(n: int, degree: int, repeat: int):
     edges = n * degree
     print(f"CPU torch.index_add: {scatter_ms:8.3f} ms  {edges / scatter_ms / 1e6:7.3f} Gedge/s")
     print(f"CPU torch CSR:       {csr_ms:8.3f} ms  {edges / csr_ms / 1e6:7.3f} Gedge/s")
-    if gf is not None:
+    if tg is not None:
         graph, kernel = graphforge_case(x, src, weight, degree)
         actual = kernel(
             graph=graph, src={"u": x}, dst={"u": x}, edge={"weight": weight})
@@ -167,7 +167,7 @@ def run_gpu(n: int, degree: int, repeat: int):
     print(f"GPU torch.index_add: {ref_ms:8.3f} ms  {edges / ref_ms / 1e6:7.3f} Gedge/s")
     print(f"GPU Triton atomic:  {atomic_ms:8.3f} ms  {edges / atomic_ms / 1e6:7.3f} Gedge/s")
     print(f"GPU Triton CSR:     {node_ms:8.3f} ms  {edges / node_ms / 1e6:7.3f} Gedge/s")
-    if gf is not None:
+    if tg is not None:
         graph, kernel = graphforge_case(x, src, weight, degree)
         actual = kernel(
             graph=graph, src={"u": x}, dst={"u": x}, edge={"weight": weight})

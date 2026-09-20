@@ -1,4 +1,24 @@
-### 张量表达式与 autograd { #tensor-expressions-and-autograd }
+# 程序组合与高级运行时示例
+
+普通 MessagePassing 直接使用 Torch，见[入门](../getting-started.md)。
+本页的 matmul、complex VJP、recurrence 和 joint plan 用于检查原生 Tensor IR
+或执行计划，因此暂时使用 `tg.Tensor`；它们不是 Torch 数学运算的替代教程。
+核心片段省略的 imports 和输入可在每节折叠的完整源码中找到。
+
+运行源码：
+
+- [`python examples/tensor_matmul.py`](https://github.com/walkerchi/TIGA-lang/blob/main/examples/tensor_matmul.py)
+- [`python examples/complex_autograd.py`](https://github.com/walkerchi/TIGA-lang/blob/main/examples/complex_autograd.py)
+- [`python examples/linear_recurrence.py`](https://github.com/walkerchi/TIGA-lang/blob/main/examples/linear_recurrence.py)
+- [`python examples/graph_program.py`](https://github.com/walkerchi/TIGA-lang/blob/main/examples/graph_program.py)
+- [`python examples/joint_autograd.py`](https://github.com/walkerchi/TIGA-lang/blob/main/examples/joint_autograd.py)
+- [`python examples/torch_interop.py`](https://github.com/walkerchi/TIGA-lang/blob/main/examples/torch_interop.py)
+- [`python examples/torch_library.py`](https://github.com/walkerchi/TIGA-lang/blob/main/examples/torch_library.py)
+- [`python examples/edge_nn_message_passing.py`](https://github.com/walkerchi/TIGA-lang/blob/main/examples/edge_nn_message_passing.py)
+
+`linear_recurrence.py` 需要 CUDA；其余脚本的设备选择见完整源码。
+
+<span id="tensor-expressions-and-autograd"></span>
 
 ## 矩阵乘法与自动推导的梯度 { #matrix-multiplication-with-derived-gradients }
 
@@ -10,10 +30,12 @@
 
 ![矩阵乘法示意图：2×3 网格 lhs 乘以 3×2 网格 rhs，得到高亮的 2×2 输出网格；方框中给出编译器推导的梯度 d lhs = cotangent @ rhs 转置、d rhs = lhs 转置 @ cotangent。](../assets/examples/tensor-matmul.svg)
 
-$$C = A\,B \quad\Longrightarrow\quad
+$$
+C = A\,B \quad\Longrightarrow\quad
 \frac{\partial L}{\partial A} = G\,B^{\top}, \qquad
 \frac{\partial L}{\partial B} = A^{\top}G, \qquad
-G = \frac{\partial L}{\partial C}$$
+G = \frac{\partial L}{\partial C}
+$$
 
 `gf_tensor.matmul` 是一等的 rank-2 收缩运算。示例把它 lowering 到
 CPU LLVM 和 FP16 GPU `tt.dot`，两个矩阵操作数的梯度都由编译器
@@ -71,9 +93,11 @@ cotangent。在该约定下，模平方 |y|² 的梯度为 2·x。
 
 ![数据流示意图：2×2 的 complex64 张量 x 经过零拷贝转置视图和一次物化的 reshape，变成长度为 4 的向量 y，再进入能量项 conj(y) * y；紫色虚线箭头返回单位 cotangent 下的共轭 Wirtinger 梯度 2x。](../assets/examples/complex-autograd.svg)
 
-$$y = \operatorname{vec}\!\left(x^{\top}\right), \qquad
+$$
+y = \operatorname{vec}\!\left(x^{\top}\right), \qquad
 e = \overline{y} \odot y, \qquad
-\frac{\partial e}{\partial x} = 2x \;\; \text{(unit cotangent)}$$
+\frac{\partial e}{\partial x} = 2x \;\; \text{(unit cotangent)}
+$$
 
 该示例在原生 CPU 运行时上演示了 complex64 存储、带步长的
 零拷贝视图，以及显式的共轭 Wirtinger cotangent。
@@ -130,8 +154,10 @@ e = \overline{y} \odot y, \qquad
 
 ![因果线性递推示意图：时间线上第 t 步只读取 t 及之前的步骤；每步的外积 k_t ⊗ v_t 累积进一个始终留在片上的递推状态，输出为 q_t 与该状态的点积。](../assets/examples/linear-recurrence.svg)
 
-$$S_t = \sum_{s \le t} k_s \otimes v_s, \qquad
-\mathrm{out}_t = q_t^{\top} S_t$$
+$$
+S_t = \sum_{s \le t} k_s \otimes v_s, \qquad
+\mathrm{out}_t = q_t^{\top} S_t
+$$
 
 这个表达式就是一个普通的 Tensor map/cumsum/contract 程序——
 并没有内置的线性注意力算子。在已注册的 CUDA 形状族上，
@@ -261,37 +287,37 @@ $$S_t = \sum_{s \le t} k_s \otimes v_s, \qquad
         artifacts: {'ttir', 'ttgir', 'llir', 'ptx', 'cubin'}  # ~80 KB of artifacts omitted; full text via kernel.code("ptx")
         ```
 
-### 跨 kernel 编译 { #cross-kernel-compilation }
+<span id="cross-kernel-compilation"></span>
 
-## `@gf.jit` 跨 kernel SSA 捕获 { #gfprogram-ssa-capture }
+## `@tg.jit` 跨 kernel SSA 捕获 { #gfprogram-ssa-capture }
 
 **它是什么。** 一个加权图求和，计算两次。一张包含 N = 4096 个节点、
 E = 16·N 条边的图，以压缩稀疏行（CSR）格式存储——一个行偏移数组加一个列索引数组。
 每个节点 `i` 沿其入边 `e = (j→i)`，把源值 `x[j]` 乘以边权后求和。程序分别用两个
 不同的权重向量 `w0` 和 `w1` 各算一遍，每个权重向量各返回一个 `(N,)` 结果。
 
-![两个 MessagePassing 叶子共享同一张图和特征向量；@gf.jit 将两个 reducer 融合进单次 kernel 启动，同时返回两个输出](../assets/examples/graph-program.svg)
+![两个 MessagePassing 叶子共享同一张图和特征向量；@tg.jit 将两个 reducer 融合进单次 kernel 启动，同时返回两个输出](../assets/examples/graph-program.svg)
 
 $$
 \mathrm{out}_k[i] = \sum_{e=(j\to i)} x[j]\, w_k[e], \qquad k \in \{0, 1\}
 $$
 
-两个 `WeightedSum` 调用读取同一张图和同一份特征，因此 `@gf.jit` 的自动捕获将它们
+两个 `WeightedSum` 调用读取同一张图和同一份特征，因此 `@tg.jit` 的自动捕获将它们
 登记为带类型的静态单赋值（SSA）叶子，再横向融合成单个 `gf_kernel.launch`，
 由该 launch 携带两个 reducer——`explain()` 报告 `applies=2, post_fusion=1`。整个过程
 没有显式的编译调用：首次观测即触发即时（[JIT](https://en.wikipedia.org/wiki/Just-in-time_compilation)）编译，Kernel IR 与 PTX（NVIDIA
 GPU 汇编）随时可查看。这是第一个可执行的 provider 示例，CUDA 存储由可选的
 Torch 适配器提供。
 
-只要 `@gf.jit`：循环捕获和跨 kernel 融合都是自动的。`@gf.jit` 把
+只要 `@tg.jit`：循环捕获和跨 kernel 融合都是自动的。`@tg.jit` 把
 `for`/`while` 循环改写成 `gf_control.repeat` / `gf_control.while`
 区域，同时自动激活 program 上下文——直线部分里的每个 MessagePassing
 调用仍然成为带类型的 SSA 叶子，跨 kernel 边界融合；两个
 `WeightedSum` 调用共享一次 launch 靠的就是它。循环体保持逐迭代语义：
 staged 区域内调用的 kernel 内联进循环体，而不会注册成顶层叶子；SSA
 叶子可以直接参与张量算术，因此 Picard 风格的 `state + apply(state)`
-循环在 `@gf.jit` 下照常工作（再叠一层 `@gf.program` 也合法）。
-`gf.program` 保留为兼容入口：面向无法提供源码的直线代码场景，只激活
+循环在 `@tg.jit` 下照常工作（再叠一层 `@tg.program` 也合法）。
+`tg.program` 保留为兼容入口：面向无法提供源码的直线代码场景，只激活
 同一个上下文，不做 AST 改写。
 
 自动微分同样穿过边界：任一捕获字段带 `requires_grad` 时叶子可微，
@@ -349,10 +375,10 @@ $$
 \frac{\partial\,\mathrm{loss}}{\partial x_i} = 2x_i = [4, 6]
 $$
 
-`gf.autograd.joint_plan` 把前向和编译器推导出的 VJP 打包成一个可查看的
+`tg.autograd.joint_plan` 把前向和编译器推导出的 VJP 打包成一个可查看的
 依赖 [DAG](https://en.wikipedia.org/wiki/Directed_acyclic_graph)，并自动插入 checkpoint；一次 `plan.run()` 同时返回函数值和
 梯度——无需用户手写反向。plan 不关心存储来自哪里：torch 存储经
-`gf.from_torch` 零拷贝进入，结果用 `.to_torch(copy=True)` 读回——只有
+`tg.from_torch` 零拷贝进入，结果用 `.to_torch(copy=True)` 读回——只有
 出口这一次拷贝，因为结果是 Tiga 算出来的，不是从 torch 包装的。
 
 ```python
@@ -415,29 +441,28 @@ $$
         native_error: None
         ```
 
-### Torch 互操作 { #torch-interop }
+<span id="torch-interop"></span>
 
-## 可选的 Torch 互操作 { #optional-torch-interoperability }
+## 默认 Torch 接口与可选原生存储桥 { #optional-torch-interoperability }
 
 **它是什么。** 环上的邻居求和，外加存储共享。八个节点构成一个环：每个
 节点恰好有两条入边，分别来自两个相邻节点，权重均为 1——因此每个节点的
-输出是其两个邻居值之和。另外，原生 `gf.Tensor` 可以由 Torch 张量创建，
+输出是其两个邻居值之和。另外，原生 `tg.Tensor` 可以由 Torch 张量创建，
 也能转换回去，两个方向共享同一份底层存储。
 
-![环聚合：每个节点对其两个环上邻居求和；一个 torch.Tensor 与一个 gf.Tensor 在两个方向上零拷贝共享同一份存储](../assets/examples/torch-interop.svg)
+![环聚合：每个节点对其两个环上邻居求和；一个 torch.Tensor 与一个 tg.Tensor 在两个方向上零拷贝共享同一份存储](../assets/examples/torch-interop.svg)
 
 $$
 \mathrm{out}[i] = \sum_{e=(j\to i)} w[e]\, x[j]
 = x[(i-1) \bmod 8] + x[(i+1) \bmod 8]
 $$
 
-Torch 张量直接调用 `MessagePassing` UDF——无转换、无拷贝；Tiga 的
-编译器与运行时不依赖 Torch。`gf.from_torch`/`to_torch` 这对 API 只用于另一个
-方向：进入原生 `gf.Tensor` 体系（延迟捕获、编译器 VJP），同时仍共享
-torch 存储——相同的数据指针证实了这一点。凡是需要编译器捕获的地方都
-必须走这个方向：`@gf.jit` 循环和 `linear_solve` / `nonlinear_solve`
+Torch 张量直接调用 `MessagePassing` UDF——无转换、无拷贝；Torch 由使用者单独安装，不是默认安装依赖。
+原生编译器和底层运行时仍可独立工作。`tg.from_torch`/`to_torch` 这对 API 只用于另一个
+方向：进入原生 `tg.Tensor` 体系（延迟捕获、编译器 VJP），同时仍共享
+torch 存储——相同的数据指针证实了这一点。目前需要原生结构化控制流捕获的场景才要求此转换：`@tg.jit` 循环和 `linear_solve` / `nonlinear_solve`
 驱动器会把迭代具象化为 `gf_control.repeat` / `gf_control.while`，因此
-它们的向量必须是 `gf.Tensor`（在那里传 torch 张量会抛 `TypeError`）。
+它们的向量必须是 `tg.Tensor`（在那里传 torch 张量会抛 `TypeError`）。
 惰性 JIT 对象会暴露 `gf.kernel`
 选定的机器调度，经过验证且与 provider 无关。
 
@@ -464,7 +489,7 @@ torch 存储——相同的数据指针证实了这一点。凡是需要编译�
         accepted: [machine-schedule] admitted fixed-row-neighbor
         unknown: [pipeline] no compiler-controlled asynchronous pipeline admitted
         remark: [planning] no profitable generated specialization was proven; dispatched native sparse library
-        executable cache: hits=0, misses=1
+        variant cache: hits=0, misses=1
         ```
 
     === "CUDA"
@@ -482,7 +507,7 @@ torch 存储——相同的数据指针证实了这一点。凡是需要编译�
         remark: [planning] TTIR was emitted from gf_kernel IR without a @triton.jit frontend
         remark: [planning] the direct candidate passed the SOTA runtime gate on this machine
         remark: [planning] frozen CSR indices remain bound to the compiled executable
-        executable cache: hits=0, misses=1
+        variant cache: hits=0, misses=1
         ```
 
 ## `torch.library` 注册 { #torchlibrary-registration }
@@ -529,10 +554,10 @@ dispatcher ABI 的一部分，尽管包装器会自动绑定。
         accepted: [machine-schedule] admitted fixed-row-neighbor
         unknown: [pipeline] no compiler-controlled asynchronous pipeline admitted
         remark: [planning] no profitable generated specialization was proven; dispatched native sparse library
-        executable cache: hits=0, misses=1
+        variant cache: hits=0, misses=1
         ```
 
-### 边上的神经网络 { #neural-networks-on-edges }
+<span id="neural-networks-on-edges"></span>
 
 ## Edge nn 模块与融合 tile kernel { #edge-nn-modules-with-a-fused-tile-kernel }
 
@@ -549,7 +574,7 @@ $$
 \mathrm{MLP}\!\left([\,pos[j] - pos[i] \;\|\; x[j]\,]\right)
 $$
 
-`gf.nn.trace` 包装一个 `torch.nn` 模块，让边 UDF 可以调用它：eager 模式下
+`tg.nn.trace` 包装一个 `torch.nn` 模块，让边 UDF 可以调用它：eager 模式下
 直接拼接参数并转发给该模块；编译器则会证明整条调用链，生成单个以边为
 中心的 tile kernel——不会物化 O(E) 的消息张量。由于 MLP 读取边位移，任何
 逐节点预计算都无法外提。梯度模式下的调用沿用同一个融合前向，反向
@@ -579,7 +604,7 @@ $$
         provider cache key: triton-nvidia | cuda:nvidia | 3.6.0 | 2.11.0+cu128 | af81e84448f193cc | cuda:120:warp32
         remark: [planning] Python emission backend (phase 2); the C++ gf-kernel-to-ttir emitter replaces it in a later phase
         remark: [planning] training path: backward recomputes per-edge activations inside the tile; no [E, ·] tensor is materialized in either direction
-        executable cache: hits=0, misses=2
+        variant cache: hits=0, misses=2
 
         ### EdgeMLPTorchExecutor
         backend: cuda
@@ -590,6 +615,5 @@ $$
         remark: [planning] Python emission backend (phase 1); the C++ gf-kernel-to-ttir emitter replaces it in a later phase
         remark: [planning] edge messages are evaluated inside the tile; no O(E) message tensor is materialized
         remark: [planning] inference path; calls that could request gradients take the fused recompute VJP (gf-python-emit-edge-nn-tile-vjp)
-        executable cache: hits=0, misses=1
+        variant cache: hits=0, misses=1
         ```
-

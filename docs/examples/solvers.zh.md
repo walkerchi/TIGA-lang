@@ -1,111 +1,101 @@
 # 线性求解器与控制流 { #linear-solvers-and-control-flow }
 
-无矩阵线性求解器：绑定到 Graph 的 MessagePassing [kernel](https://en.wikipedia.org/wiki/Compute_kernel) 就是算子本身
-——永远不是组装好的矩阵——迭代循环用设备端控制流
-（`gf_control.repeat` / `gf_control.while`）表达，或在 `@gf.jit` 下直接用
-普通的 Python `for`/`while` 表达。
+先定义一个把向量映射到向量的算子，再把它交给求解器。
+从下面的三步 Poisson 示例开始；更复杂的动态邻域、迭代算法与非线性方程放在后面。
 
-- [`python examples/fem_poisson.py`](https://github.com/walkerchi/TIGA-lang/blob/main/examples/fem_poisson.py)
+- [`python examples/fem_poisson_minimal.py`](https://github.com/walkerchi/TIGA-lang/blob/main/examples/fem_poisson_minimal.py)
 - [`python examples/meshfree_linear_solve.py`](https://github.com/walkerchi/TIGA-lang/blob/main/examples/meshfree_linear_solve.py)
 - [`python examples/nonlinear_solve.py`](https://github.com/walkerchi/TIGA-lang/blob/main/examples/nonlinear_solve.py)
 
-!!! note "gf.Tensor 与 torch.Tensor"
+??? note "求解器的原生 Tensor 与 Torch 互操作"
 
     kernel 调用两种都接受——`src`/`dst`/`edge` 字段可以直接传 torch
-    tensor，`gf.from_torch(x)` / `.to_torch()` 双向都是零拷贝。本页的
+    tensor，不需要包装。本页的高级原生
     求解驱动器不同：`linear_solve` / `nonlinear_solve` 会把迭代循环捕获为
     设备端控制流（`gf_control.repeat` / `gf_control.while`），因此向量
-    必须是 `gf.Tensor`。在边界处用 `gf.from_torch(x)` 把 torch 存储零
-    拷贝包进来，结果用 `.to_torch()` 读回——两个方向都不复制数据。
+    必须是 `tg.Tensor`。在边界处用 `tg.from_torch(x)` 把 torch 存储零
+    拷贝包进来；只有仍持有 Torch 存储的值才能用 `.to_torch()` 零拷贝返回。
+    原生求解结果需要 `.to_torch(copy=True)`，且要求连续存储。
+    共享存储本身不会把原生梯度图接入 PyTorch autograd。
 
-### 无矩阵线性求解 { #matrix-free-linear-solves }
+<span id="matrix-free-linear-solves"></span>
 
-## 无矩阵 FEM 算子与求解循环 { #matrix-free-fem-operator-and-solver-loop }
+## 用邻居求和求解 Poisson 方程 { #matrix-free-fem-operator-and-solver-loop }
 
-**是什么。** [有限元方法](https://baike.baidu.com/item/有限元法)（FEM）通过在网格点上采样未知函数，把微分方程
-变成线性方程组。这里的方程是单位区间上的 [Poisson 方程](https://en.wikipedia.org/wiki/Poisson%27s_equation) −u″(x) = 1，
-两端 u 固定为零——即均匀受载弦的稳态形状，其精确解是抛物线
-u(x) = x(1−x)/2。取 N 个等距内点，方程组的每一行通过分段线性
-（“P1”）stencil 把该点与相邻的两个点耦合起来。方程组用[共轭梯度法](https://baike.baidu.com/item/共轭梯度法)
-（CG）求解，这是一种针对对称正定系统的迭代方法，只会把算子作用到
-向量上，永远不需要矩阵本身。
-
-![均匀网格上的 P1 FEM stencil：边界节点固定为零，每个内点行以权重 2/h 耦合节点 i 自身，以权重 −1/h 耦合其两个邻居](../assets/examples/fem-poisson.svg)
+目标很简单：在一条线上求解 [Poisson 方程](https://en.wikipedia.org/wiki/Poisson%27s_equation)，
+两端固定为零，中间放 7 个未知节点。
 
 $$
-\frac{2u_i - u_{i-1} - u_{i+1}}{h} \;=\; h,
-\qquad
-u_0 = u_{N+1} = 0
+-u''(x)=1,\qquad u(0)=u(1)=0
 $$
 
-$$
-h = \frac{1}{N+1},
-\qquad
-u_{\text{exact}}(x) = \tfrac{1}{2}\,x(1-x)
-$$
+只需要定义“给定 `u`，如何算出 `A(u)`”。每个节点读取左右邻居，
+自身取两倍，再除以网格间距；**迭代循环交给求解器，不需要手写 CG**。
 
-一个 `solve()` 驱动整个示例：默认停止条件是残差范数达到容差 10⁻⁶
-（捕获为一个强制带上界的 `gf_control.while`，lowering 为 CPU LLVM 代码，
-无需主机端轮询）；传入 `iterations=k` 则切换为固定次数的
-`gf_control.repeat`。随后 `load_gradient()` 沿捕获的迭代对 sum(u)
-关于载荷求导——这是反向模式[自动微分](https://baike.baidu.com/item/自动微分)，即向量–雅可比积（VJP）。
-
-整个过程从不组装刚度矩阵：网格拓扑是一个一行代码构建的 `Graph`（`Graph.stencil`
-加上三个 P1 偏移），stencil 权重挂在图的边上，
-应用算子就是一个普通的 MessagePassing UDF（对每个目的节点求和
-`edge.value * src.u`）。其余 GPU/分布式循环与隐式 VJP 契约参见
-[线性求解器与隐式微分](../linear-solvers.md)。
+下面是完整计算过程。`linear_solve` 来自仓库中的
+[examples/solvers.py](https://github.com/walkerchi/TIGA-lang/blob/main/examples/solvers.py)，不是 `tg` 的内置 API。
 
 ```python
---8<-- "examples/fem_poisson.py:core"
+--8<-- "examples/fem_poisson_minimal.py:core"
 ```
 
-??? example "完整源码：examples/fem_poisson.py（可直接运行）"
+运行 [`python examples/fem_poisson_minimal.py`](https://github.com/walkerchi/TIGA-lang/blob/main/examples/fem_poisson_minimal.py)，得到：
 
-    ```python
-    --8<-- "examples/fem_poisson.py"
-    ```
+```text
+[0.0546875, 0.09375, 0.1171875, 0.125, 0.1171875, 0.09375, 0.0546875]
+max error: 0.00e+00
+```
 
-??? info "本机编译产物（Ryzen 7 255 · RTX 5070 Ti 实测）"
+这里的“无矩阵”指不构造刚度矩阵：`Graph.stencil` 给出邻接，
+`edge()` 取负的邻居值，`node()` 加上自身的两倍。
+图仍有 CSR 拓扑，省去的是单独的刚度矩阵与逐边刚度数组。
 
-    === "CPU"
+本例使用 `tg.Tensor`，因为当前辅助求解器捕获的是原生控制流；
+这不是普通消息传递必须更换 Torch Tensor 的要求。
 
-        ```text
-        ### StiffnessApply
-        backend: cpu:0
-        provider: tiga-runtime
-        lowering: gf-tensor-relation-autograd
-        passes: bind-static-csr-snapshot, capture-message-passing-udf, analyze-reducer-algebra, lower-csr-to-gather-segment, fuse-edge-node-regions
-        remark: [planning] edge/node UDFs remain in the differentiable Tensor DAG
-        remark: [planning] gf-tensor-vjp generates CSR gather/segment-sum adjoints
-        remark: [planning] reducer lowering: builtin-additive-state
-        executable cache: hits=0, misses=2
+??? info "为什么这是 FEM？边界怎么处理？"
 
-        ### StiffnessApply
-        backend: cpu:0
-        provider: tiga-runtime
-        lowering: gf-tensor-relation-autograd
-        passes: bind-static-csr-snapshot, capture-message-passing-udf, analyze-reducer-algebra, lower-csr-to-gather-segment, fuse-edge-node-regions
-        remark: [planning] edge/node UDFs remain in the differentiable Tensor DAG
-        remark: [planning] gf-tensor-vjp generates CSR gather/segment-sum adjoints
-        remark: [planning] reducer lowering: builtin-additive-state
-        executable cache: hits=0, misses=2
-        ```
+    一维均匀网格上的分段线性 P1 [有限元](https://baike.baidu.com/item/有限元法)
+    给出以下离散方程。`h` 是节点间距，`b` 是单位载荷对应的右端项：
+
+    $$
+    (Au)_i=\frac{2u_i-u_{i-1}-u_{i+1}}{h},\qquad b_i=h
+    $$
+
+    图只存内部节点，越界邻居被省略。被省略的边界值本来就是零，
+    但 `node()` 中的对角系数仍是 `2`，**不能改成有效邻居数**。
+
+    ![一维 P1 stencil：内部节点读取左右邻居，边界固定为零。](../assets/examples/fem-poisson.svg)
+
+    解析解用于检查节点结果：
+
+    $$
+    u_{\mathrm{exact}}(x)=\frac{x(1-x)}{2}
+    $$
+
+??? info "停止条件、固定迭代与求导"
+
+    `tolerance=1e-6` 检查绝对残差范数，`max_iterations=32` 给出迭代上界；
+    达到上界不等于保证收敛，因此示例额外检查解析解误差。
+
+    固定次数迭代和对载荷求导保留在
+    [进阶示例 fem_poisson.py](https://github.com/walkerchi/TIGA-lang/blob/main/examples/fem_poisson.py)。
+    控制流与梯度契约见[线性求解器](../linear-solvers.md)。
 
 ## 动态半径图上的无矩阵线性求解 { #dynamic-radius-matrix-free-linear-solve }
 
 **是什么。** 这里完全没有网格文件——图是从数据生成的。给定平面上
-N 个点，距离小于截断半径 r 的任意两点成为邻居（半径图）。在该图上，
+N 个点，距离不超过截断半径 r 的两个不同点成为邻居（半径图）。在该图上，
 示例求解 (m·I + L) u = b，其中 L 是图拉普拉斯算子：对每个点，把它
 自身的值与每个邻居的值之差求和。质量偏移 m = 1 保证算子正定，
 右端项是周期模式 b_i = 1 + (i mod 3)。
 
-![半径关系：平面上的点距离小于截断半径 r 时成为邻居；点 i 处的算子是 m·u_i 加上对所有邻居的 u_i − u_j 求和](../assets/examples/meshfree-radius.svg)
+![半径关系：平面上的两个不同点距离不超过截断半径 r 时成为邻居；点 i 处的算子是 m·u_i 加上对所有邻居的 u_i − u_j 求和](../assets/examples/meshfree-radius.svg)
 
 $$
 \big((mI + L)\,u\big)_i
 \;=\;
-m\,u_i \;+ \sum_{j \,:\, \lVert p_i - p_j \rVert < r} (u_i - u_j)
+m\,u_i \;+ \sum_{j\ne i \,:\, \lVert p_i - p_j \rVert \le r} (u_i - u_j)
 \;=\;
 b_i,
 \qquad
@@ -143,7 +133,7 @@ CG 在一个 `gf_control.while` 中捕获收敛判断和四个随迭代携带的
         remark: [planning] edge/node UDFs remain in the differentiable Tensor DAG
         remark: [planning] gf-tensor-vjp generates CSR gather/segment-sum adjoints
         remark: [planning] reducer lowering: builtin-additive-state
-        executable cache: hits=0, misses=3
+        variant cache: hits=0, misses=3
         ```
 
     === "CUDA"
@@ -157,10 +147,10 @@ CG 在一个 `gf_control.while` 中捕获收敛判断和四个随迭代携带的
         remark: [planning] edge/node UDFs remain in the differentiable Tensor DAG
         remark: [planning] gf-tensor-vjp generates CSR gather/segment-sum adjoints
         remark: [planning] reducer lowering: builtin-additive-state
-        executable cache: hits=0, misses=3
+        variant cache: hits=0, misses=3
         ```
 
-### 共享求解器入口 { #shared-solver-entry }
+<span id="shared-solver-entry"></span>
 
 ## 共享求解器语法糖：`linear_solve` { #shared-solver-sugar-linear_solve }
 
@@ -218,7 +208,7 @@ r_k = s - \omega_k A s
 \quad\text{(BiCGStab)}
 $$
 
-`solvers.py` 用 `gf_control` 原语组合这些方法，循环写成 `@gf.jit` 下
+`solvers.py` 用 `gf_control` 原语组合这些方法，循环写成 `@tg.jit` 下
 普通的 Python `for`/`while`。每个示例把算子构造包在一个局部
 `solve()` 里；求解器本身就是一次
 `linear_solve(operator, rhs, method="cg", …)` 调用——没有别的叫
@@ -230,7 +220,7 @@ solve 的东西。该模块刻意不属于核心包——是语法糖，不是�
     --8<-- "examples/solvers.py"
     ```
 
-### 非线性求解 { #nonlinear-solves }
+<span id="nonlinear-solves"></span>
 
 ## Picard 迭代的非线性扩散 { #nonlinear-diffusion-by-picard-iteration }
 
@@ -288,7 +278,7 @@ repeat 对 sum(u) 关于载荷求导；迭代次数保持在个位数，因为�
         remark: [planning] edge/node UDFs remain in the differentiable Tensor DAG
         remark: [planning] gf-tensor-vjp generates CSR gather/segment-sum adjoints
         remark: [planning] reducer lowering: builtin-additive-state
-        executable cache: hits=0, misses=3
+        variant cache: hits=0, misses=3
 
         ### NonlinearDiffusionApply
         backend: cpu:0
@@ -298,5 +288,5 @@ repeat 对 sum(u) 关于载荷求导；迭代次数保持在个位数，因为�
         remark: [planning] edge/node UDFs remain in the differentiable Tensor DAG
         remark: [planning] gf-tensor-vjp generates CSR gather/segment-sum adjoints
         remark: [planning] reducer lowering: builtin-additive-state
-        executable cache: hits=0, misses=1
+        variant cache: hits=0, misses=1
         ```

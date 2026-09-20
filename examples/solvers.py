@@ -4,15 +4,15 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 
-import tiga as gf
+import tiga as tg
 
-Matvec = Callable[[gf.Tensor], gf.Tensor]
-Preconditioner = Callable[[gf.Tensor], gf.Tensor]
+Matvec = Callable[[tg.Tensor], tg.Tensor]
+Preconditioner = Callable[[tg.Tensor], tg.Tensor]
 
 
-def dot(left: gf.Tensor, right: gf.Tensor) -> gf.Tensor:
+def dot(left: tg.Tensor, right: tg.Tensor) -> tg.Tensor:
     """Capture a rank-one Hermitian dot product as Tensor algebra."""
-    if not isinstance(left, gf.Tensor) or not isinstance(right, gf.Tensor):
+    if not isinstance(left, tg.Tensor) or not isinstance(right, tg.Tensor):
         raise TypeError("dot operands must be tiga.Tensor values")
     if left.ndim != 1 or right.ndim != 1 or left.shape != right.shape:
         raise ValueError("dot requires rank-one operands with identical shapes")
@@ -21,14 +21,14 @@ def dot(left: gf.Tensor, right: gf.Tensor) -> gf.Tensor:
     return (left.conj() * right).sum()
 
 
-def vector_norm(value: gf.Tensor) -> gf.Tensor:
+def vector_norm(value: tg.Tensor) -> tg.Tensor:
     """Capture the Euclidean norm of one real vector.
 
     Complex norm needs a real-valued projection dtype that the minimal Tensor
     frontend does not expose yet, so it fails instead of returning a complex
     square root with misleading semantics.
     """
-    if not isinstance(value, gf.Tensor) or value.ndim != 1:
+    if not isinstance(value, tg.Tensor) or value.ndim != 1:
         raise TypeError("vector_norm expects one rank-one tiga.Tensor")
     if value.dtype.kind != "float":
         raise TypeError("vector_norm currently requires a real floating Tensor")
@@ -38,15 +38,15 @@ def vector_norm(value: gf.Tensor) -> gf.Tensor:
 def _bind_operator(
     operator,
     *,
-    graph: gf.Graph | None,
+    graph: tg.Graph | None,
     field: str | None,
-    src: Mapping[str, gf.Tensor] | None,
-    dst: Mapping[str, gf.Tensor] | None,
-    edge: Mapping[str, gf.Tensor] | None,
+    src: Mapping[str, tg.Tensor] | None,
+    dst: Mapping[str, tg.Tensor] | None,
+    edge: Mapping[str, tg.Tensor] | None,
     params: Mapping[str, object] | None,
 ) -> tuple[Matvec, int | None]:
     """Return ``(matvec, extent)`` for a kernel or plain callable operator."""
-    if isinstance(operator, gf.Kernel):
+    if isinstance(operator, tg.Kernel):
         if graph is None or field is None:
             raise TypeError(
                 "a MessagePassing operator requires graph= and field= so the "
@@ -67,7 +67,7 @@ def _bind_operator(
         constant_edge = dict(edge) if edge is not None else {}
         bound_params = dict(params) if params is not None else {}
 
-        def apply(vector: gf.Tensor) -> gf.Tensor:
+        def apply(vector: tg.Tensor) -> tg.Tensor:
             return operator(
                 graph=graph,
                 src={**constant_src, field: vector},
@@ -96,15 +96,15 @@ def _bind_operator(
 
 def _checked_apply(
     matvec: Matvec,
-    vector: gf.Tensor,
+    vector: tg.Tensor,
     extent: int | None,
-) -> gf.Tensor:
+) -> tg.Tensor:
     """Apply one matrix-free product and validate the contract."""
     if extent is not None and vector.shape != (extent,):
         raise ValueError(
             f"operator expected input shape {(extent,)}, got {vector.shape}")
     output = matvec(vector)
-    if not isinstance(output, gf.Tensor):
+    if not isinstance(output, tg.Tensor):
         raise TypeError("operator must return a tiga.Tensor")
     if output.shape != vector.shape:
         raise ValueError(
@@ -116,14 +116,14 @@ def _checked_apply(
     return output
 
 
-@gf.jit
+@tg.jit
 def _richardson_loop(matvec, omega, state, rhs, iterations):
     for _ in range(iterations):
         state = state + omega * (rhs - matvec(state))
     return state
 
 
-@gf.jit
+@tg.jit
 def _cg_fixed_loop(
     matvec, prepare, solution, residual, direction, product, iterations,
 ):
@@ -139,7 +139,7 @@ def _cg_fixed_loop(
     return solution
 
 
-@gf.jit
+@tg.jit
 def _cg_tolerance_loop(
     matvec, prepare, solution, residual, direction, product,
     threshold_squared, max_iterations,
@@ -158,7 +158,7 @@ def _cg_tolerance_loop(
     return solution
 
 
-@gf.jit
+@tg.jit
 def _bicgstab_fixed_loop(
     matvec, solution, residual, shadow, direction, velocity,
     rho, alpha, omega, iterations,
@@ -178,7 +178,7 @@ def _bicgstab_fixed_loop(
     return solution
 
 
-@gf.jit
+@tg.jit
 def _bicgstab_tolerance_loop(
     matvec, solution, residual, shadow, direction, velocity,
     rho, alpha, omega, threshold_squared, max_iterations,
@@ -202,18 +202,18 @@ def _bicgstab_tolerance_loop(
 
 def richardson(
     operator,
-    rhs: gf.Tensor,
+    rhs: tg.Tensor,
     *,
-    graph: gf.Graph | None = None,
+    graph: tg.Graph | None = None,
     field: str | None = None,
-    src: Mapping[str, gf.Tensor] | None = None,
-    dst: Mapping[str, gf.Tensor] | None = None,
-    edge: Mapping[str, gf.Tensor] | None = None,
+    src: Mapping[str, tg.Tensor] | None = None,
+    dst: Mapping[str, tg.Tensor] | None = None,
+    edge: Mapping[str, tg.Tensor] | None = None,
     params: Mapping[str, object] | None = None,
     iterations: int,
-    relaxation: gf.Tensor | float = 1.0,
-    initial: gf.Tensor | None = None,
-) -> gf.Tensor:
+    relaxation: tg.Tensor | float = 1.0,
+    initial: tg.Tensor | None = None,
+) -> tg.Tensor:
     """Capture a bounded matrix-free Richardson iteration.
 
     The body is captured once inside ``gf_control.repeat`` and can contain
@@ -223,7 +223,7 @@ def richardson(
     matvec, extent = _bind_operator(
         operator, graph=graph, field=field, src=src, dst=dst,
         edge=edge, params=params)
-    if not isinstance(rhs, gf.Tensor) or rhs.ndim != 1:
+    if not isinstance(rhs, tg.Tensor) or rhs.ndim != 1:
         raise TypeError("richardson rhs must be a rank-one tiga.Tensor")
     if extent is not None and rhs.shape != (extent,):
         raise ValueError(
@@ -232,8 +232,8 @@ def richardson(
         raise TypeError("richardson iterations must be an integer")
     if iterations < 0:
         raise ValueError("richardson iterations must be non-negative")
-    state = gf.zeros_like(rhs) if initial is None else initial
-    if not isinstance(state, gf.Tensor) or state.shape != rhs.shape:
+    state = tg.zeros_like(rhs) if initial is None else initial
+    if not isinstance(state, tg.Tensor) or state.shape != rhs.shape:
         raise ValueError("richardson initial value must match rhs shape")
     if state.dtype is not rhs.dtype or state.device != rhs.device:
         raise ValueError("richardson initial value must match rhs dtype and device")
@@ -249,20 +249,20 @@ def richardson(
 
 def cg(
     operator,
-    rhs: gf.Tensor,
+    rhs: tg.Tensor,
     *,
-    graph: gf.Graph | None = None,
+    graph: tg.Graph | None = None,
     field: str | None = None,
-    src: Mapping[str, gf.Tensor] | None = None,
-    dst: Mapping[str, gf.Tensor] | None = None,
-    edge: Mapping[str, gf.Tensor] | None = None,
+    src: Mapping[str, tg.Tensor] | None = None,
+    dst: Mapping[str, tg.Tensor] | None = None,
+    edge: Mapping[str, tg.Tensor] | None = None,
     params: Mapping[str, object] | None = None,
     iterations: int | None = None,
-    tolerance: gf.Tensor | float | None = None,
+    tolerance: tg.Tensor | float | None = None,
     max_iterations: int | None = None,
-    initial: gf.Tensor | None = None,
+    initial: tg.Tensor | None = None,
     preconditioner: Preconditioner | None = None,
-) -> gf.Tensor:
+) -> tg.Tensor:
     """Capture bounded matrix-free (preconditioned) conjugate gradient.
 
     The operator contract is symmetric positive-definite, as in scipy; the
@@ -280,7 +280,7 @@ def cg(
     matvec, extent = _bind_operator(
         operator, graph=graph, field=field, src=src, dst=dst,
         edge=edge, params=params)
-    if not isinstance(rhs, gf.Tensor) or rhs.ndim != 1:
+    if not isinstance(rhs, tg.Tensor) or rhs.ndim != 1:
         raise TypeError("cg rhs must be a rank-one tiga.Tensor")
     if rhs.dtype.kind != "float":
         raise TypeError("cg currently requires a real floating Tensor")
@@ -308,16 +308,16 @@ def cg(
             raise ValueError("cg max_iterations must be non-negative")
     if preconditioner is not None and not callable(preconditioner):
         raise TypeError("cg preconditioner must be a Tensor -> Tensor callable")
-    solution = gf.zeros_like(rhs) if initial is None else initial
-    if (not isinstance(solution, gf.Tensor) or solution.shape != rhs.shape or
+    solution = tg.zeros_like(rhs) if initial is None else initial
+    if (not isinstance(solution, tg.Tensor) or solution.shape != rhs.shape or
             solution.dtype is not rhs.dtype or solution.device != rhs.device):
         raise ValueError("cg initial value must match rhs shape, dtype, and device")
 
-    def apply_preconditioner(value: gf.Tensor) -> gf.Tensor:
+    def apply_preconditioner(value: tg.Tensor) -> tg.Tensor:
         if preconditioner is None:
             return value
         output = preconditioner(value)
-        if (not isinstance(output, gf.Tensor) or output.shape != value.shape or
+        if (not isinstance(output, tg.Tensor) or output.shape != value.shape or
                 output.dtype is not value.dtype or output.device != value.device):
             raise ValueError(
                 "cg preconditioner must preserve residual shape, dtype, and device")
@@ -327,7 +327,7 @@ def cg(
     preconditioned = apply_preconditioner(residual)
     residual_product = dot(residual, preconditioned)
 
-    def checked(value: gf.Tensor) -> gf.Tensor:
+    def checked(value: tg.Tensor) -> tg.Tensor:
         return _checked_apply(matvec, value, extent)
 
     if fixed:
@@ -336,7 +336,7 @@ def cg(
             checked, apply_preconditioner, solution, residual, preconditioned,
             residual_product, iterations)
     assert tolerance is not None and max_iterations is not None
-    if isinstance(tolerance, gf.Tensor):
+    if isinstance(tolerance, tg.Tensor):
         threshold = tolerance
         if (threshold.shape != () or threshold.dtype is not rhs.dtype or
                 threshold.device != rhs.device):
@@ -347,7 +347,7 @@ def cg(
             raise TypeError("cg tolerance must be a scalar Tensor or real number")
         if tolerance < 0:
             raise ValueError("cg tolerance must be non-negative")
-        threshold = gf.tensor(tolerance, dtype=rhs.dtype, device=rhs.device)
+        threshold = tg.tensor(tolerance, dtype=rhs.dtype, device=rhs.device)
     threshold_squared = threshold * threshold
     return _cg_tolerance_loop(
         checked, apply_preconditioner, solution, residual, preconditioned,
@@ -356,19 +356,19 @@ def cg(
 
 def bicgstab(
     operator,
-    rhs: gf.Tensor,
+    rhs: tg.Tensor,
     *,
-    graph: gf.Graph | None = None,
+    graph: tg.Graph | None = None,
     field: str | None = None,
-    src: Mapping[str, gf.Tensor] | None = None,
-    dst: Mapping[str, gf.Tensor] | None = None,
-    edge: Mapping[str, gf.Tensor] | None = None,
+    src: Mapping[str, tg.Tensor] | None = None,
+    dst: Mapping[str, tg.Tensor] | None = None,
+    edge: Mapping[str, tg.Tensor] | None = None,
     params: Mapping[str, object] | None = None,
     iterations: int | None = None,
-    tolerance: gf.Tensor | float | None = None,
+    tolerance: tg.Tensor | float | None = None,
     max_iterations: int | None = None,
-    initial: gf.Tensor | None = None,
-) -> gf.Tensor:
+    initial: tg.Tensor | None = None,
+) -> tg.Tensor:
     """Capture bounded matrix-free BiCGStab for nonsymmetric operators.
 
     Same stopping contracts as ``cg``: ``iterations=k`` for a fixed
@@ -385,7 +385,7 @@ def bicgstab(
     matvec, extent = _bind_operator(
         operator, graph=graph, field=field, src=src, dst=dst,
         edge=edge, params=params)
-    if not isinstance(rhs, gf.Tensor) or rhs.ndim != 1:
+    if not isinstance(rhs, tg.Tensor) or rhs.ndim != 1:
         raise TypeError("bicgstab rhs must be a rank-one tiga.Tensor")
     if rhs.dtype.kind != "float":
         raise TypeError("bicgstab currently requires a real floating Tensor")
@@ -411,20 +411,20 @@ def bicgstab(
             raise TypeError("bicgstab max_iterations must be an integer")
         if max_iterations < 0:
             raise ValueError("bicgstab max_iterations must be non-negative")
-    solution = gf.zeros_like(rhs) if initial is None else initial
-    if (not isinstance(solution, gf.Tensor) or solution.shape != rhs.shape or
+    solution = tg.zeros_like(rhs) if initial is None else initial
+    if (not isinstance(solution, tg.Tensor) or solution.shape != rhs.shape or
             solution.dtype is not rhs.dtype or solution.device != rhs.device):
         raise ValueError(
             "bicgstab initial value must match rhs shape, dtype, and device")
 
     residual = rhs - _checked_apply(matvec, solution, extent)
     shadow = residual                       # r̂ = r₀ stays constant
-    direction = gf.zeros_like(rhs)
-    velocity = gf.zeros_like(rhs)
-    one = gf.tensor(1.0, dtype=rhs.dtype, device=rhs.device)
+    direction = tg.zeros_like(rhs)
+    velocity = tg.zeros_like(rhs)
+    one = tg.tensor(1.0, dtype=rhs.dtype, device=rhs.device)
     rho = alpha = omega = one
 
-    def checked(value: gf.Tensor) -> gf.Tensor:
+    def checked(value: tg.Tensor) -> tg.Tensor:
         return _checked_apply(matvec, value, extent)
 
     if fixed:
@@ -433,7 +433,7 @@ def bicgstab(
             checked, solution, residual, shadow, direction, velocity,
             rho, alpha, omega, iterations)
     assert tolerance is not None and max_iterations is not None
-    if isinstance(tolerance, gf.Tensor):
+    if isinstance(tolerance, tg.Tensor):
         threshold = tolerance
         if (threshold.shape != () or threshold.dtype is not rhs.dtype or
                 threshold.device != rhs.device):
@@ -445,7 +445,7 @@ def bicgstab(
                 "bicgstab tolerance must be a scalar Tensor or real number")
         if tolerance < 0:
             raise ValueError("bicgstab tolerance must be non-negative")
-        threshold = gf.tensor(tolerance, dtype=rhs.dtype, device=rhs.device)
+        threshold = tg.tensor(tolerance, dtype=rhs.dtype, device=rhs.device)
     threshold_squared = threshold * threshold
     return _bicgstab_tolerance_loop(
         checked, solution, residual, shadow, direction, velocity,
@@ -454,22 +454,22 @@ def bicgstab(
 
 def linear_solve(
     operator,
-    rhs: gf.Tensor,
+    rhs: tg.Tensor,
     *,
     method: str = "cg",
-    graph: gf.Graph | None = None,
+    graph: tg.Graph | None = None,
     field: str | None = None,
-    src: Mapping[str, gf.Tensor] | None = None,
-    dst: Mapping[str, gf.Tensor] | None = None,
-    edge: Mapping[str, gf.Tensor] | None = None,
+    src: Mapping[str, tg.Tensor] | None = None,
+    dst: Mapping[str, tg.Tensor] | None = None,
+    edge: Mapping[str, tg.Tensor] | None = None,
     params: Mapping[str, object] | None = None,
     iterations: int | None = None,
-    tolerance: gf.Tensor | float | None = None,
+    tolerance: tg.Tensor | float | None = None,
     max_iterations: int | None = None,
-    initial: gf.Tensor | None = None,
+    initial: tg.Tensor | None = None,
     preconditioner: Preconditioner | None = None,
-    relaxation: gf.Tensor | float = 1.0,
-) -> gf.Tensor:
+    relaxation: tg.Tensor | float = 1.0,
+) -> tg.Tensor:
     """Solve ``A·x = b`` matrix-free; ``method`` selects the iteration.
 
     - ``"cg"`` (default) — conjugate gradient; operator contract is symmetric

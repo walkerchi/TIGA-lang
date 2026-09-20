@@ -1,102 +1,97 @@
-# Compiler pipeline
+# Compiler introduction { #compiler-pipeline }
 
-Tiga compiles one Python program into different physical algorithms,
-chosen from the structure of the relation rather than from a workload name.
-To keep those choices correct and inspectable, lowering proceeds through four
-IR stages — Domain, Iter, Kernel, and Task IR — each fixing exactly one kind
-of decision before the program leaves the compiler through a stable provider
-boundary.
+This is the entry point for compiler developers. Prerequisite:
+the [Python programming model](programming-model.md). For running programs
+or identifying an execution failure, start with [execution and troubleshooting](execution.md).
 
-<figure class="gf-figure gf-figure--architecture">
-  <object type="image/svg+xml" data="/assets/compiler-pipeline-overview.svg" aria-label="Tiga compiler pipeline: Domain, Iter, Kernel and Task IR, then the provider handoff">
-    <img src="/assets/compiler-pipeline-overview.svg" alt="Tiga compiler pipeline: Domain, Iter, Kernel and Task IR, then the provider handoff">
-  </object>
-  <figcaption><a href="/assets/compiler-pipeline-overview.svg">Open the full-size SVG</a>. Each stage fixes one kind of decision; the provider handoff is the only vendor-specific step.</figcaption>
-</figure>
+## Why internal representations exist { #the-pipeline-at-a-glance }
 
-## The pipeline at a glance
+The Python program describes the result; the compiler must also decide how to
+visit edges, divide work and move data. An
+[intermediate representation (IR)](https://en.wikipedia.org/wiki/Intermediate_representation)
+records those decisions in a form that later transformations can inspect.
+IR is internal data, not an additional user API.
 
-| Stage | What it fixes | Who consumes it |
+For a weighted neighbor sum, the multiplication and sum define the computation.
+Choosing CSR row traversal or allocating work to a GPU block does not change
+that definition. Different IR layers keep these concerns separate.
+
+| Layer | Actual operation examples | Question being answered |
 |---|---|---|
-| Domain IR — `gf.domain` | What the program means: relations, field roles, UDF regions, reducers | Semantic optimization: canonicalization, fusion legality, automatic VJP |
-| Iter IR — `gf.iter` | How to traverse: coordinate hierarchy; dense, sparse, ragged, or generated order | Iteration lowering: builder–consumer fusion, row and tile bounds |
-| Kernel IR — `gf.kernel` | How to launch: launch geometry, tiles, masks, local working set | Provider translation: serialized TTIR on GPU, MLIR → LLVM on CPU |
-| Task IR — `gf.task` + `gf.storage` | Where data lives and when it moves: physical instances, owned/ghost/halo sets, event DAG | Runtime planning: async transfer, halo exchange, communication overlap |
+| Domain IR | `gf.relation`, `gf.apply`, `gf.reducer` | What graph and computation does the program describe? |
+| Iter IR | `gf_iter.traverse` | In what order should the relation be visited? |
+| Kernel IR | `gf_kernel.launch` | How should work and local resources be arranged? |
+| Task / Storage IR | `gf_task.launch`, `gf_storage.transfer` | Which tasks depend on which data or events? |
+| Tensor IR | `gf_tensor.mul`, `gf_tensor.reduce_sum` | What tensor expressions and gradients must be evaluated? |
 
-The GPU handoff is serialized TTIR, and the CPU path is a sibling lowering
-through upstream MLIR to LLVM. Neither boundary leaks vendor-specific layout
-encodings back into the stable IR.
+The older labels `gf.domain`, `gf.iter` and `gf.kernel` in architectural
+material are not literal operation names. A
+[dialect](https://en.wikipedia.org/wiki/MLIR_(software)) groups related
+operations; an operation such as `gf_iter.traverse` is one concrete instruction
+in that dialect. Some inspection APIs also accept stage aliases such as
+`"gf.iter"`; those strings are API keys, not MLIR syntax.
 
-Storage and task information is not a Python-side scheduling hint: cost and
-dependency facts feed back into iteration and kernel choices before local
-tasks are emitted.
+**Continue with [IR by example](ir-walkthrough.md)** for actual input/output,
+notation, and commands that reproduce each transformation.
 
-## Inspecting a compiled program
+## Not every program follows the same route { #execution-paths }
 
-Every compiled kernel or program doubles as an inspection handle:
+- **Native Tensor programs**, including native CSR message passing, capture
+  tensor expressions. Supported compiled CPU paths lower `gf_tensor`
+  operations toward LLVM; gradient expressions are also represented here.
+- **Relation compiler paths** retain `gf.apply` before
+  [lowering](https://en.wikipedia.org/wiki/Compiler#Back_end) through
+  `gf_iter` and `gf_kernel`. The walkthrough exercises this route directly
+  from a checked compiler fixture.
+- **Task and storage planning** add dependencies where the selected path
+  requires them. Task IR is not an obligatory fourth stage of every call.
+- **Reference evaluation** may be selected for small native expressions under
+  `auto`. It does not demonstrate that any compiled route executed.
 
-```python
-program(...)
-program.explain()        # backend, provider, lowering, pass sequence, cache state
+The [support matrix](roadmap.md) records which entry points serve which cases.
+A diagram of the compiler's capabilities is not an execution trace.
 
-for stage in ("domain", "iter", "kernel", "task", "gf.kernel.ttir"):
-    program.ir(stage)    # IR text at each pipeline stage
+## What is a provider?
 
-program.code("ttgir")    # generated code; also "llir" and "ptx"
-```
+A [backend](https://en.wikipedia.org/wiki/Compiler#Back_end) targets an execution
+environment. In Tiga, a provider is the adapter to a target toolchain/runtime,
+not a cloud service.
 
-`explain()` reports the backend, provider identity, selected lowering, pass
-sequence, cache state, and optimization remarks. A stage that produced no
-artifact raises a clear error — a semantic or external-library path never
-pretends to have generated PTX.
+The current NVIDIA path hands serialized Triton IR (TTIR) to Triton, which
+continues toward device code. The CPU path uses
+[LLVM](https://en.wikipedia.org/wiki/LLVM).
+Serialization keeps Tiga's and a provider's potentially different MLIR builds
+separate. Earlier schedule selection still uses target capabilities; target
+decisions do not all begin at the provider boundary.
 
-A worked example with real `explain()` output lives in
-[Inspecting the compilation](message-passing.md#inspecting-the-compilation).
+## Inspecting a compiled program { #inspecting-a-compiled-program }
 
-## Details
+Start with the result, not an assumed pipeline:
 
-??? info "What each dialect carries"
+| Question | Inspection |
+|---|---|
+| Did this native result execute through the JIT? | Realize it, then inspect `output.execution` |
+| What native Tensor code was generated? | `output.generated_code()`; `output.mlir(verify=True)` for verified Tensor IR |
+| What plan did a MessagePassing instance select? | `kernel.explain()` |
+| Does a selected variant contain Iter or Kernel IR? | `kernel.ir("iter")` / `kernel.ir("kernel")`, only when those artifacts exist |
 
-    - `gf.domain` preserves mathematical meaning: Entity/Field/Relation
-      schema, `edge()`/`node()` UDF regions, typed reducer regions, and
-      effects. `gf.tensor` keeps shape, dtype, and broadcasting explicit
-      alongside map/reduce/scan/contract and VJP requests.
-    - `gf.iter` makes sparse, ragged, dense, and generated iteration explicit
-      — coordinate hierarchy and traversal order — without committing to one
-      GPU vendor.
-    - `gf.kernel` fixes launch geometry, tiles, masks, and the local working
-      set while keeping vendor-specific layout encodings out of the stable
-      compiler boundary.
-    - `gf.storage` preserves logical Region, PhysicalInstance, memory space,
-      snapshot version, async transfer, and lifetime events across register,
-      shared, HBM, RAM, NVMe, and distributed tiers.
-    - `gf.task` preserves partition, owned/ghost/halo semantics, and an Event
-      DAG. Each local compute task lowers through the same
-      `gf.iter → gf.kernel` path, so communication stays below the Python
-      kernel without being forced inside a single device kernel.
+`kernel.ir("domain")` returns the variant's semantic plan, which is not
+necessarily parseable MLIR. `"gf.kernel.ttir"` is a supported inspection key,
+not a literal operation name. Missing artifacts raise an error; a loop asking
+for every stage is not a portable inspection recipe.
 
-??? info "Pass inventory by stage"
+Native gradients use a
+[VJP](https://en.wikipedia.org/wiki/Automatic_differentiation), derived by
+reverse-mode differentiation. The
+[runtime and autograd chapter](runtime-and-autograd.md) explains its representation.
 
-    | Stage | Information introduced | Representative transformations | Inspect with |
-    |---|---|---|---|
-    | Capture | field roles, relation provenance, UDF regions, shape/dtype guards | region verification, effect discovery, semantic hashing | `ir("domain")`, `Tensor.mlir()` |
-    | Semantic optimization | reducer algebra, Tensor DAG and VJP requests | canonicalization, fusion legality, automatic VJP, checkpoint candidates | `ir("domain")`, VJP IR |
-    | Iteration lowering | coordinate hierarchy, traversal order and generated/materialized choice | builder–consumer fusion, row bounds, dense/triangular tile bounds | `ir("iter")` |
-    | Kernel scheduling | launch geometry, tiles, masks, local working set and reduction | degree buckets, split rows, feature tiling, pipeline legality | `ir("kernel")`, `schedules` |
-    | Storage/task planning | physical instances, capacity, versions, owned/ghost sets and events | spill/recompute, async transfer, halo tasks, communication overlap | `ir("task")`, `explain()` |
-    | Provider translation | provider ABI and legal target operations | Tiga kernel IR → serialized TTIR, or CPU MLIR → LLVM | `ir("gf.kernel.ttir")`, `code(...)` |
+## Where to go deeper { #details }
 
-    The native passes live under `lib/Transforms/` — e.g. `LowerDomainToIter`,
-    `LowerIterToKernel`, `PlanDegreeBuckets`, `PlanSplitRows`,
-    `SelectKernelSchedule`, `FusionPasses`, `TensorVJP`,
-    `PlanTensorCheckpoints`, and `PlanDistributedTasks`.
-
-??? info "Why the GPU boundary is serialized TTIR"
-
-    Tiga and a vendor Triton fork each carry their own MLIR revision.
-    Serializing TTIR at the boundary prevents the two revisions from being
-    linked into one process, and keeps the handoff inspectable and cacheable.
-    A provider may be NVIDIA, ROCm, or a vendor Triton fork; Tiga never
-    links their MLIR into its core. Downstream of the boundary, vendor Triton
-    continues through TTGIR and LLVM IR to PTX, cubin, or a vendor ISA, while
-    the runtime launches compiled tasks and honors Event DAG dependencies.
+| Development question | Next chapter |
+|---|---|
+| How do real operations change between passes? | [IR by example](ir-walkthrough.md) |
+| Where are the files, and how are changes tested? | [Build and contribute](development.md) |
+| How are generated neighbors and irregular degrees handled? | [Dynamic relations](dynamic-graphs.md) |
+| How are gradients and deferred tensors implemented? | [Tensor runtime and autograd](runtime-and-autograd.md) |
+| How are transfers and communication represented? | [Memory and distributed execution](memory-and-distributed.md) |
+| How do solver loops and implicit gradients work? | [Linear solvers](linear-solvers.md) |

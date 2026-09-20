@@ -96,118 +96,124 @@ def plot_operation_summary(payloads: list[dict], output: Path) -> Path:
             facets[(workload, _condition(payload, item))].append((payload, item))
     ordered_facets = sorted(facets.items(), key=lambda entry: entry[0])
 
+    import textwrap
     _style()
-    fig, axes = plt.subplots(
-        len(ordered_facets), 2, squeeze=False,
-        figsize=(16.5, max(5.6, 4.5 * len(ordered_facets))),
-        constrained_layout=True,
-    )
-    for row, ((workload, condition), records) in enumerate(ordered_facets):
-        facet_payloads = list({id(payload): payload for payload, _item in records}.values())
-        roofs = [payload["roof"] for payload in facet_payloads]
-        dram = statistics.median(float(roof["dram_bandwidth_gbs"]) for roof in roofs)
-        l2 = statistics.median(float(roof["l2_bandwidth_gbs"]) for roof in roofs)
-        compute = statistics.median(float(
-            roof.get("compute_gflops", roof["fp32_gflops"])) for roof in roofs)
-        intensities = [_intensity(item) for _payload, item in records]
-        achieved = [float(item["achieved_gflops"]) for _payload, item in records]
-        xmin, xmax = min(intensities) / 1.6, max(intensities) * 1.6
-        if math.isclose(xmin, xmax):
-            xmin, xmax = xmin / 1.3, xmax * 1.3
-        xs = np.logspace(math.log10(xmin), math.log10(xmax), 300)
+    images = []
+    for page_start in range(0, len(ordered_facets), 3):
+        page_facets = ordered_facets[page_start:page_start + 3]
+        fig, axes = plt.subplots(
+            len(page_facets), 2, squeeze=False,
+            figsize=(16.5, max(5.6, 4.5 * len(page_facets))),
+            constrained_layout=True,
+        )
+        for row, ((workload, condition), records) in enumerate(page_facets):
+            facet_payloads = list({id(payload): payload for payload, _item in records}.values())
+            roofs = [payload["roof"] for payload in facet_payloads]
+            dram = statistics.median(float(roof["dram_bandwidth_gbs"]) for roof in roofs)
+            l2 = statistics.median(float(roof["l2_bandwidth_gbs"]) for roof in roofs)
+            compute = statistics.median(float(
+                roof.get("compute_gflops", roof["fp32_gflops"])) for roof in roofs)
+            intensities = [_intensity(item) for _payload, item in records]
+            achieved = [float(item["achieved_gflops"]) for _payload, item in records]
+            xmin, xmax = min(intensities) / 1.6, max(intensities) * 1.6
+            if math.isclose(xmin, xmax):
+                xmin, xmax = xmin / 1.3, xmax * 1.3
+            xs = np.logspace(math.log10(xmin), math.log10(xmax), 300)
 
-        series: dict[str, list[tuple[dict, dict]]] = defaultdict(list)
-        for payload, item in records:
-            series[item["provider"]].append((payload, item))
+            series: dict[str, list[tuple[dict, dict]]] = defaultdict(list)
+            for payload, item in records:
+                series[item["provider"]].append((payload, item))
 
-        for column, ax in enumerate(axes[row]):
-            ax.plot(xs, np.minimum(compute, dram * xs), "--", color="#64748b",
-                    linewidth=1.8, label="median DRAM roof")
-            ax.plot(xs, np.minimum(compute, l2 * xs), "-", color="#111827",
-                    linewidth=1.8, label="median L2 roof")
-            if column == 0:
-                ax.axhline(compute, color="#9333ea", linestyle=":", linewidth=1.6,
-                           label="median compute ceiling")
-            numbered_points = []
-            size_anchors: dict[tuple[float, str], float] = {}
-            for provider, points in sorted(series.items()):
-                ordered = sorted(
-                    points,
-                    key=lambda pair: (
-                        _intensity(pair[1]), pair[1].get("nodes", 0),
-                        pair[1].get("edges", 0), pair[1].get("features", 0)),
-                )
-                xvalues = [_intensity(item) for _payload, item in ordered]
-                yvalues = [float(item["achieved_gflops"])
-                           for _payload, item in ordered]
-                color = provider_color(provider)
-                if len(ordered) > 1:
-                    ax.plot(xvalues, yvalues, "-", color=color,
-                            linewidth=1.5, alpha=0.72)
-                numbered_points.extend(
-                    (xvalue, yvalue, provider)
-                    for xvalue, yvalue in zip(xvalues, yvalues))
-                if column == 1 and len(ordered) > 1:
-                    for _payload, item in ordered:
-                        label = _size_label(item)
-                        if label:
-                            key = (_intensity(item), label)
-                            size_anchors[key] = max(
-                                size_anchors.get(key, 0.0),
-                                float(item["achieved_gflops"]))
-            scatter_numbered(ax, numbered_points, numbers)
-            if column == 1:
-                for point_index, ((xvalue, label), yvalue) in enumerate(
-                        sorted(size_anchors.items())):
-                    ax.annotate(
-                        label, (xvalue, yvalue),
-                        xytext=(5, 7 if point_index % 2 == 0 else -11),
-                        textcoords="offset points", fontsize=6.5,
-                        color="#475569")
-            ax.set_xscale("log")
-            ax.set_yscale("log")
-            ax.set_xlim(xmin, xmax)
-            ax.grid(True, which="both")
-            ax.set_xlabel("Semantic arithmetic intensity (FLOP / common byte)")
-            ax.set_ylabel("Achieved performance (GFLOP/s)")
+            for column, ax in enumerate(axes[row]):
+                ax.plot(xs, np.minimum(compute, dram * xs), "--", color="#64748b",
+                        linewidth=1.8, label="median DRAM roof")
+                ax.plot(xs, np.minimum(compute, l2 * xs), "-", color="#111827",
+                        linewidth=1.8, label="median L2 roof")
+                if column == 0:
+                    ax.axhline(compute, color="#9333ea", linestyle=":", linewidth=1.6,
+                               label="median compute ceiling")
+                numbered_points = []
+                size_anchors: dict[tuple[float, str], float] = {}
+                for provider, points in sorted(series.items()):
+                    ordered = sorted(
+                        points,
+                        key=lambda pair: (
+                            _intensity(pair[1]), pair[1].get("nodes", 0),
+                            pair[1].get("edges", 0), pair[1].get("features", 0)),
+                    )
+                    xvalues = [_intensity(item) for _payload, item in ordered]
+                    yvalues = [float(item["achieved_gflops"])
+                               for _payload, item in ordered]
+                    color = provider_color(provider)
+                    if len(ordered) > 1:
+                        ax.plot(xvalues, yvalues, "-", color=color,
+                                linewidth=1.5, alpha=0.72)
+                    numbered_points.extend(
+                        (xvalue, yvalue, provider)
+                        for xvalue, yvalue in zip(xvalues, yvalues))
+                    if column == 1 and len(ordered) > 1:
+                        for _payload, item in ordered:
+                            label = _size_label(item)
+                            if label:
+                                key = (_intensity(item), label)
+                                size_anchors[key] = max(
+                                    size_anchors.get(key, 0.0),
+                                    float(item["achieved_gflops"]))
+                scatter_numbered(ax, numbered_points, numbers)
+                if column == 1:
+                    for point_index, ((xvalue, label), yvalue) in enumerate(
+                            sorted(size_anchors.items())):
+                        ax.annotate(
+                            label, (xvalue, yvalue),
+                            xytext=(5, 7 if point_index % 2 == 0 else -11),
+                            textcoords="offset points", fontsize=8,
+                            color="#475569")
+                ax.set_xscale("log")
+                ax.set_yscale("log")
+                ax.set_xlim(xmin, xmax)
+                ax.grid(True, which="both")
+                ax.set_xlabel("Semantic arithmetic intensity (FLOP / common byte)")
+                ax.set_ylabel("Achieved performance (GFLOP/s)")
 
-        axes[row, 0].set_ylim(
-            10 ** math.floor(math.log10(min(achieved) / 1.5)), compute * 1.5)
-        condition_label = _condition_label(condition)
-        axes[row, 0].set_title(
-            f"{workload} · {condition_label} · full roofline")
-        axes[row, 0].legend(fontsize=7, loc="upper left", framealpha=0.92)
-        axes[row, 1].set_ylim(min(achieved) / 1.35, max(achieved) * 1.35)
-        axes[row, 1].set_title(
-            f"{workload} · {condition_label} · input-size trend")
+            axes[row, 0].set_ylim(
+                10 ** math.floor(math.log10(min(achieved) / 1.5)), compute * 1.5)
+            condition_label = _condition_label(condition)
+            axes[row, 0].set_title(
+                textwrap.fill(condition_label, 65) + "\nFull roofline")
+            axes[row, 0].legend(fontsize=8, loc="upper left", framealpha=0.92)
+            axes[row, 1].set_ylim(min(achieved) / 1.35, max(achieved) * 1.35)
+            axes[row, 1].set_title(
+                textwrap.fill(condition_label, 65) + "\nInput-size trend")
 
-        provider_handles = []
-        for provider in sorted(series):
-            provider_handles.append(Line2D(
-                [0], [0], color=provider_color(provider),
-                linestyle="-", linewidth=1.5,
-                marker=_number_marker(numbers[provider]), markersize=9,
-                label=f"{numbers[provider]} = {provider}",
-            ))
-        axes[row, 1].legend(
-            handles=provider_handles, fontsize=7, loc="best", framealpha=0.93,
-            title="stable provider marker/color; lines vary input size")
+            provider_handles = []
+            for provider in sorted(series):
+                provider_handles.append(Line2D(
+                    [0], [0], color=provider_color(provider),
+                    linestyle="-", linewidth=1.5,
+                    marker=_number_marker(numbers[provider]), markersize=9,
+                    label=f"{numbers[provider]} = {provider}",
+                ))
+            axes[row, 1].legend(
+                handles=provider_handles, fontsize=8, loc="best", framealpha=0.93,
+                title="stable provider marker/color; lines vary input size")
 
-    fig.suptitle(
-        f"Tiga {operation.replace('_', ' ')} · registered-case summary",
-        fontsize=15, fontweight="bold")
-    output.mkdir(parents=True, exist_ok=True)
-    path = output / "summary.png"
-    _save(fig, path.with_suffix(""))
+        fig.suptitle(
+            f"Tiga {operation.replace('_', ' ')} · registered-case summary",
+            fontsize=15, fontweight="bold")
+        output.mkdir(parents=True, exist_ok=True)
+        stem = "summary" if page_start == 0 else f"summary-{page_start // 3 + 1}"
+        path = output / f"{stem}.png"
+        _save(fig, path.with_suffix(""))
+        images.append(f"![Conditions {page_start + 1}–{page_start + len(page_facets)}]({stem}.svg)")
     (output / "SUMMARY.md").write_text(
         f"# {operation.replace('_', ' ').title()} summary\n\n"
         "Cases with the same semantics and different input sizes are connected. "
-        "Condition changes use separate line styles; numeric markers identify "
+        "Condition changes use separate panels; numeric markers identify "
         "providers without changing measured coordinates.\n\n"
-        "![Registered-case summary](summary.svg)\n",
+        "All conditions are retained across pages; each page shows at most three.\n\n" + "\n\n".join(images) + "\n",
         encoding="utf-8",
     )
-    return path
+    return output / "summary.png"
 
 
 def load_payloads(paths: list[Path]) -> list[dict]:
@@ -284,9 +290,7 @@ def _report_method_color(provider: str, *, primary: bool = False) -> str:
     Tiga alternatives are soft indigo, and every matched peer is
     muted slate; provider identity is carried by the y-tick labels.
     """
-    if not provider.startswith("tiga."):
-        return docs_style.SLATE
-    return docs_style.GF if primary else docs_style.GF_SOFT
+    return provider_color(provider)
 
 
 def _matched_panel_records(

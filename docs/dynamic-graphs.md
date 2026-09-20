@@ -15,8 +15,14 @@ realization, not the default meaning of `Graph.radius` or `Graph.knn`.
 
 ## The realization matrix
 
+This matrix combines native and Torch-adapter implementations with
+explicitly marked plans. Generated CUDA traversal is not the native
+MessagePassing default: native radius currently consumes materialized CSR,
+and native kNN/dense MessagePassing is not supported. See [coverage](roadmap.md).
+
 | Relation and lifecycle | Physical structure | Compiler opportunity | Best regime | Current status |
 |---|---|---|---|---|
+| Fixed grid stencil | CSR generated from grid dimensions and offsets | reuse topology across field updates; an offset-only traversal is a separate optimization | regular-grid filtering and local updates | CPU/CUDA constructor and Torch execution available; currently materializes CSR |
 | Dense Cartesian or triangular | no edge array; query/source tiles | fuse message, online reducer and value contraction; keep state in registers/shared memory | attention, all-pairs kernels whose output is much smaller than the relation | executable and benchmarked |
 | Euclidean radius, rebuilt | sorted cell directory plus occupied-cell ranges | generate candidates inside the consumer, reject by distance, and avoid CSR/distance/message tensors | low-dimensional particles with bounded cell occupancy | executable for 2D/3D default metric, including periodic box/skew cases |
 | Radius with bounded motion | cell directory or neighbor list plus a skin | reuse while the displacement certificate holds; rebuild only on invalidation | molecular dynamics and time stepping with coherent motion | snapshot/version reuse exists; a full Verlet invalidation policy is next work |
@@ -24,7 +30,7 @@ realization, not the default meaning of `Graph.radius` or `Graph.knn`.
 | Approximate kNN | IVF/HNSW/tree directory plus refinement relation | compile probe/refine as nested generated relations and expose recall as part of the contract | high-dimensional search where exact all-pairs is unnecessary | planned; no performance claim |
 | Mutable edge stream | immutable CSR base plus sorted delta segments/tombstones | fuse base and delta traversal, compact asynchronously, version snapshots | temporal/social graphs with small batches of edge updates | planned |
 | Skewed materialized graph | degree CDF worklists and chunked high-degree tails | different schedules for short rows and split rows; disjoint output ownership avoids atomics | power-law social graphs | executable and benchmarked |
-| SSD/distributed graph | destination shards, paged CSR, ghost map and halo plan | prefetch pages, execute interior while communication runs, then execute boundary | graphs larger than one accelerator or host memory | paged CPU and automatic halo execution exist; real multi-GPU performance remains open |
+| SSD/distributed graph | paged CSR for offload; destination shards and a halo plan for distributed execution | page through topology, or exchange the halo before computing owned rows | large stored graphs and spatial partitions | single-device paging and two-host NCCL measured separately; see [experiments](experiments.md) |
 
 “Dynamic” therefore has at least three independent axes:
 
@@ -34,6 +40,18 @@ realization, not the default meaning of `Graph.radius` or `Graph.knn`.
 
 Those facts belong in the captured relation and its snapshot token. They should
 not be handwritten `cache(..., space="shared")` hints in every user kernel.
+
+## Fixed rules are generated, not necessarily dynamic { #fixed-grid-stencil }
+
+`Graph.stencil(dims, offsets=None, periodic=False)` defines source coordinates as
+the destination coordinate plus each offset. No positions or distance search
+are required. Changing node values does not change this topology. The current
+constructor materializes CSR; it does not promise an implicit, edge-free kernel.
+See the [five-point grid example](examples/dynamic-relations.md#regular-grid-stencil)
+for indexing, periodic boundaries and Torch gradients.
+Omitting offsets uses `tg.stencil.von_neumann()`; `tg.stencil.moore()` and
+explicit tuples are also supported. See [neighborhood macros](examples/dynamic-relations.md#stencil-neighborhood-macros)
+and [radius/kNN distance metrics](examples/dynamic-relations.md#distance-metrics).
 
 ## Generated radius traversal
 
@@ -47,15 +65,69 @@ flowchart LR
     E --> F[message + reducer]
 ```
 
-The directory is `O(N + cells)` and edges are never required to exist in global
-memory. Build/consume fusion removes four otherwise materialized arrays: row
-pointers, column indices, edge distances and messages. This is where the
-registered 4.425× fresh-pipeline result comes from; merely replacing one CSR
-consumer with another cannot produce that algorithmic saving.
+On the generated CUDA path, the directory is `O(N + cells)` and edges need
+not exist as an array in global memory. Build/consume fusion removes four otherwise materialized arrays: row
+pointers, column indices, edge distances and messages. The [archived dynamic
+benchmark](benchmark-results.md#gpu) compares the resulting build-and-consume
+path with explicit construction and aggregation.
 
 Custom metrics need a proven broad-phase bound before they may use this path.
 Without one, Tiga retains exact semantics and selects a general fallback.
 A `select` UDF may remove candidates but cannot bypass the radius predicate.
+
+### CUDA hash-directory implementation and matched Warp comparison { #radius-hash-grid }
+
+Contiguous FP32 2D/3D non-periodic Euclidean inputs use a fixed-size modular
+[hash grid](https://en.wikipedia.org/wiki/Spatial_hashing). Torch-compiled
+preprocessing computes bucket keys; vendor sort/search primitives build their
+ranges. Tiga emits the neighbor traversal, exact distance predicate and scalar
+distance-weighted sum through Domain/Iter/Kernel IR. Bucket wrapping is hashing,
+not periodic geometry: collisions add candidates, never accepted edges. Periodic
+geometry retains the separate dense directory. Custom metrics keep their exact
+fallback. This path does not cover general EdgeNN fusion; backward may still materialize CSR.
+Index snapshots and ordinary outputs own independent storage, even through
+`detach()` aliases. Only private index scratch is explicitly reused. Inference
+tensors have no version counter, so data-dependent caches conservatively rebuild.
+
+September 20, 2026 validation on RTX 5070 Ti, Torch 2.11.0+cu128, Triton 3.6.0,
+Warp 1.9.1: 131,072 uniform 3D points, approximately 4.02M directed edges,
+one FP32 feature, `sum(distance * x)`, no self edges or neighbor truncation.
+All rows in both coordinate snapshots match an independent materialized reference
+(maximum absolute error below 5e-7).
+
+| Implementation | Index build (ms) | Fixed-index compute (ms) | Rebuild + compute (ms) | Peak allocated buffers (MiB) |
+|---|---:|---:|---:|---:|
+| Tiga dense-directory baseline | 0.4030 | 1.2374 | 1.6968 | 21.68 |
+| Tiga hash-directory | 0.1808 | 0.3218 | 0.5626 | 16.00 |
+| Warp hash grid | 0.0620 | 0.2469 | 0.2905 | 8.78 |
+
+The new Tiga path is about 3.02× faster than the dense baseline for rebuild plus
+compute on this case. **Warp remains faster and uses less allocated memory.**
+These numbers do not establish a general radius-search advantage over Warp.
+Earlier EdgeNN charts use different computations and timing boundaries.
+
+Each provider runs in a fresh process with five warmups and 30 samples per
+phase. Times are synchronized wall-clock medians; changing coordinates is
+outside the timer for both providers. Fixed-index execution disables Tiga's
+adaptive CSR cache, so both methods query their spatial index. Allocation peaks
+include inputs and provider scratch, not driver/modules or reserved free blocks;
+Warp's reported upper bound combines its pool high-water counter with constant
+Torch inputs. CUDA-event samples, both snapshot hashes and source hashes are in
+the raw records: [Tiga](assets/results/radius-warp/release-n131072-tiga.json),
+[dense baseline](assets/results/radius-warp/release-n131072-tiga-dense.json),
+[Warp](assets/results/radius-warp/release-n131072-warp.json).
+
+Run the [matched benchmark source](https://github.com/walkerchi/TIGA-lang/blob/main/benchmarks/graph_operations/warp_radius.py)
+after installing optional benchmark-only `warp-lang==1.9.1`:
+
+```bash
+for provider in tiga tiga-dense warp; do
+  python benchmarks/graph_operations/warp_radius.py --provider "$provider" \
+    --nodes 131072 --repeats 30 --output "output/radius-$provider.json"
+done
+```
+
+The benchmark is separate from ordinary installation; Tiga does not depend on Warp.
 
 ## Exact kNN needs hierarchical selection
 
@@ -83,10 +155,10 @@ contract and must report recall as well as speed.
 One thread block per row wastes most lanes on short rows and stalls on hubs.
 Tiga records the degree distribution and selects a mixed schedule:
 
-![Rows sorted by degree fan out into two schedules — short and medium rows become worklist row tiles, the hub row splits into fixed-size edge chunks — then all partials merge deterministically into disjoint per-destination outputs](/assets/power-law-schedule.svg)
+![Rows sorted by degree fan out into two schedules — short and medium rows become worklist row tiles, the hub row splits into fixed-size edge chunks — then all partials merge deterministically into disjoint per-destination outputs](assets/power-law-schedule.svg)
 
-For a row $i$ of degree $d_i$ with chunk size $C$ and degree threshold
-$\tau$, the schedule and the merge it preserves are:
+For a row `i` of degree `d_i` with chunk size `C` and degree threshold
+`tau`, the schedule and the merge it preserves are:
 
 $$
 d_i \le \tau \;\Rightarrow\; \text{one worklist tile},
@@ -117,12 +189,13 @@ the skin is exhausted. For temporal graphs, a base CSR plus delta segments can
 serve the same role, with compaction scheduled outside the critical path.
 
 The two reuse contracts, written out — the Verlet certificate on the left
-(particles may drift less than the skin), the temporal base-plus-delta form
-on the right (base CSR $B$, edge insertions $\Delta^{+}$, tombstones
-$\Delta^{-}$):
+(each particle moves less than half the extra neighbor-list radius), the temporal base-plus-delta form
+on the right (base CSR `B`, edge insertions `Δ⁺`, tombstones
+`Δ⁻`):
 
 $$
-\text{reuse}(s \!\to\! t) \iff \max_i \lVert p_i(t) - p_i(s) \rVert < r_{\mathrm{skin}},
+2\max_i \lVert p_i(t) - p_i(s) \rVert < r_{\mathrm{skin}}
+\;\Rightarrow\; \text{safe reuse}(s \!\to\! t),
 \qquad
 R(t) \;=\; B \;\cup\; \Delta^{+} \;\setminus\; \Delta^{-}
 $$
@@ -135,22 +208,14 @@ flowchart LR
     R --> S
 ```
 
-For large graphs, `Graph.open(...)` preserves the same MessagePassing call. The
-physical planner partitions by destination, reads only the required pages,
-constructs a ghost map, and emits this dependency graph:
-
-```mermaid
-%%{init: {'theme':'base', 'themeVariables': {'primaryColor':'#eef2ff','primaryBorderColor':'#4f46e5','primaryTextColor':'#312e81','lineColor':'#64748b','fontFamily':'Arial'}}}%%
-flowchart LR
-    P[page prefetch] --> I[interior compute] --> M[merge]
-    H[halo pack] --> X[exchange] --> U[unpack] --> B[boundary compute] --> M
-    S[SSD refill] --> M
-```
-
-The user does not invoke communication primitives manually. Placement and halo
-depth are graph properties; pack/exchange/unpack and stream/event dependencies
-are compiler/runtime tasks. Current CPU execution validates this model, while
-multi-GPU NCCL/RCCL throughput remains an explicit open gate.
+For large stored graphs, `Graph.open(...)` exposes paged topology through the
+MessagePassing interface. Distributed execution is a separate placement path:
+the runtime packs, exchanges and unpacks the halo, then computes all owned rows.
+The public policy is **communication then compute**, not split interior/boundary
+overlap. Placement and halo depth are graph properties; communication is managed
+by the runtime. Single-device paging and two-host NCCL results are reported
+separately in [experiments](experiments.md); these do not establish a combined
+distributed-offload capacity guarantee.
 
 ## Performance boundaries
 

@@ -18,12 +18,12 @@ import warnings
 
 import torch
 
-import tiga as gf
+import tiga as tg
 from benchmarks.kernels.sparse_triton_oracles import prepare_fixed_weighted_sum
 
 
-class WeightedAggregation(gf.MessagePassing):
-    reducer = gf.sum()
+class WeightedAggregation(tg.MessagePassing):
+    reducer = tg.sum()
 
     def edge(self, src, dst, edge):
         return edge.weight * src.x
@@ -132,7 +132,7 @@ def main() -> None:
             nodes, (nodes * degree,), device="cuda", dtype=torch.int64)
         x = torch.randn(nodes, device="cuda")
         weight = torch.randn(nodes * degree, device="cuda")
-        graph = gf.Graph.from_csr(row_ptr, col_idx, num_src=nodes)
+        graph = tg.Graph.from_csr(row_ptr, col_idx, num_src=nodes)
 
         kernel = WeightedAggregation()
         torch.cuda.synchronize()

@@ -17,8 +17,14 @@ class Dim:
     multiple_of: int = 1
 
     def __post_init__(self) -> None:
-        if not self.name.isidentifier():
+        if not isinstance(self.name, str) or not self.name.isidentifier():
             raise ValueError("symbolic dimension name must be an identifier")
+        if any(isinstance(value, bool) or not isinstance(value, int)
+               for value in (self.minimum, self.multiple_of)) or (
+            self.maximum is not None and
+            (isinstance(self.maximum, bool) or not isinstance(self.maximum, int))
+        ):
+            raise ValueError("symbolic dimension bounds must be integers")
         if self.minimum < 0 or self.multiple_of <= 0:
             raise ValueError("invalid symbolic dimension bounds")
         if self.maximum is not None and self.maximum < self.minimum:
@@ -42,7 +48,7 @@ class TensorSpec:
     ) -> None:
         normalized = tuple(shape)
         if any(
-            not isinstance(extent, (int, Dim))
+            isinstance(extent, bool) or not isinstance(extent, (int, Dim))
             or isinstance(extent, int) and extent < 0
             for extent in normalized
         ):

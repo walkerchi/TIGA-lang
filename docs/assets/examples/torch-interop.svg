@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="940" height="320" viewBox="0 0 940 320" role="img" aria-labelledby="title desc">
   <title id="title">Ring aggregation and zero-copy Torch interop</title>
-  <desc id="desc">Eight nodes form a ring; each node sums the values of its two neighbors. Separately, a torch.Tensor and a gf.Tensor can share the same storage without a copy.</desc>
+  <desc id="desc">Eight nodes form a ring; each node sums the values of its two neighbors. Separately, a torch.Tensor and a tg.Tensor can share the same storage without a copy.</desc>
   <defs>
     <marker id="mpArrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
       <path d="M0 0l10 5-10 5z" fill="#64748b" />
@@ -101,13 +101,13 @@
   </g>
  </g><g>
     <rect x="500" y="120" width="180" height="80" rx="12" class="userBox" />
-    <text x="590" y="146" text-anchor="middle" class="stage">TORCH · YOU</text>
+    <text x="590" y="146" text-anchor="middle" class="stage">TORCH</text>
     <text x="590" y="174" text-anchor="middle" class="mono">torch.Tensor x</text>
   </g>
   <g>
     <rect x="740" y="120" width="160" height="80" rx="12" class="box" />
-    <text x="820" y="146" text-anchor="middle" class="stage">GRAPHFORGE</text>
-    <text x="820" y="174" text-anchor="middle" class="mono">gf.Tensor</text>
+    <text x="820" y="146" text-anchor="middle" class="stage">TIGA</text>
+    <text x="820" y="174" text-anchor="middle" class="mono">tg.Tensor</text>
   </g>
   <path d="M680 160 H740" class="flow" marker-start="url(#mpArrow)" />
   <text x="710" y="140" text-anchor="middle" class="body">zero-copy</text>

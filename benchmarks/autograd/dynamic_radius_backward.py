@@ -16,7 +16,7 @@ import time
 
 import torch
 
-import tiga as gf
+import tiga as tg
 from benchmarks.common.hardware_roofline import measure_roofs, samples_ms
 from benchmarks.common.output_layout import artifact_path
 from benchmarks.common.perf_protocol import evaluate_sota_gates
@@ -26,8 +26,8 @@ from benchmarks.kernels.sparse_triton_oracles import (
 )
 
 
-class RadiusDistanceAggregation(gf.MessagePassing):
-    reducer = gf.sum()
+class RadiusDistanceAggregation(tg.MessagePassing):
+    reducer = tg.sum()
 
     def edge(self, src, dst, edge):
         return edge.distance * src.x
@@ -83,7 +83,7 @@ def main() -> None:
     unit_ball = torch.pi if args.dimensions == 2 else 4.0 * torch.pi / 3.0
     cutoff = float((args.degree / (args.nodes * unit_ball)) **
                    (1.0 / args.dimensions))
-    graph = gf.Graph.radius(positions, cutoff=cutoff)
+    graph = tg.Graph.radius(positions, cutoff=cutoff)
     kernel = RadiusDistanceAggregation()
     output = kernel(graph=graph, src={"x": source}, dst={"x": source})
     torch_graph = kernel._torch_executor._last_executable.graph

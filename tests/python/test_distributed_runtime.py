@@ -13,7 +13,7 @@ from pathlib import Path
 
 from _distributed_gates import mpi_launcher
 
-import tiga as gf
+import tiga as tg
 from tiga.distributed import (
     DeviceBufferSlice, DistributedRuntime, DistributedTaskResolver,
     MPITransportProvider, NCCLTransportProvider, PipeTransport, ShardedField,
@@ -22,8 +22,8 @@ from tiga.distributed import (
 )
 
 
-class ShardedNeighborSum(gf.MessagePassing):
-    reducer = gf.sum()
+class ShardedNeighborSum(tg.MessagePassing):
+    reducer = tg.sum()
 
     def edge(self, src, dst, edge):
         del dst, edge
@@ -49,7 +49,7 @@ def _halo_worker(rank, endpoint, halo, queue):
 
 def _bundle_halo_worker(rank, endpoint, halo, serialized_plan, queue):
     transport = PipeTransport(rank, 2, {1 - rank: endpoint})
-    plan = gf.runtime.ExecutableBundlePlan.parse(serialized_plan)
+    plan = tg.runtime.ExecutableBundlePlan.parse(serialized_plan)
     field = ShardedField(
         halo,
         b"".join(
@@ -61,7 +61,7 @@ def _bundle_halo_worker(rank, endpoint, halo, serialized_plan, queue):
     resolver = DistributedTaskResolver(halo, transport, element_bytes=8)
     resources = resolver.allocate_communication(plan)
     resources["field"] = field
-    plan.bind(resolver).submit(gf.runtime.SynchronousProvider(), resources).wait()
+    plan.bind(resolver).submit(tg.runtime.SynchronousProvider(), resources).wait()
     queue.put((rank, {
         entity: struct.unpack("q", field.ghosts.value_bytes(entity))[0]
         for entity in field.ghosts.ids
@@ -71,13 +71,13 @@ def _bundle_halo_worker(rank, endpoint, halo, serialized_plan, queue):
 def _sharded_message_worker(rank, endpoint, row_ptr, col_idx, queue):
     entities = len(row_ptr) - 1
     begin, end = owned_range(entities, 2, rank)
-    graph = gf.Graph.from_csr(
-        gf.tensor(row_ptr, dtype=gf.int64),
-        gf.tensor(col_idx, dtype=gf.int64),
+    graph = tg.Graph.from_csr(
+        tg.tensor(row_ptr, dtype=tg.int64),
+        tg.tensor(col_idx, dtype=tg.int64),
         num_src=entities,
         validate="full",
-    ).halo(gf.DeviceMesh("cpu", 2), depth=1)
-    local_x = gf.tensor([float(entity) for entity in range(begin, end)])
+    ).halo(tg.DeviceMesh("cpu", 2), depth=1)
+    local_x = tg.tensor([float(entity) for entity in range(begin, end)])
     transport = PipeTransport(rank, 2, {1 - rank: endpoint})
     with DistributedRuntime(transport):
         output = ShardedNeighborSum()(
@@ -86,9 +86,9 @@ def _sharded_message_worker(rank, endpoint, row_ptr, col_idx, queue):
 
 
 def _paged_sharded_message_worker(rank, endpoint, path, queue):
-    graph = gf.load(path).halo(gf.DeviceMesh("cpu", 2), depth=1)
+    graph = tg.load(path).halo(tg.DeviceMesh("cpu", 2), depth=1)
     begin, end = owned_range(graph.schema.num_dst, 2, rank)
-    local_x = gf.tensor([float(entity) for entity in range(begin, end)])
+    local_x = tg.tensor([float(entity) for entity in range(begin, end)])
     transport = PipeTransport(rank, 2, {1 - rank: endpoint})
     with DistributedRuntime(transport):
         output = ShardedNeighborSum()(
@@ -97,22 +97,27 @@ def _paged_sharded_message_worker(rank, endpoint, path, queue):
 
 
 def _sharded_vjp_worker(rank, endpoint, row_ptr, col_idx, queue):
+    # Exercise the runtime/LLVM boundary even for this tiny graph; auto mode
+    # otherwise uses the Python oracle and can hide unsupported native capture.
+    os.environ["TIGA_TENSOR_BACKEND"] = "native"
     entities = len(row_ptr) - 1
     begin, end = owned_range(entities, 2, rank)
-    graph = gf.Graph.from_csr(
-        gf.tensor(row_ptr, dtype=gf.int64),
-        gf.tensor(col_idx, dtype=gf.int64),
+    graph = tg.Graph.from_csr(
+        tg.tensor(row_ptr, dtype=tg.int64),
+        tg.tensor(col_idx, dtype=tg.int64),
         num_src=entities,
         validate="full",
-    ).halo(gf.DeviceMesh("cpu", 2), depth=1)
-    local_x = gf.tensor(
+    ).halo(tg.DeviceMesh("cpu", 2), depth=1)
+    local_x = tg.tensor(
         [float(entity) for entity in range(begin, end)], requires_grad=True)
     transport = PipeTransport(rank, 2, {1 - rank: endpoint})
     with DistributedRuntime(transport):
         output = ShardedNeighborSum()(
             graph=graph, src={"x": local_x}, dst={})
-        gradient = gf.autograd.grad(output.sum(), local_x)
-        values = gradient.tolist()
+        gradient = tg.autograd.grad(output.sum(), local_x)
+        # A local compiled consumer must also materialize nested communication.
+        values = (gradient * 1.0).tolist()
+        assert gradient.execution["backend"] == "distributed-halo-reverse"
     queue.put((rank, values, gradient.expression()))
 
 
@@ -120,12 +125,12 @@ def _sharded_gpu_message_worker(rank, endpoint, row_ptr, col_idx, queue):
     device = "cuda:0"
     entities = len(row_ptr) - 1
     begin, end = owned_range(entities, 2, rank)
-    graph = gf.Graph.from_csr(
-        gf.tensor(row_ptr, dtype=gf.int64, device=device),
-        gf.tensor(col_idx, dtype=gf.int64, device=device),
+    graph = tg.Graph.from_csr(
+        tg.tensor(row_ptr, dtype=tg.int64, device=device),
+        tg.tensor(col_idx, dtype=tg.int64, device=device),
         num_src=entities, validate="full",
-    ).halo(gf.DeviceMesh("cuda", 2), depth=1)
-    local_x = gf.tensor(
+    ).halo(tg.DeviceMesh("cuda", 2), depth=1)
+    local_x = tg.tensor(
         [float(entity) for entity in range(begin, end)], device=device)
     transport = PipeTransport(rank, 2, {1 - rank: endpoint})
     os.environ["TIGA_TENSOR_BACKEND"] = "native"
@@ -141,12 +146,12 @@ def _sharded_gpu_vjp_worker(rank, endpoint, row_ptr, col_idx, queue):
     device = "cuda:0"
     entities = len(row_ptr) - 1
     begin, end = owned_range(entities, 2, rank)
-    graph = gf.Graph.from_csr(
-        gf.tensor(row_ptr, dtype=gf.int64, device=device),
-        gf.tensor(col_idx, dtype=gf.int64, device=device),
+    graph = tg.Graph.from_csr(
+        tg.tensor(row_ptr, dtype=tg.int64, device=device),
+        tg.tensor(col_idx, dtype=tg.int64, device=device),
         num_src=entities, validate="full",
-    ).halo(gf.DeviceMesh("cuda", 2), depth=1)
-    local_x = gf.tensor(
+    ).halo(tg.DeviceMesh("cuda", 2), depth=1)
+    local_x = tg.tensor(
         [float(entity) for entity in range(begin, end)], device=device,
         requires_grad=True)
     transport = PipeTransport(rank, 2, {1 - rank: endpoint})
@@ -154,7 +159,7 @@ def _sharded_gpu_vjp_worker(rank, endpoint, row_ptr, col_idx, queue):
     with DistributedRuntime(transport):
         output = ShardedNeighborSum()(
             graph=graph, src={"x": local_x}, dst={})
-        gradient = gf.autograd.grad(output.sum(), local_x)
+        gradient = tg.autograd.grad(output.sum(), local_x)
         values = gradient.tolist()
         backend = gradient.execution["backend"]
     queue.put((rank, values, backend))
@@ -231,7 +236,7 @@ class DistributedRuntimeTest(unittest.TestCase):
 
     def test_nccl_provider_executes_device_direct_buffer_exchange(self):
         try:
-            gf.runtime.cuda_compute_capability("cuda:0")
+            tg.runtime.cuda_compute_capability("cuda:0")
             communicator_id = nccl_unique_id()
             transport = create_transport(
                 "nccl", rank=0, world_size=1,
@@ -246,11 +251,11 @@ class DistributedRuntimeTest(unittest.TestCase):
         self.assertEqual(report["backends"], ("nccl", "cuda"))
 
         byte_count = (1 << 20) + 17
-        source = gf.runtime.Buffer(byte_count, device="cuda:0")
-        destination = gf.runtime.Buffer(byte_count, device="cuda:0")
-        external_source = gf.runtime.Buffer.wrap_address(
+        source = tg.runtime.Buffer(byte_count, device="cuda:0")
+        destination = tg.runtime.Buffer(byte_count, device="cuda:0")
+        external_source = tg.runtime.Buffer.wrap_address(
             source.address, source.nbytes, device="cuda:0", owner=source)
-        stream = gf.runtime.Stream("cuda:0")
+        stream = tg.runtime.Stream("cuda:0")
         payload = bytes(index % 251 for index in range(byte_count))
         source.write(payload)
         destination.write(bytes(byte_count))
@@ -273,8 +278,14 @@ class DistributedRuntimeTest(unittest.TestCase):
             transport.close()
 
     def test_device_transport_binds_full_rank_local_message_passing(self):
+        self._check_device_transport_message_passing(overlap=False)
+
+    def test_device_transport_internal_overlap_regression(self):
+        self._check_device_transport_message_passing(overlap=True)
+
+    def _check_device_transport_message_passing(self, *, overlap):
         try:
-            gf.runtime.cuda_compute_capability("cuda:0")
+            tg.runtime.cuda_compute_capability("cuda:0")
         except RuntimeError as error:
             self.skipTest(f"CUDA runtime is unavailable: {error}")
 
@@ -286,7 +297,7 @@ class DistributedRuntimeTest(unittest.TestCase):
             def __init__(self):
                 # Rank zero's ring ghosts are global entities 4 and 7, in the
                 # exact receive order derived from the graph snapshot.
-                self.remote = gf.runtime.Buffer(8, device="cuda:0")
+                self.remote = tg.runtime.Buffer(8, device="cuda:0")
                 self.remote.write(struct.pack("ff", 4.0, 7.0))
                 self.exchanges = []
                 self.forward_stream = None
@@ -324,17 +335,17 @@ class DistributedRuntimeTest(unittest.TestCase):
             for source in ((destination - 1) % entities, destination,
                            (destination + 1) % entities)
         ]
-        graph = gf.Graph.from_csr(
-            gf.tensor(rows, dtype=gf.int64, device="cuda:0"),
-            gf.tensor(columns, dtype=gf.int64, device="cuda:0"),
+        graph = tg.Graph.from_csr(
+            tg.tensor(rows, dtype=tg.int64, device="cuda:0"),
+            tg.tensor(columns, dtype=tg.int64, device="cuda:0"),
             num_src=entities, validate="full",
-        ).halo(gf.DeviceMesh("cuda", 2), depth=1)
-        local_x = gf.tensor(
+        ).halo(tg.DeviceMesh("cuda", 2), depth=1)
+        local_x = tg.tensor(
             [0.0, 1.0, 2.0, 3.0], device="cuda:0", requires_grad=True)
         transport = DeviceFixtureTransport()
         interior_started = threading.Event()
-        original_realize = gf.Tensor.realize
-        original_synchronize = gf.runtime.Stream.synchronize
+        original_realize = tg.Tensor.realize
+        original_synchronize = tg.runtime.Stream.synchronize
 
         def observe_interior(value):
             expression = getattr(value, "_expr", None)
@@ -345,28 +356,27 @@ class DistributedRuntimeTest(unittest.TestCase):
 
         def require_interior_before_halo_wait(stream):
             if stream is transport.forward_stream:
-                self.assertTrue(
-                    interior_started.is_set(),
-                    "device halo stream synchronized before interior realization",
-                )
+                self.assertEqual(interior_started.is_set(), overlap)
             return original_synchronize(stream)
 
         try:
             with (
                 mock.patch.dict(
                     os.environ, {"TIGA_TENSOR_BACKEND": "native"}),
-                mock.patch.object(gf.Tensor, "realize", observe_interior),
+                mock.patch.object(tg.Tensor, "realize", observe_interior),
                 mock.patch.object(
-                    gf.runtime.Stream, "synchronize",
+                    tg.runtime.Stream, "synchronize",
                     require_interior_before_halo_wait,
                 ),
                 DistributedRuntime(transport) as runtime,
             ):
+                if overlap:
+                    runtime._force_serialized = False  # internal regression only
                 output = ShardedNeighborSum()(
                     graph=graph, src={"x": local_x}, dst={})
                 self.assertEqual(output.tolist(), [8.0, 3.0, 6.0, 9.0])
                 trace = runtime.last_execution_trace
-                gradient = gf.autograd.grad(output.sum(), local_x)
+                gradient = tg.autograd.grad(output.sum(), local_x)
                 self.assertEqual(gradient.tolist(), [3.0, 3.0, 3.0, 3.0])
             self.assertEqual(len(transport.exchanges), 2)
             self.assertTrue(all(
@@ -376,6 +386,12 @@ class DistributedRuntimeTest(unittest.TestCase):
             self.assertIn("transport=device-direct", output.expression())
             self.assertEqual(output.execution["backend"], "cuda-ttir-triton")
             self.assertEqual(gradient.execution["backend"], "cuda-ttir-triton")
+            if not overlap:
+                self.assertEqual(trace["schedule"], "device-direct-serialized")
+                self.assertEqual(trace["interior_rows"], 0)
+                self.assertEqual(trace["boundary_rows"], 4)
+                self.assertEqual(trace["measured_overlap_ms"], 0.0)
+                return
             self.assertEqual(
                 trace["schedule"], "interior||device-halo->boundary")
             self.assertEqual(trace["timing_kind"], "host-submit-order")
@@ -407,9 +423,9 @@ class DistributedRuntimeTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             graph_path = root / "ring.gfg"
-            gf.save(gf.Graph.from_csr(
-                gf.tensor(rows, dtype=gf.int64),
-                gf.tensor(columns, dtype=gf.int64),
+            tg.save(tg.Graph.from_csr(
+                tg.tensor(rows, dtype=tg.int64),
+                tg.tensor(columns, dtype=tg.int64),
                 num_src=entities, validate="full"), graph_path)
             environment = os.environ.copy()
             source_path = str(Path(__file__).resolve().parents[2] / "python")
@@ -444,7 +460,7 @@ class DistributedRuntimeTest(unittest.TestCase):
             for source in ((destination - 1) % entities, destination,
                            (destination + 1) % entities)
         ]
-        halos = gf.collective_halo_maps(
+        halos = tg.collective_halo_maps(
             row_ptr, col_idx, num_entities=entities, world_size=2
         )
         self.assertEqual(halos[0].ghost_ids, (4, 7))
@@ -478,15 +494,15 @@ class DistributedRuntimeTest(unittest.TestCase):
         ]
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "ring.gfg"
-            gf.save(
-                gf.Graph.from_csr(
-                    gf.tensor(row_ptr, dtype=gf.int64),
-                    gf.tensor(col_idx, dtype=gf.int64),
+            tg.save(
+                tg.Graph.from_csr(
+                    tg.tensor(row_ptr, dtype=tg.int64),
+                    tg.tensor(col_idx, dtype=tg.int64),
                     num_src=entities, validate="full"),
                 path,
             )
-            paged = gf.load(path)
-            self.assertIs(type(paged), gf.Graph)
+            paged = tg.load(path)
+            self.assertIs(type(paged), tg.Graph)
             self.assertEqual(paged.schema.realization, "paged_csr")
             self.assertEqual(paged.num_edges, len(col_idx))
             self.assertEqual(paged.paged_rows(4, 6), (
@@ -497,9 +513,9 @@ class DistributedRuntimeTest(unittest.TestCase):
                 paged, "resolve_csr",
                 side_effect=AssertionError("paged copy materialized topology"),
             ):
-                gf.save(paged, copied_path)
+                tg.save(paged, copied_path)
             self.assertEqual(
-                gf.load(copied_path).paged_rows(4, 6),
+                tg.load(copied_path).paged_rows(4, 6),
                 ((0, 3, 6), tuple(col_idx[12:18])))
 
             context = multiprocessing.get_context("spawn")
@@ -534,19 +550,19 @@ class DistributedRuntimeTest(unittest.TestCase):
     def test_persistent_graph_rejects_overwrite_and_corrupt_manifest(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "small.gfg"
-            graph = gf.Graph.from_csr(
-                gf.tensor([0, 1], dtype=gf.int32),
-                gf.tensor([0], dtype=gf.int32),
+            graph = tg.Graph.from_csr(
+                tg.tensor([0, 1], dtype=tg.int32),
+                tg.tensor([0], dtype=tg.int32),
                 num_src=1, validate="full")
-            gf.save(graph, path)
+            tg.save(graph, path)
             with self.assertRaises(FileExistsError):
-                gf.save(graph, path)
+                tg.save(graph, path)
             (path / "col_idx.bin").write_bytes(b"")
             with self.assertRaisesRegex(ValueError, "col_idx size"):
-                gf.load(path)
+                tg.load(path)
 
     def test_halo_transport_rejects_inconsistent_owned_buffer(self):
-        halos = gf.collective_halo_maps(
+        halos = tg.collective_halo_maps(
             [0, 1, 2, 3, 4], [3, 0, 1, 2],
             num_entities=4, world_size=2,
         )
@@ -558,7 +574,7 @@ class DistributedRuntimeTest(unittest.TestCase):
             def receive(self, peer):
                 raise AssertionError
         with self.assertRaisesRegex(ValueError, "expected"):
-            gf.exchange_halo(
+            tg.exchange_halo(
                 halos[0], b"short", element_bytes=8,
                 transport=UnusedTransport(),
             )
@@ -571,7 +587,7 @@ class DistributedRuntimeTest(unittest.TestCase):
             for source in ((destination - 1) % entities, destination,
                            (destination + 1) % entities)
         ]
-        halos = gf.collective_halo_maps(
+        halos = tg.collective_halo_maps(
             row_ptr, col_idx, num_entities=entities, world_size=2)
         context = multiprocessing.get_context("spawn")
         first, second = context.Pipe(duplex=True)
@@ -636,12 +652,12 @@ class DistributedRuntimeTest(unittest.TestCase):
             if destination == 3:
                 col_idx.append(3)  # explicit self-loop
             row_ptr.append(len(col_idx))
-        graph = gf.Graph.from_csr(
-            gf.tensor(row_ptr, dtype=gf.int64),
-            gf.tensor(col_idx, dtype=gf.int64),
+        graph = tg.Graph.from_csr(
+            tg.tensor(row_ptr, dtype=tg.int64),
+            tg.tensor(col_idx, dtype=tg.int64),
             num_src=entities, validate="full",
         )
-        x = gf.tensor([float(entity) for entity in range(entities)])
+        x = tg.tensor([float(entity) for entity in range(entities)])
         reference = ShardedNeighborSum()(graph=graph, src={"x": x}, dst={})
         reference_values = reference.tolist()
 
@@ -664,6 +680,35 @@ class DistributedRuntimeTest(unittest.TestCase):
             self.assertEqual(process.exitcode, 0)
         self.assertEqual(results[0] + results[1], reference_values)
 
+    def test_default_ignores_transport_overlap_preference(self):
+        class ProbeTransport:
+            rank, world_size = 0, 2
+            prefer_compute_overlap = True  # must not change the public policy
+
+            def send_bytes(self, peer, payload):
+                self.sent = bytes(payload)
+
+            def receive_bytes(self, peer, size):
+                return struct.pack("=ff", 4.0, 7.0)
+
+        rows = [3 * row for row in range(9)]
+        columns = [source for row in range(8)
+                   for source in ((row - 1) % 8, row, (row + 1) % 8)]
+        graph = tg.Graph.from_csr(
+            tg.tensor(rows, dtype=tg.int64),
+            tg.tensor(columns, dtype=tg.int64), num_src=8,
+        ).halo(tg.DeviceMesh("cpu", 2), depth=1)
+        with mock.patch.object(tg.Tensor, "_scatter_rows",
+                               side_effect=AssertionError("split path used")):
+            with DistributedRuntime(ProbeTransport()) as runtime:
+                self.assertIsNone(runtime._force_serialized)
+                output = ShardedNeighborSum()(
+                    graph=graph, src={"x": tg.tensor([0., 1., 2., 3.])}, dst={})
+                self.assertEqual(output.tolist(), [8., 3., 6., 9.])
+                self.assertEqual(runtime.last_execution_trace["schedule"],
+                                 "host-staged-serialized")
+                self.assertEqual(runtime.last_execution_trace["interior_rows"], 0)
+
     def test_cpu_automatic_executor_realizes_interior_before_halo_completion(self):
         """The runtime schedule overlaps execution, not only Task IR nodes."""
         entities = 8
@@ -673,12 +718,12 @@ class DistributedRuntimeTest(unittest.TestCase):
             for source in ((destination - 1) % entities, destination,
                            (destination + 1) % entities)
         ]
-        graph = gf.Graph.from_csr(
-            gf.tensor(row_ptr, dtype=gf.int64),
-            gf.tensor(col_idx, dtype=gf.int64),
+        graph = tg.Graph.from_csr(
+            tg.tensor(row_ptr, dtype=tg.int64),
+            tg.tensor(col_idx, dtype=tg.int64),
             num_src=entities, validate="full",
-        ).halo(gf.DeviceMesh("cpu", 2), depth=1)
-        local_x = gf.tensor([0.0, 1.0, 2.0, 3.0])
+        ).halo(tg.DeviceMesh("cpu", 2), depth=1)
+        local_x = tg.tensor([0.0, 1.0, 2.0, 3.0])
         interior_started = threading.Event()
         receive_entered = threading.Event()
 
@@ -707,7 +752,7 @@ class DistributedRuntimeTest(unittest.TestCase):
                 if peer != 1:
                     raise AssertionError(f"unexpected peer {peer}")
 
-        original_realize = gf.Tensor.realize
+        original_realize = tg.Tensor.realize
 
         def observe_interior(value):
             expression = getattr(value, "_expr", None)
@@ -717,8 +762,9 @@ class DistributedRuntimeTest(unittest.TestCase):
             return original_realize(value)
 
         transport = OverlapProbeTransport()
-        with mock.patch.object(gf.Tensor, "realize", observe_interior):
+        with mock.patch.object(tg.Tensor, "realize", observe_interior):
             with DistributedRuntime(transport) as runtime:
+                runtime._force_serialized = False  # internal overlap regression
                 output = ShardedNeighborSum()(
                     graph=graph, src={"x": local_x}, dst={})
                 self.assertEqual(output.tolist(), [8.0, 3.0, 6.0, 9.0])

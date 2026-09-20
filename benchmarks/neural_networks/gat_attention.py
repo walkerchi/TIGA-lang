@@ -15,7 +15,7 @@ import json
 import statistics
 from pathlib import Path
 
-import tiga as gf
+import tiga as tg
 import torch
 from torch import nn
 
@@ -27,12 +27,12 @@ X_WIDTH = 8
 HIDDEN = 16
 
 
-class GAT(gf.MessagePassing):
-    reducer = gf.online_softmax()
+class GAT(tg.MessagePassing):
+    reducer = tg.online_softmax()
 
     def __init__(self, attn):
         super().__init__()
-        self.attn = gf.nn.trace(attn)
+        self.attn = tg.nn.trace(attn)
 
     def edge(self, src, dst, edge):
         score = self.attn(edge.displacement, src.x, dst.x)
@@ -69,7 +69,7 @@ def main() -> None:
         nn.Linear(HIDDEN, 1),
     ).to(device)
 
-    graph = gf.Graph.radius(positions, cutoff=cutoff)
+    graph = tg.Graph.radius(positions, cutoff=cutoff)
     row_ptr, col_idx = graph.resolve_csr()
     edges = col_idx.numel()
     rows = torch.repeat_interleave(

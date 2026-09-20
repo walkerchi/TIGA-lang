@@ -79,8 +79,8 @@ module {
 // CHECK: "gf_kernel.yield"(%{{.*}}, %{{.*}}) : (f32, vector<64xf16>) -> ()
 // CHECK: boundary = "lower_inclusive"
 
-// PRUNE: graphforge.launch entry=gf_dense_streaming_reduce block_rows=64
-// PRUNE: graphforge.reducer block_prune=0.01562500
+// PRUNE: tiga.launch entry=gf_dense_streaming_reduce block_rows=64
+// PRUNE: tiga.reducer block_prune=0.01562500
 // PRUNE-SAME: boundary=lower_inclusive
 // PRUNE: %causal_end = arith.minsi
 // PRUNE: %[[STATE:.*]]:4 = scf.for

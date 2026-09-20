@@ -1,12 +1,15 @@
 # Tensor 运行时与 autograd { #tensor-runtime-and-autograd }
 
+普通应用直接使用 `torch.Tensor` 与 Torch 求导，见[入门教程](getting-started.md)。
+本页讲解高级原生运行时和编译器检查接口，不是日常使用的前置知识。
+
 Tiga 只实现运行编译后的张量与关系程序所需的底层值和运行时接口；
 优化器、神经网络模块和数据集刻意不在范围内。
 
 ```mermaid
 %%{init: {'theme':'base', 'themeVariables': {'primaryColor':'#eef2ff','primaryBorderColor':'#4f46e5','primaryTextColor':'#312e81','lineColor':'#64748b','fontFamily':'Arial'}}}%%
 flowchart TD
-    A[gf.Tensor / gf.Graph] -->|capture| B[语义 tensor + 关系 IR]
+    A[tg.Tensor / tg.Graph] -->|capture| B[语义 tensor + 关系 IR]
     B -->|反向模式变换| C[前向 / VJP 程序]
     C -->|调度与 lowering| D[gf.iter → gf.kernel → provider 产物]
     D --> E[Tiga 基础运行时：buffer、stream、event、module、launch]
@@ -17,7 +20,7 @@ flowchart TD
 - 原生 C ABI 持有对齐的 CPU buffer 和 [CUDA](https://en.wikipedia.org/wiki/CUDA)
   Driver 分配、stream、事件、模块与 kernel，并提供锁页 host buffer
   以及异步的 CPU↔CUDA/CUDA↔CUDA 传输。
-- `gf.Tensor` 记录形状、dtype、步长、设备、存储偏移、版本与就绪事件，
+- `tg.Tensor` 记录形状、dtype、步长、设备、存储偏移、版本与就绪事件，
   不包装 Torch Tensor。
 - 通用表达式切片支持右对齐广播、`add`、`mul`、`conj`、任意轴 `sum`、
   `reshape`、`permute`/`transpose`、`squeeze`/`unsqueeze` 以及零步长 `expand`。
@@ -25,19 +28,26 @@ flowchart TD
   reshape 只在被观察到时才物化。
 
 ```python
-x = gf.tensor([1.0, 2.0, 3.0], requires_grad=True)
+import tiga as tg
+
+x = tg.tensor([1.0, 2.0, 3.0], requires_grad=True)
 loss = (x * x + 2.0).sum()
-dx = gf.autograd.grad(loss, x)
+dx = tg.autograd.grad(loss, x)
 
 assert loss.tolist() == 20.0
 assert dx.tolist() == [2.0, 4.0, 6.0]
 ```
 
-`gf.autograd.grad` 构造新的符号 [VJP](https://en.wikipedia.org/wiki/Automatic_differentiation)
+原生结果延迟执行；默认 `auto` 策略在读取结果时可能使用 `python-oracle`。
+设置 `TIGA_TENSOR_BACKEND=native` 可要求原生编译；物化后由
+`Tensor.execution` 标识实际 backend。以下流水线描述受支持的编译路径，
+不是每次调用都经过全部阶段。
+
+`tg.autograd.grad` 构造新的符号 [VJP](https://en.wikipedia.org/wiki/Automatic_differentiation)
 表达式：不修改 `.grad` 字段，也不维护 eager tape；`value_and_grad`
 提供函数式变换。`Tensor.mlir()` 发出规范的 `gf_tensor` 操作，
 `Tensor.mlir(verify=True)` 再用原生 C++ 验证器往返验证。
-`gf.autograd.grad_mlir()` 展示显式的 `gf_tensor.grad` 请求，或
+`tg.autograd.grad_mlir()` 展示显式的 `gf_tensor.grad` 请求，或
 `gf-tensor-vjp` 产出的普通 Tensor IR。Python 表达式求值器只是正确性
 oracle；`Tensor.expression()` 仍是非正式的调试文本。受支持的 CPU DAG
 由原生 OpBuilder 构建，经 lowering 变为显式 SCF/MemRef 循环，转换到
@@ -45,12 +55,12 @@ oracle；`Tensor.expression()` 仍是非正式的调试文本。受支持的 CPU
 ExecutionEngine 启动，缓存以规范 MLIR 语义哈希为键。整个过程没有 C/C++
 源码 emitter 或系统编译器参与。
 
-`gf.autograd.joint_plan(output, inputs)` 把生成的梯度绑定为一个带版本的
+`tg.autograd.joint_plan(output, inputs)` 把生成的梯度绑定为一个带版本的
 可执行 bundle。前向完成是每个反向任务的显式依赖；checkpoint/spill
 决策在反向物化时生效。`explain()` 暴露任务拓扑与资源影响；依然无需
 手写任何反向函数。
 
-`gf.autograd.grad(..., checkpoint="auto|save|recompute")` 控制反向所需的
+`tg.autograd.grad(..., checkpoint="auto|save|recompute")` 控制反向所需的
 primal 存储。`auto` 发出 `gf_tensor.checkpoint_candidate`；原生
 `gf-plan-tensor-checkpoints` MLIR pass 在
 `TIGA_CHECKPOINT_BUDGET_BYTES` 预算下选择 save 或 recompute，被选中
@@ -100,8 +110,8 @@ broadcast-multiply-add-axis-sum 语义。宽松数学（relaxed math）在 JSON
 
 编译器在进程内构造 `gf_tensor`，验证广播/视图/归约，运行反向模式
 [自动微分](https://baike.baidu.com/item/自动微分) 并 lowering 出可执行
-的 CPU 与 CUDA 子集。CPU 向量化和区间并行的关系循环已经实现，不再是
-未来工作。各 provider 的运行时支持情况在[路线图](roadmap.md)
+的 CPU 与 CUDA 子集。CPU 支持向量化和区间并行的关系循环。
+各 provider 的运行时支持情况在[路线图](roadmap.md)
 支持矩阵中跟踪；没有厂商运行时插件的 provider 会显式失败。
 
 ## 关系感知的反向模式 { #relation-aware-reverse-mode }
@@ -131,9 +141,8 @@ Reducer VJP 规则决定必须保存或重算哪些状态。Online softmax 必�
 
 ## Torch 互操作 { #torch-interoperability }
 
-Torch 是可选的包适配器，不是默认运行时，也不是基础依赖。独立的 CPU
-Tensor/运行时/autograd 接口无需 Torch 即可导入，原生 `gf.Tensor` 的
-MessagePassing 及其 VJP 能走到生成的 CPU LLVM 与 CUDA TTIR kernel。
-独立运行时拥有 CUDA Driver 资源；可选的 Torch 桥提供零拷贝 Tensor
-互操作与 current-stream 绑定。DLPack 与外部 buffer 绑定将保持这一
+Torch 是安装后推荐的应用接口，不是默认安装依赖。没有 Torch 时，
+原生 Tensor/运行时/autograd 与 CPU MessagePassing 仍可执行，不只是能够导入。
+原生 MessagePassing/VJP 可走 CPU LLVM 与 CUDA TTIR kernel。
+独立运行时拥有 CUDA Driver 资源；Torch 桥提供存储共享与 current-stream 绑定。DLPack 与外部 buffer 绑定将保持这一
 零拷贝边界。

@@ -3,7 +3,7 @@ from __future__ import annotations
 import importlib.util
 from pathlib import Path
 
-import tiga as gf
+import tiga as tg
 import pytest
 
 EXAMPLES = Path(__file__).parents[2] / "examples"
@@ -70,8 +70,8 @@ def test_load_gradient_matches_finite_difference(module):
     plus[0] += epsilon
     minus[0] -= epsilon
     finite_difference = (
-        solve_sum(gf.tensor(plus, dtype=gf.float32))
-        - solve_sum(gf.tensor(minus, dtype=gf.float32))
+        solve_sum(tg.tensor(plus, dtype=tg.float32))
+        - solve_sum(tg.tensor(minus, dtype=tg.float32))
     ) / (2.0 * epsilon)
     assert gradient.tolist()[0] == pytest.approx(finite_difference, abs=1.0e-3)
 
@@ -86,7 +86,7 @@ def test_tolerance_driver_converges_within_max_iterations(module):
 
 
 def test_stopping_contracts_are_exclusive(module):
-    rhs = gf.tensor([1.0, 1.0], dtype=gf.float32)
+    rhs = tg.tensor([1.0, 1.0], dtype=tg.float32)
     operator = lambda value: 2.0 * value
 
     with pytest.raises(ValueError, match="exactly one stopping contract"):

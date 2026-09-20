@@ -3,7 +3,7 @@
 // The source IR deliberately contains only ordinary tensor algebra.  This
 // regression prevents the linear-recurrence benchmark from depending on a
 // workload-named operator or a handwritten Python/Triton kernel.
-// CHECK: graphforge.tensor entry=gf_tensor_scan_contract
+// CHECK: tiga.tensor entry=gf_tensor_scan_contract
 // CHECK-SAME: num_warps=1
 // CHECK: tt.func public @gf_tensor_scan_contract
 // CHECK: scf.for

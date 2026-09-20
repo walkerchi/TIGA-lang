@@ -7,12 +7,12 @@ import subprocess
 import sys
 from pathlib import Path
 
-import tiga as gf
+import tiga as tg
 import pytest
 
 
-class WeightedSmoothing(gf.MessagePassing):
-    reducer = gf.sum()
+class WeightedSmoothing(tg.MessagePassing):
+    reducer = tg.sum()
 
     def edge(self, src, dst, edge):
         return edge.w * src.x
@@ -21,7 +21,7 @@ class WeightedSmoothing(gf.MessagePassing):
         return aggregate + dst.bias
 
 
-class Mean(gf.Reducer):
+class Mean(tg.Reducer):
     associative = True
     commutative = True
 
@@ -38,7 +38,7 @@ class Mean(gf.Reducer):
         return state[0] / state[1]
 
 
-class MeanAggregation(gf.MessagePassing):
+class MeanAggregation(tg.MessagePassing):
     reducer = Mean()
 
     def edge(self, src, dst, edge):
@@ -48,16 +48,16 @@ class MeanAggregation(gf.MessagePassing):
 
 def _stencil_case(tmp_path):
     """60x40 five-point stencil on disk plus matching random fields."""
-    graph = gf.Graph.stencil(
+    graph = tg.Graph.stencil(
         (60, 40), ((-1, 0), (1, 0), (0, -1), (0, 1), (0, 0)))
     rng = random.Random(20240817)
-    weights = gf.tensor([rng.random() for _ in range(graph.num_edges)])
+    weights = tg.tensor([rng.random() for _ in range(graph.num_edges)])
     nodes = graph.schema.num_dst
-    x = gf.tensor([rng.random() for _ in range(nodes)])
-    bias = gf.tensor([rng.random() for _ in range(nodes)])
+    x = tg.tensor([rng.random() for _ in range(nodes)])
+    bias = tg.tensor([rng.random() for _ in range(nodes)])
     path = tmp_path / "stencil.gfg"
-    gf.save(graph, path)
-    paged = gf.load(path)
+    tg.save(graph, path)
+    paged = tg.load(path)
     assert paged.schema.realization == "paged_csr"
     return graph, paged, x, bias, weights
 
@@ -119,18 +119,18 @@ def test_paged_backward_matches_materialized(tmp_path):
     """Paged autograd: src/dst/edge adjoints match the unpaged reference."""
     graph, paged, x, bias, weights = _stencil_case(tmp_path)
     kernel = WeightedSmoothing()
-    x = gf.tensor(x.tolist(), requires_grad=True)
-    bias = gf.tensor(bias.tolist(), requires_grad=True)
-    weights = gf.tensor(weights.tolist(), requires_grad=True)
+    x = tg.tensor(x.tolist(), requires_grad=True)
+    bias = tg.tensor(bias.tolist(), requires_grad=True)
+    weights = tg.tensor(weights.tolist(), requires_grad=True)
     bindings = {"src": {"x": x}, "dst": {"bias": bias}, "edge": {"w": weights}}
 
     reference = kernel(graph=graph, **bindings)
-    ref_grads = gf.autograd.grad(reference.sum(), (x, bias, weights))
+    ref_grads = tg.autograd.grad(reference.sum(), (x, bias, weights))
 
     # 997 does not divide 2400 and rows have edges reaching across pages.
     output = kernel(graph=paged, **bindings, page_rows=997)
     assert output.tolist() == pytest.approx(reference.tolist(), abs=1e-6)
-    grads = gf.autograd.grad(output.sum(), (x, bias, weights))
+    grads = tg.autograd.grad(output.sum(), (x, bias, weights))
 
     for paged_grad, ref_grad in zip(grads, ref_grads):
         assert paged_grad.tolist() == pytest.approx(ref_grad.tolist(), abs=1e-5)
@@ -140,16 +140,16 @@ def test_paged_backward_custom_mean_matches_materialized(tmp_path):
     """The general-reducer path also differentiates page-locally."""
     graph, paged, x, _bias, weights = _stencil_case(tmp_path)
     kernel = MeanAggregation()
-    x = gf.tensor(x.tolist(), requires_grad=True)
-    weights = gf.tensor(weights.tolist(), requires_grad=True)
+    x = tg.tensor(x.tolist(), requires_grad=True)
+    weights = tg.tensor(weights.tolist(), requires_grad=True)
     bindings = {"src": {"x": x}, "dst": {}, "edge": {"w": weights}}
 
     reference = kernel(graph=graph, **bindings)
-    ref_grads = gf.autograd.grad(reference.sum(), (x, weights))
+    ref_grads = tg.autograd.grad(reference.sum(), (x, weights))
 
     output = kernel(graph=paged, **bindings, page_rows=313)
     assert output.tolist() == pytest.approx(reference.tolist(), abs=1e-6)
-    grads = gf.autograd.grad(output.sum(), (x, weights))
+    grads = tg.autograd.grad(output.sum(), (x, weights))
 
     for paged_grad, ref_grad in zip(grads, ref_grads):
         assert paged_grad.tolist() == pytest.approx(ref_grad.tolist(), abs=1e-5)
@@ -162,15 +162,15 @@ def test_paged_field_shape_validation(tmp_path):
     with pytest.raises(ValueError, match="edge.w leading dimension"):
         kernel(
             graph=paged, src={"x": x}, dst={"bias": bias},
-            edge={"w": gf.tensor([1.0, 2.0])})
+            edge={"w": tg.tensor([1.0, 2.0])})
     with pytest.raises(ValueError, match="dst.bias leading dimension"):
         kernel(
-            graph=paged, src={"x": x}, dst={"bias": gf.tensor([1.0])},
+            graph=paged, src={"x": x}, dst={"bias": tg.tensor([1.0])},
             edge={"w": weights})
 
 
-class ScaledSmoothing2D(gf.MessagePassing):
-    reducer = gf.sum()
+class ScaledSmoothing2D(tg.MessagePassing):
+    reducer = tg.sum()
 
     def edge(self, src, dst, edge, scale):
         return edge.w * src.x * scale
@@ -193,7 +193,7 @@ def test_paged_disk_fields_match_materialized(tmp_path):
     graph, _paged, x, bias, weights = _stencil_case(tmp_path)
     kernel = WeightedSmoothing()
     path = tmp_path / "stencil-fields.gfg"
-    gf.save(graph, path, fields={
+    tg.save(graph, path, fields={
         "src": {"x": x}, "dst": {"bias": bias}, "edge": {"w": weights}})
 
     manifest = json.loads((path / "manifest.json").read_text(encoding="utf-8"))
@@ -201,7 +201,7 @@ def test_paged_disk_fields_match_materialized(tmp_path):
     assert {(entry["role"], entry["name"]) for entry in manifest["fields"]} == {
         ("src", "x"), ("dst", "bias"), ("edge", "w")}
 
-    paged = gf.load(path)
+    paged = tg.load(path)
     shell = paged.fields("src")["x"]
     assert shell._buffer is None  # the payload stays on disk
     # An explicit read materializes the whole field as an escape hatch.
@@ -223,8 +223,8 @@ def test_paged_disk_fields_match_materialized(tmp_path):
     # Re-saving a fielded graph goes through the source-store copy path and
     # keeps the persisted fields.
     copied = tmp_path / "stencil-fields-copy.gfg"
-    gf.save(paged, copied)
-    repaged = gf.load(copied)
+    tg.save(paged, copied)
+    repaged = tg.load(copied)
     recopied = kernel(
         graph=repaged, src=repaged.fields("src"), dst=repaged.fields("dst"),
         edge=repaged.fields("edge"), page_rows=997)
@@ -233,34 +233,34 @@ def test_paged_disk_fields_match_materialized(tmp_path):
 
 def test_paged_disk_fields_backward_matches_materialized(tmp_path):
     """Paged autograd over disk fields: src/dst/edge/param adjoints match."""
-    graph = gf.Graph.stencil(
+    graph = tg.Graph.stencil(
         (30, 25), ((-1, 0), (1, 0), (0, -1), (0, 1), (0, 0)))
     rng = random.Random(4242)
     nodes, edges, feat = graph.schema.num_dst, graph.num_edges, 3
-    x = gf.tensor(
+    x = tg.tensor(
         [[rng.random() for _ in range(feat)] for _ in range(nodes)],
         requires_grad=True)
-    bias = gf.tensor(
+    bias = tg.tensor(
         [[rng.random() for _ in range(feat)] for _ in range(nodes)],
         requires_grad=True)
-    weights = gf.tensor(
+    weights = tg.tensor(
         [[rng.random() for _ in range(feat)] for _ in range(edges)],
         requires_grad=True)
-    scale = gf.tensor(1.7, requires_grad=True)
-    grad_output = gf.tensor(
+    scale = tg.tensor(1.7, requires_grad=True)
+    grad_output = tg.tensor(
         [[rng.random() * 0.01 for _ in range(feat)] for _ in range(nodes)])
 
     kernel = ScaledSmoothing2D()
     reference = kernel(
         graph=graph, src={"x": x}, dst={"bias": bias}, edge={"w": weights},
         scale=scale)
-    ref_grads = gf.autograd.grad(
+    ref_grads = tg.autograd.grad(
         reference, (x, bias, weights, scale), grad_output=grad_output)
 
     path = tmp_path / "fields2d.gfg"
-    gf.save(graph, path, fields={
+    tg.save(graph, path, fields={
         "src": {"x": x}, "dst": {"bias": bias}, "edge": {"w": weights}})
-    paged = gf.load(path)
+    paged = tg.load(path)
     src = paged.fields("src", requires_grad=True)
     dst = paged.fields("dst", requires_grad=True)
     edge = paged.fields("edge", requires_grad=True)
@@ -270,7 +270,7 @@ def test_paged_disk_fields_backward_matches_materialized(tmp_path):
     assert _flat(output.tolist()) == pytest.approx(
         _flat(reference.tolist()), abs=1e-5)
 
-    grads = gf.autograd.grad(
+    grads = tg.autograd.grad(
         output,
         (src["x"], dst["bias"], edge["w"], scale),
         grad_output=grad_output,
@@ -313,15 +313,15 @@ def field_payload(count):
 
 
 def tensor_from_bytes(payload, shape, dtype):
-    gf = __import__("tiga")
-    result = gf.empty(shape, dtype=dtype)
+    tg = __import__("tiga")
+    result = tg.empty(shape, dtype=dtype)
     result._buffer.write(payload)
     return result
 
 
 def load_into(path, shape, dtype):
-    gf = __import__("tiga")
-    value = gf.empty(shape, dtype=dtype)
+    tg = __import__("tiga")
+    value = tg.empty(shape, dtype=dtype)
     fd = os.open(path, os.O_RDONLY)
     size = os.fstat(fd).st_size
     for offset in range(0, size, 16 << 20):  # chunked: no giant bytes object
@@ -332,10 +332,10 @@ def load_into(path, shape, dtype):
 
 
 def run_workload(kind):
-    import tiga as gf
+    import tiga as tg
 
-    class Smoothing(gf.MessagePassing):
-        reducer = gf.sum()
+    class Smoothing(tg.MessagePassing):
+        reducer = tg.sum()
 
         def edge(self, src, dst, edge):
             return edge.w * src.x
@@ -347,16 +347,16 @@ def run_workload(kind):
         root = directory / "powerlaw.gfg"
         manifest = json.loads((root / "manifest.json").read_text())
         num_edges = manifest["num_edges"]
-        graph = gf.Graph.from_csr(
-            load_into(root / "row_ptr.bin", (NUM_NODES + 1,), gf.int64),
-            load_into(root / "col_idx.bin", (num_edges,), gf.int64),
+        graph = tg.Graph.from_csr(
+            load_into(root / "row_ptr.bin", (NUM_NODES + 1,), tg.int64),
+            load_into(root / "col_idx.bin", (num_edges,), tg.int64),
             num_src=NUM_NODES,
         )
         assert graph.schema.realization == "materialized_csr"
         fields = {}
         for entry in manifest["fields"]:
             value = load_into(
-                root / entry["file"], tuple(entry["shape"]), gf.float32)
+                root / entry["file"], tuple(entry["shape"]), tg.float32)
             fields.setdefault(entry["role"], {})[entry["name"]] = value
         output = Smoothing()(
             graph=graph, src=fields["src"], dst=fields["dst"],
@@ -365,7 +365,7 @@ def run_workload(kind):
         return {"checksum": checksum, "peak_mb": peak_mb()}
 
     baseline = peak_mb()
-    paged = gf.load(directory / "powerlaw.gfg")
+    paged = tg.load(directory / "powerlaw.gfg")
     output = Smoothing()(
         graph=paged,
         src=paged.fields("src"),
@@ -386,7 +386,7 @@ if mode == "driver":
         results[sub] = json.loads(completed.stdout.strip().splitlines()[-1])
     print(json.dumps(results))
 elif mode == "setup":
-    import tiga as gf
+    import tiga as tg
 
     rng = random.Random(20260907)
     rows = array.array("q", [0])
@@ -397,19 +397,19 @@ elif mode == "setup":
             # power-law source popularity: low ranks attract most edges
             columns.append(min(NUM_NODES - 1, int(NUM_NODES * rng.random() ** 2.5)))
         rows.append(len(columns))
-    graph = gf.Graph.from_csr(
-        tensor_from_bytes(rows.tobytes(), (len(rows),), gf.int64),
-        tensor_from_bytes(columns.tobytes(), (len(columns),), gf.int64),
+    graph = tg.Graph.from_csr(
+        tensor_from_bytes(rows.tobytes(), (len(rows),), tg.int64),
+        tensor_from_bytes(columns.tobytes(), (len(columns),), tg.int64),
         num_src=NUM_NODES,
     )
     num_edges = graph.num_edges
-    gf.save(graph, directory / "powerlaw.gfg", fields={
+    tg.save(graph, directory / "powerlaw.gfg", fields={
         "src": {"x": tensor_from_bytes(
-            field_payload(NUM_NODES * FEAT), (NUM_NODES, FEAT), gf.float32)},
+            field_payload(NUM_NODES * FEAT), (NUM_NODES, FEAT), tg.float32)},
         "dst": {"bias": tensor_from_bytes(
-            field_payload(NUM_NODES * FEAT), (NUM_NODES, FEAT), gf.float32)},
+            field_payload(NUM_NODES * FEAT), (NUM_NODES, FEAT), tg.float32)},
         "edge": {"w": tensor_from_bytes(
-            field_payload(num_edges * FEAT), (num_edges, FEAT), gf.float32)},
+            field_payload(num_edges * FEAT), (num_edges, FEAT), tg.float32)},
     })
     print(json.dumps({"edges": num_edges}))
 else:
@@ -432,7 +432,7 @@ def test_power_law_paged_fields_bound_rss(tmp_path):
     worker = tmp_path / "_rss_worker.py"
     worker.write_text(_RSS_WORKER, encoding="utf-8")
     env = os.environ.copy()
-    repo_root = Path(gf.__file__).resolve().parent.parent
+    repo_root = Path(tg.__file__).resolve().parent.parent
     env["PYTHONPATH"] = os.pathsep.join(
         [str(repo_root), str(repo_root.parent), env.get("PYTHONPATH", "")])
 

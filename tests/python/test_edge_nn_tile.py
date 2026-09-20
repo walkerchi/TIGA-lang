@@ -3,7 +3,7 @@ from __future__ import annotations
 import importlib.util
 import unittest
 
-import tiga as gf
+import tiga as tg
 import torch
 from tiga.compiler.capture import Expr
 from tiga.compiler.edge_nn_tile import (
@@ -134,10 +134,10 @@ class EdgeNNTileSpecTest(unittest.TestCase):
         self.assertIn("arith.maxnumf", text)  # relu
 
 
-class _EdgeMLP(gf.MessagePassing):
+class _EdgeMLP(tg.MessagePassing):
     def __init__(self, mlp):
         super().__init__()
-        self.mlp = gf.nn.trace(mlp)
+        self.mlp = tg.nn.trace(mlp)
 
     def edge(self, src, dst, edge):
         return self.mlp(edge.displacement, src.x)
@@ -153,7 +153,7 @@ class EdgeNNTileExecutionTest(unittest.TestCase):
         self.device = torch.device("cuda")
         self.positions = torch.rand((256, 3), device=self.device)
         self.x = torch.randn((256, 8), device=self.device)
-        self.graph = gf.Graph.radius(self.positions, cutoff=0.25)
+        self.graph = tg.Graph.radius(self.positions, cutoff=0.25)
 
     def _run(self, mlp):
         kernel = _EdgeMLP(mlp.to(self.device))
@@ -184,7 +184,7 @@ class EdgeNNTileExecutionTest(unittest.TestCase):
             nn.Linear(16, 4),
         ))
 
-    def test_grad_enabled_call_falls_back_to_exact_eager(self):
+    def test_grad_enabled_call_selects_vjp_variant(self):
         kernel = _EdgeMLP(nn.Sequential(
             nn.Linear(11, 16), nn.ReLU(), nn.Linear(16, 8)).to(self.device))
         x = self.x.clone().requires_grad_(True)
@@ -192,6 +192,7 @@ class EdgeNNTileExecutionTest(unittest.TestCase):
         self.assertNotEqual(
             kernel.variants[-1].lowering, "gf-python-emit-edge-nn-tile")
         output.sum().backward()
+        self.assertIn("gf-python-emit-edge-nn-tile-vjp", kernel.explain())
         self.assertIsNotNone(x.grad)
         self.assertTrue(torch.isfinite(x.grad).all())
 
@@ -246,12 +247,12 @@ class EdgeNNTileExecutionTest(unittest.TestCase):
         torch.manual_seed(7)
         src_idx = torch.randint(0, 256, (1024,), device=self.device)
         dst_idx = torch.randint(0, 256, (1024,), device=self.device)
-        graph = gf.Graph.from_coo(src_idx, dst_idx, num_src=256, num_dst=256)
+        graph = tg.Graph.from_coo(src_idx, dst_idx, num_src=256, num_dst=256)
 
-        class FeatureOnly(gf.MessagePassing):
+        class FeatureOnly(tg.MessagePassing):
             def __init__(self, mlp):
                 super().__init__()
-                self.mlp = gf.nn.trace(mlp)
+                self.mlp = tg.nn.trace(mlp)
 
             def edge(self, src, dst, edge):
                 return self.mlp(src.x)
@@ -267,7 +268,7 @@ class EdgeNNTileExecutionTest(unittest.TestCase):
             kernel.variants[-1].lowering, "gf-python-emit-edge-nn-tile")
 
     def test_plain_module_uses_eager_oracle(self):
-        class Plain(gf.MessagePassing):
+        class Plain(tg.MessagePassing):
             def __init__(self, mlp):
                 super().__init__()
                 self.mlp = mlp

@@ -20,10 +20,7 @@ def _load_native():
             for path in root.glob(
                 "build/*/python_bindings/_graphforge_compiler*.so"
             )
-            if any(
-                path.name.endswith(suffix)
-                for suffix in machinery.EXTENSION_SUFFIXES
-            )
+            if _compatible_extension(path)
         ]
         if not candidates:
             raise RuntimeError(
@@ -42,6 +39,14 @@ def _load_native():
         sys.modules[name] = module
         specification.loader.exec_module(module)
         return module
+
+
+def _compatible_extension(path):
+    # A generic '.so' suffix must not accept another CPython ABI's tagged
+    # filename. Match complete basenames, including the current ABI/abi3 tags.
+    return path.name in {
+        "_graphforge_compiler" + suffix for suffix in machinery.EXTENSION_SUFFIXES
+    }
 
 
 def tensor_ir(

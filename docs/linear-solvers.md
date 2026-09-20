@@ -9,14 +9,14 @@ structure the compiler can use.
 
 Solvers are grammar sugar, not core API: `examples/solvers.py` composes Tensor
 algebra, relation application and `gf_control` control in ordinary Python, with
-solver loops written as natural `for`/`while` under `@gf.jit` and staged into
+solver loops written as natural `for`/`while` under `@tg.jit` and staged into
 the same control ops. A MessagePassing kernel bound to a `Graph` already is the
 matrix-free operator, so it is passed to the solver directly—there is no
 wrapper object to construct:
 
 ```python
-class StiffnessApply(gf.MessagePassing):
-    reducer = gf.sum()
+class StiffnessApply(tg.MessagePassing):
+    reducer = tg.sum()
 
     def edge(self, src, dst, edge):
         return edge.value * src.u
@@ -163,9 +163,9 @@ The emitted control form is structurally similar to:
 ```
 
 `max_iterations` is part of specialization/resource planning even when the
-condition exits earlier. On distributed graphs, dot products become explicit
-collective tasks; the planner may select pipelined CG and overlap reductions
-with halo/interior work only when dependency analysis proves it legal.
+condition exits earlier. Solver-level distributed dot products and collective
+tasks are planned extensions. The current solver does not schedule pipelined CG
+or overlap reductions with halo exchange.
 
 ## Backward has two distinct contracts
 
@@ -248,7 +248,7 @@ There is no separate user-facing `autofuse` or `jit` module. Calling the solver
 creates the same lazy program boundary as calling a kernel. Whole-program
 passes can fuse pointwise updates with operator epilogues, reuse relation
 snapshots, plan ping-pong buffers, and overlap halo/collective tasks.
-`@gf.jit` captures sibling kernel calls automatically; `@gf.program`
+`@tg.jit` captures sibling kernel calls automatically; `@tg.program`
 remains a compatibility entry point for source-free straight-line code, not
 an optimization hint.
 

@@ -9,7 +9,7 @@ import warnings
 from dataclasses import asdict
 from pathlib import Path
 
-import tiga as gf
+import tiga as tg
 import torch
 
 from benchmarks.common.hardware_roofline import (
@@ -45,8 +45,8 @@ if triton is not None:
         tl.store(out + row, accumulator)
 
 
-class Diffusion(gf.MessagePassing):
-    reducer = gf.sum()
+class Diffusion(tg.MessagePassing):
+    reducer = tg.sum()
 
     def edge(self, src, dst, edge):
         return edge.weight * (src.u - dst.u)
@@ -107,7 +107,7 @@ def main():
     edges = col_idx.numel()
     weight = torch.rand(edges, device=device)
     x = torch.rand(args.nodes, device=device)
-    graph = gf.Graph.from_csr(row_ptr, col_idx, num_src=args.nodes)
+    graph = tg.Graph.from_csr(row_ptr, col_idx, num_src=args.nodes)
     gf_kernel = Diffusion()
     with warnings.catch_warnings():
         warnings.filterwarnings("ignore", message="Sparse invariant checks.*")

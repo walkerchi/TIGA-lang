@@ -153,7 +153,7 @@ class PagedField:
             _np.take(self._np, list(indices), axis=0, out=destination)
             return
         destination = memoryview(
-            _buffer_view(address, len(indices) * self.row_bytes))
+            _buffer_view(address, len(indices) * self.row_bytes)).cast("B")
         mm = self._mm
         row_bytes = self.row_bytes
         rows = self.rows

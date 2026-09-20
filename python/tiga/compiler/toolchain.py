@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 import shutil
+import sys
 
 
 def find_tool(
@@ -30,9 +31,32 @@ def find_tool(
     package = Path(__file__).resolve().parents[1]
     repository = Path(__file__).resolve().parents[3]
     candidates.append(package / "bin" / name)
-    candidates.extend(repository.glob(f"build/*/bin/{name}"))
-    available = [path for path in candidates if path.is_file()]
-    if available:
+    # Prefer installed companions; never override a wheel with a newer build
+    # accidentally found next to site-packages. Editable tools follow the
+    # same ABI-compatible extension build, not an independent mtime contest.
+    for path in candidates:
+        if path.is_file():
+            return str(path)
+    from .native import _compatible_extension
+    loaded = sys.modules.get("tiga._graphforge_compiler")
+    extension = getattr(loaded, "__file__", None)
+    if extension:
+        companion = Path(extension).parent.parent / "bin" / name
+        if companion.is_file():
+            return str(companion)
+        return None  # Never mix a loaded editable frontend with another build.
+    extensions = [path for path in repository.glob(
+        "build/*/python_bindings/_graphforge_compiler*.so")
+        if _compatible_extension(path)]
+    if extensions:
+        extension = max(extensions, key=lambda path: path.stat().st_mtime_ns)
+        companion = extension.parent.parent / "bin" / name
+        if companion.is_file():
+            return str(companion)
+        return None
+    # Standalone compiler builds need not include the Python extension.
+    available = list(repository.glob(f"build/*/bin/{name}"))
+    if available and not extensions and not extension:
         return str(max(available, key=lambda path: path.stat().st_mtime_ns))
     return shutil.which(name)
 

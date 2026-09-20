@@ -108,6 +108,8 @@ LogicalResult RelationOp::verify() {
 }
 
 LogicalResult GeneratedRadiusOp::verify() {
+  if (getHashGrid() && getPeriodic())
+    return emitOpError("hash buckets do not imply periodic geometry; combined mode is unsupported");
   if (getCutoff().convertToDouble() <= 0.0)
     return emitOpError("requires a positive cutoff");
   if (getDimensions() < 1 || getDimensions() > 3)

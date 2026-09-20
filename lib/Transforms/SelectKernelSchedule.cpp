@@ -72,7 +72,12 @@ static void setSchedule(Operation *operation, StringRef kind,
   BoolAttr deterministicAttr =
       operation->getAttrOfType<BoolAttr>("deterministic");
   bool deterministic = deterministicAttr && deterministicAttr.getValue();
-  if (kind == "generated-cell-neighbor") {
+  if (kind == "generated-hash-query-lanes") {
+    resources.insert(resources.begin(), "directory.global.read");
+    roles = {"workgroup.destination-queries", "subgroup.query-traversal", "lane.query"};
+    handoffs.insert(handoffs.begin() + 1, "loop.active-any");
+    instructions = {"masked-memory", "distance-filter", "ordered-reduce"};
+  } else if (kind == "generated-cell-neighbor") {
     resources.insert(resources.begin(), "directory.global.read");
     roles = {"workgroup.destination-rows", "subgroup.neighbor-reduction",
              "lane.scalar"};
@@ -210,7 +215,10 @@ public:
     getOperation().walk(
         [&](kernel::LaunchOp launch) { annotateLoadBalance(launch, builder); });
     getOperation().walk([&](kernel::GeneratedLaunchOp launch) {
-      setSchedule(launch, "generated-cell-neighbor", 1, 32, 1, builder);
+      if (launch.getHashGrid())
+        setSchedule(launch, "generated-hash-query-lanes", 32, 1, 1, builder);
+      else
+        setSchedule(launch, "generated-cell-neighbor", 1, 32, 1, builder);
     });
     getOperation().walk([&](kernel::DenseLaunchOp launch) {
       auto boundary = launch->getAttrOfType<StringAttr>("boundary");

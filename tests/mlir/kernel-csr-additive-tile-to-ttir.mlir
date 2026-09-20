@@ -40,7 +40,7 @@ func.func @bounded(%row: tensor<?xi64>, %col: tensor<?xi64>,
   return %out : tensor<?xf32>
 }
 
-// CHECK: graphforge.launch entry=gf_csr_additive_tile
+// CHECK: tiga.launch entry=gf_csr_additive_tile
 // CHECK-SAME: block_rows=16
 // CHECK: tt.func public @gf_csr_additive_tile
 // CHECK: tt.make_range

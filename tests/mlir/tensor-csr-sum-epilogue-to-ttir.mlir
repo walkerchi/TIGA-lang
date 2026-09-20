@@ -42,7 +42,7 @@ module {
 }
 
 // DOMAIN: "gf_tensor.csr_segment_sum"
-// TTIR: graphforge.tensor entry=gf_tensor_csr_sum_epilogue block_rows=16 block_elements=4 num_warps=1
+// TTIR: tiga.tensor entry=gf_tensor_csr_sum_epilogue block_rows=16 block_elements=4 num_warps=1
 // TTIR: tensor<16x4xf32>
 // TTIR: "tt.reduce"
 // TTIR: arith.mulf %gf_sum

@@ -54,7 +54,7 @@ def main() -> None:
             summary_svg.unlink(missing_ok=True)
             summary_report.unlink(missing_ok=True)
             continue
-        paths = [args.root / operation / case / "roofline.json" for case in cases]
+        paths = [args.root / operation / case / record.get("artifact", "roofline.json") for case in cases]
         missing = [str(path) for path in paths if not path.is_file()]
         if missing:
             raise SystemExit("missing registered JSON:\n" + "\n".join(missing))

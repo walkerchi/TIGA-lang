@@ -1,8 +1,8 @@
-"""The single optional PyTorch interoperability example."""
+"""Default Torch interface, plus an optional native-storage round trip."""
 
 import torch
 
-import tiga as gf
+import tiga as tg
 
 nodes, degree = 8, 2
 x = torch.linspace(0, 1, nodes)                                            # (N,)
@@ -10,8 +10,8 @@ weight = torch.ones(nodes * degree)                                        # (E,
 
 
 # --8<-- [start:core]
-class WeightedAggregation(gf.MessagePassing):
-    reducer = gf.sum()
+class WeightedAggregation(tg.MessagePassing):
+    reducer = tg.sum()
 
     def edge(self, src, dst, edge):
         return edge.weight * src.x
@@ -24,16 +24,16 @@ col_idx = (  # (E,)
 ).remainder(nodes).flatten()
 
 # Torch tensors call the UDF directly — no conversion, no copy.
-graph = gf.Graph.from_csr(row_ptr, col_idx, num_src=nodes, validate="full")
+graph = tg.Graph.from_csr(row_ptr, col_idx, num_src=nodes, validate="full")
 kernel = WeightedAggregation()
 output = kernel(  # (N,)
     graph=graph, src={"x": x}, dst={}, edge={"weight": weight})
 # --8<-- [end:core]
 
 # from_torch/to_torch are NOT required for the call above. They exist for the
-# other direction: entering the native gf.Tensor system (deferred expression
+# other direction: entering the native tg.Tensor system (deferred expression
 # capture, compiler-generated VJP) while still sharing torch storage.
-native = gf.from_torch(x)
+native = tg.from_torch(x)
 round_trip = native.to_torch()  # same storage, zero copy
 
 # Inspect: kernel.explain(), kernel.schedules

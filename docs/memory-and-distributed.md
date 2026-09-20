@@ -1,78 +1,42 @@
 # Memory hierarchy and distributed execution
 
-These are compiler dimensions, not alternative user APIs. The same
-`MessagePassing` program must remain valid whether a relation is resident in
-one GPU, streamed from NVMe, or partitioned across ranks.
+Ordinary programs use [memory and storage](memory.md). This page describes the compiler-facing [memory hierarchy](https://en.wikipedia.org/wiki/Memory_hierarchy) and distributed execution mechanisms.
 
-!!! note "Current status"
+!!! note "Current boundary"
 
-    Single-node capacity-accounted RAM/pinned/HBM/NVMe execution is implemented,
-    including compiler-planned transfer/release and native async DMA. Typed
-    owned/ghost/halo tasks, paged `.gfg` shards and a real two-process MPI
-    forward/VJP path are executable. CPU communication/interior overlap has a
-    controlled-link benchmark; CUDA has native buffer binding and verified
-    stream dependency ordering. A rank-one NCCL test proves provider binding,
-    not peer communication. Real 2+ GPU NCCL/RCCL correctness, profiler overlap
-    and performance remain open gates.
+    Native-Tensor [LRU eviction](memory.md#automatic-eviction), compiler physical instances and graph paging have separate ownership and budgets. CUDA paging supports FP32 forward with host staging and a resident output; backward is CPU-only. Distributed TCP/NCCL execution supports forward/VJP and completes communication before computation. See the [support matrix](roadmap.md#feature-support) for coverage and [performance measurements](experiments.md) for workload results.
 
 ## Memory hierarchy
 
-Tiga separates a **logical value** from its **physical instances**. A
-field named `state` at version 7 may simultaneously exist as an HBM buffer, a
-pinned staging buffer and an NVMe spill page; the runtime tracks which
-instances are live and which one is newest.
+A logical value may have several explicitly managed physical instances. `HierarchyRuntime` tracks their logical name, version, capacity and completion; it does not automatically turn every public Tensor into such an instance.
 
-![Memory hierarchy ladder: register, shared, device, host-pinned, RAM, NVMe and remote tiers with their managers and transfer mechanisms](assets/memory-hierarchy-ladder.svg)
+![Memory tiers and their managers](assets/memory-hierarchy-ladder.svg)
 
-The ladder has three management regimes:
-
-- **kernel-managed** (`register`, `shared`) — never allocatable; the generated
-  kernel code owns them;
-- **runtime-allocatable** (`device`, `host-pinned`, `ram`, `nvme`) — created
-  through `HierarchyRuntime.allocate`, transferred through
-  `HierarchyRuntime.transfer`;
-- **transport-managed** (`remote`) — another rank's shard, reached only through
-  halo exchange (next section).
+Register/shared storage belongs to generated kernels. `device`, `host-pinned`, `ram` and `nvme` are runtime-allocatable. `remote` denotes transport-managed data, not a locally allocatable buffer.
 
 ### Capacity and version accounting
 
-Every instance is created with an explicit byte capacity, and each tier has a
-budget. The accounting rule is a hard gate, not a hint:
+An instance allocation checks its runtime's per-tier budget. Native buffers and temporary NVMe instances also participate in an active `tg.execution` budget; these are distinct checks, not twice the allocation. Capacity counts live allocations, not process RSS.
 
-$$
-\text{live}(t) \;=\; \sum_{i\ \text{live on}\ t} \text{capacity}_i \;\le\; \text{budget}(t)
-$$
+A transfer requires matching logical name, version and capacity. Its completion is available through `.ready` / `.wait()`. Closing a source waits for outstanding readers before releasing its bytes; writing a destination also waits for its previous readers. `latest(name)` selects the highest live version; equal-version copies have no implied preferred tier.
 
-Overflow raises `MemoryError` — **spilling is an explicit transfer to another
-tier, never a silent runtime decision**. Two contracts keep instances coherent:
-
-- a `transfer(source, destination)` requires the same logical name, the same
-  `version` and the same byte size, and waits on both sides' pending work
-  (WAW ordering) before starting;
-- `runtime.latest("state")` resolves the live instance with the highest
-  version, so a compiler plan never has to guess which copy is current.
-
-All transfers are asynchronous completions (`transfer(...)` returns a handle
-with `.ready` / `.wait()`): buffer copies ride a CUDA or CPU `Stream` with
-pooled events, and NVMe pages ride the runtime's file-I/O thread pool.
-
-Both the user-facing `.disk()` spill and compiler bundle plans bottom out in
-this runtime. One manual RAM → NVMe spill, written against it directly:
+This complete CPU example moves eight bytes through an NVMe instance and verifies the round trip:
 
 ```python
-nbytes, version = 256 << 20, 7        # a 256 MiB logical tensor "state" at version 7
+import tiga as tg
 
-with gf.runtime.HierarchyRuntime(budgets={"ram": 1 << 30, "nvme": 4 << 30}) as rt:
-    hot = rt.allocate("state", version, tier="ram",  capacity_bytes=nbytes)
-    cold = rt.allocate("state", version, tier="nvme", capacity_bytes=nbytes)
-    rt.transfer(hot, cold).wait()       # async spill; same name + version + size required
-    hot.close()                         # live("ram") drops; latest("state") is now cold
+with tg.runtime.HierarchyRuntime(budgets={"ram": 16, "nvme": 8}) as rt:
+    hot = rt.allocate("state", 7, tier="ram", capacity_bytes=8)
+    hot.buffer.write(b"tiga1234")
+    cold = rt.allocate("state", 7, tier="nvme", capacity_bytes=8)
+    rt.transfer(hot, cold).wait()
+    hot.close()
+    back = rt.allocate("state", 7, tier="ram", capacity_bytes=8)
+    rt.transfer(cold, back).wait()
+    assert back.buffer.read() == b"tiga1234"
 ```
 
-The runnable version — including the round-trip integrity check — is
-[examples/hierarchical_memory.py](examples/distributed-memory.md#spilling-tensors-to-disk);
-pinned↔HBM and RAM↔NVMe bandwidth is measured by
-`python -m benchmarks.memory_hierarchy.transfer --quick`.
+The runtime context owns these physical instances and closes them on exit. In contrast, an execution policy context does not invalidate returned public Tensors. RAM↔NVMe file copies use bounded chunks, and device copies use native stream/event ordering. No compiler automatically inserts all necessary spill/reload decisions for an arbitrary program.
 
 ### Compiler bundle plans
 
@@ -95,14 +59,14 @@ A distributed graph is still an ordinary `Graph`. `graph.halo(mesh, ...)`
 attaches declarative placement — no data moves, no subtype appears:
 
 ```python
-mesh = gf.DeviceMesh("cuda", (2, 4), names=("rack", "gpu"))
-graph = graph.halo(mesh, partition=gf.ByDestination(mesh_axis="gpu"), depth="auto")
+mesh = tg.DeviceMesh("cuda", (2, 4), names=("rack", "gpu"))
+graph = graph.halo(mesh, partition=tg.ByDestination(mesh_axis="gpu"), depth="auto")
 ```
 
 ### Ownership and ghosts, exactly
 
-With $N$ destination entities and $W$ ranks, the default balanced partition
-gives rank $r$ the contiguous row range
+With `N` destination entities and `W` ranks, the default balanced partition
+gives rank `r` the contiguous row range
 
 $$
 \text{owned}_r \;=\; \big[\, r\big\lfloor \tfrac{N}{W} \big\rfloor + \min(r,\; N \bmod W),
@@ -119,30 +83,24 @@ $$
 `.gfg` store each rank reads only its own row range, so no rank ever
 materializes the global adjacency.
 
-![Halo exchange: an 8-node ring on two ranks; ghosts are read at the boundary, values flow owner to ghost in the forward pass and cotangents accumulate back in the VJP; interior compute overlaps the exchange](assets/halo-exchange.svg)
+![Halo exchange followed by computation of all owned rows](assets/halo-exchange.svg)
 
-### Forward: interior/boundary split and overlap
+### Forward: communication then compute { #forward-interiorboundary-split-and-overlap }
 
-Before execution the compiler splits owned rows into **interior** (references
-only owned sources — no halo dependency) and **boundary** (may reference
-ghosts). The schedule is `interior ‖ halo → boundary`:
+Distributed forward execution follows this sequence:
 
-- the halo exchange (`pack_halo` → `exchange_packed` → `unpack_halo`, values
-  flowing owner → ghost) starts first;
-- interior compute launches immediately, in parallel with the exchange;
-- boundary compute waits for the ghosts.
+1. Pack and exchange halo values from owner to ghost.
+2. Wait for the received source values to be ready.
+3. Compute all owned destination rows in one local call.
 
-$$
-T_{\text{serial}} = t_{\text{comm}} + t_{\text{int}} + t_{\text{bnd}}
-\qquad\Longrightarrow\qquad
-T_{\text{overlap}} = \max(t_{\text{comm}},\, t_{\text{int}}) + t_{\text{bnd}}
-$$
+All owned rows write to one local output. The graph and edge function do not
+require a scheduling option. CPU, MPI, TCP and NCCL follow
+the same dependency order; transport selection only changes data movement.
 
-Every execution records a typed trace
-(`DistributedRuntime.last_execution_trace`, schema
-`tiga.distributed-execution-trace.v1`) so overlap claims come from
-measured schedules, not hopes. The controlled-link CPU measurement is on the
-[benchmark results](benchmark-results.md) page (Distributed tab).
+Every call records `DistributedRuntime.last_execution_trace` (schema
+`tiga.distributed-execution-trace.v1`). Its schedule is
+`host-staged-serialized` or `device-direct-serialized`, with
+`interior_rows=0` and `measured_overlap_ms=0`.
 
 ### Backward: the adjoint is also a halo exchange
 
@@ -161,13 +119,64 @@ which is exactly the adjoint of the forward owner→ghost gather. The
 verifies this end to end on an 8-node ring: each rank's local gradient is
 uniformly 3, including the contributions that cross the rank boundary.
 
+### Two-host CUDA sanity check { #two-host-cuda-sanity }
+
+[multi_host_gpu_gate.py](https://github.com/walkerchi/TIGA-lang/blob/main/benchmarks/distributed/multi_host_gpu_gate.py)
+checks forward, VJP and repeated calls with changed inputs on both ranks. Run from each host's repository root:
+
+```bash
+# Host A: substitute A's reachable private address.
+PYTHONPATH=python python benchmarks/distributed/multi_host_gpu_gate.py \
+  --rank 0 --host 192.168.1.10 --port 29570 --device cuda:0 --output output/rank0.json
+
+# Host B: connect to A; both hosts can use local device cuda:0.
+PYTHONPATH=python python benchmarks/distributed/multi_host_gpu_gate.py \
+  --rank 1 --host 192.168.1.10 --port 29570 --device cuda:0 --output output/rank1.json
+```
+
+Both files must report `correct=true`. Matching source, built compiler tools,
+and compatible Triton and CUDA are required; GPU architectures can differ.
+Global rank identifies the participating process; the local CUDA ordinal
+selects its GPU. See [distributed performance measurements](experiments.md)
+for latency across partition sizes.
+
+Halo derivation and communication-then-compute execution are automatic, not host discovery, remote process launch or GPU-speed-aware load balancing. TCP stages through host memory, not NCCL/GPU-direct. Object messages use pickle: connect trusted private peers only. `timeout` bounds connection and data waits; allow sufficient cold-JIT time. A full mesh with more than two ranks requires reachable peer listening ports.
+
+### NCCL on two hosts { #two-host-nccl }
+
+Use `--transport nccl` to check graph forward, VJP and repeated calls on the
+NCCL path. Startup distributes the communicator ID over TCP; NCCL then
+exchanges device buffers. For a standalone bidirectional 1 MiB exchange, run
+the [NCCL probe](https://github.com/walkerchi/TIGA-lang/blob/main/benchmarks/distributed/multi_host_nccl_probe.py).
+
+The following command selects Socket communication. Replace `INTERFACE` with
+a network interface reachable by both hosts and `HOST` with rank 0's address:
+
+```bash
+# Run on each host with distinct RANK=0/1 and a shared reachable HOST.
+NCCL_SOCKET_IFNAME=INTERFACE NCCL_SOCKET_FAMILY=AF_INET NCCL_IB_DISABLE=1 \
+  PYTHONPATH=python timeout 90s python benchmarks/distributed/multi_host_gpu_gate.py \
+  --rank RANK --host HOST --port 29659 --transport nccl --output rank-RANK.json
+```
+
+Both records must report `correct=true` and agree on source and NCCL library
+hashes. Use a launcher timeout to bound initialization waits and expose
+transport ports only to trusted peers.
+
 ### Runtimes and transports
+
+Communication is a runtime stage, separate from local kernel compilation. CPU
+halo VJP materializes its cotangent, exchanges contributions, then exposes the
+result as an input to the next LLVM-compiled operation, including in strict
+native mode. The active runtime must outlive gradient realization.
+
+### Bind a runtime { #bind-runtime }
 
 Execution requires an active runtime; calling a distributed graph without one
 fails closed (`NotImplementedError`):
 
 ```python
-with gf.distributed.DistributedRuntime(transport):
+with tg.distributed.DistributedRuntime(transport):
     out = Diffusion()(graph=graph, src={"u": local_u}, dst={"u": local_u})
 ```
 
@@ -184,10 +193,10 @@ and graph code never name one:
   the 128-byte `ncclUniqueId`, the launcher broadcasts it);
 - third parties register through the `tiga.transport` entry-point group.
 
-Persistent topology keeps the same API: `gf.save(graph, "mesh.gfg")` writes a
+Persistent topology keeps the same API: `tg.save(graph, "mesh.gfg")` writes a
 versioned paged store (manifest + `row_ptr.bin` + `col_idx.bin`), and
-`gf.load("mesh.gfg").halo(mesh, depth="auto")` returns to the same partitioned
-snapshot with each rank reading only its own pages. `gf.load` reads the
+`tg.load("mesh.gfg").halo(mesh, depth="auto")` returns to the same partitioned
+snapshot with each rank reading only its own pages. `tg.load` reads the
 manifest only; `resolve_csr()` remains an explicit debug materialization.
 
 Measured transfer, halo-exchange, overlap and NCCL evidence for these paths is

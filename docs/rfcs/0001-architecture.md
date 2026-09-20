@@ -29,19 +29,19 @@ rather than ordinary dynamic Python.  `reduce` is a declared monoid; arbitrary
 Python in `aggregate` is not safely parallelizable.
 
 ```python
-class Diffusion(gf.MessagePassing):
-    topology = gf.relation(
+class Diffusion(tg.MessagePassing):
+    topology = tg.relation(
         src="particles", dst="particles",
-        build=gf.radius(r=0.08, skin=0.01),
+        build=tg.radius(r=0.08, skin=0.01),
         hints={"symmetric": True, "dynamic": True},
     )
 
     def edge(self, src, dst, edge):
         return edge.weight * (src.u - dst.u)
 
-    reducer = gf.sum(identity=0.0, deterministic="optional")
+    reducer = tg.sum(identity=0.0, deterministic="optional")
 
-    def node(self, dst, total, dt: gf.const):
+    def node(self, dst, total, dt: tg.const):
         return {"u": dst.u + dt * total}
 ```
 

@@ -28,6 +28,7 @@
 #include <cmath>
 #include <cctype>
 #include <string>
+#include <type_traits>
 
 namespace mlir::graphforge {
 namespace {
@@ -462,13 +463,15 @@ static void emitGeneratedRadiusDistanceTTIR(llvm::raw_ostream &output,
                                             int64_t numRows,
                                             int64_t dimensions,
                                             int64_t neighborCells,
-                                            double cutoff, bool periodic) {
+                                            double cutoff, bool periodic,
+                                            bool hashGrid) {
   (void)numRows;
   constexpr int64_t blockD = 32;
   output << "// tiga.launch entry=gf_generated_radius_distance_sum "
             "block_rows=1 num_warps=1 "
             "abi=cell_ptr,particle_order,cell_coordinates,extents,strides,"
             "neighbor_offsets,lattice,inverse_lattice,positions,x,out\n"
+         << (hashGrid ? "// tiga.radius_index=hash_grid\n" : "")
          << "module {\n"
          << "  tt.func public @gf_generated_radius_distance_sum("
          << "%cell_ptr: !tt.ptr<i64>, %particle_order: !tt.ptr<i64>, "
@@ -499,7 +502,9 @@ static void emitGeneratedRadiusDistanceTTIR(llvm::raw_ostream &output,
          << "    %lane = arith.extsi %lane_i32 : tensor<" << blockD
          << "xi32> to tensor<" << blockD << "xi64>\n"
          << "    %row_i32 = tt.get_program_id x : i32\n"
-         << "    %row = arith.extsi %row_i32 : i32 to i64\n"
+         << "    %row_slot = arith.extsi %row_i32 : i32 to i64\n"
+         << "    %row_order_ptr = tt.addptr %particle_order, %row_slot : !tt.ptr<i64>, i64\n"
+         << "    %row = tt.load %row_order_ptr : !tt.ptr<i64>\n"
          << "    %row_v = tt.splat %row : i64 -> tensor<" << blockD
          << "xi64>\n"
          << "    %row_base = arith.muli %row, %dimensions : i64\n";
@@ -550,7 +555,16 @@ static void emitGeneratedRadiusDistanceTTIR(llvm::raw_ostream &output,
            << "      %neighbor_coord_raw" << axis
            << " = arith.addi %coordinate" << axis << ", %offset" << axis
            << " : i64\n";
-    if (periodic) {
+    if (hashGrid) {
+      // The hash-directory ABI uses power-of-two extents. Bit masking also
+      // handles a negative neighbor offset without an integer division.
+      output << "      %bucket_mask" << axis
+             << " = arith.subi %extent" << axis << ", %c1_i64 : i64\n"
+             << "      %neighbor_coord" << axis
+             << " = arith.andi %neighbor_coord_raw" << axis
+             << ", %bucket_mask" << axis << " : i64\n"
+             << "      %valid" << axis + 1 << " = arith.constant true\n";
+    } else if (periodic) {
       output << "      %neighbor_coord_shifted" << axis
              << " = arith.addi %neighbor_coord_raw" << axis << ", %extent"
              << axis << " : i64\n"
@@ -930,6 +944,122 @@ static bool isVectorScaleMultiplyRegion(Region &region, int64_t width) {
          llvm::is_contained(block.getArguments(), other);
 }
 
+// One query per lane, with spatially ordered queries. For low bucket occupancy
+// this avoids dedicating a whole warp to each short candidate list.
+static void emitHashRadiusDistanceTTIR(llvm::raw_ostream &out, int64_t rows,
+                                       int64_t dimensions, int64_t neighbors,
+                                       double cutoff) {
+  constexpr int lanes = 32;
+  std::string I = "tensor<32xi64>", F = "tensor<32xf32>", B = "tensor<32xi1>";
+  auto splat = [&](StringRef name, StringRef value, StringRef type, StringRef vector) {
+    out << "    %" << name << " = tt.splat %" << value << " : " << type << " -> " << vector << "\n";
+  };
+  out << "// tiga.launch entry=gf_generated_radius_distance_sum block_rows=32 num_warps=1 "
+         "abi=cell_ptr,particle_order,cell_coordinates,extents,strides,neighbor_offsets,lattice,inverse_lattice,positions,x,out\n"
+         "// tiga.radius_index=hash_grid\nmodule {\n"
+         "  tt.func public @gf_generated_radius_distance_sum("
+         "%cell_ptr: !tt.ptr<i64>, %particle_order: !tt.ptr<i64>, "
+         "%cell_coordinates: !tt.ptr<i64>, %extents: !tt.ptr<i64>, %strides: !tt.ptr<i64>, "
+         "%neighbor_offsets: !tt.ptr<i64>, %lattice: !tt.ptr<f32>, %inverse_lattice: !tt.ptr<f32>, "
+         "%positions: !tt.ptr<f32>, %x: !tt.ptr<f32>, %out: !tt.ptr<f32>) attributes {noinline = false} {\n"
+         "    %zero_i = arith.constant dense<0> : " << I << "\n"
+         "    %one_i = arith.constant dense<1> : " << I << "\n"
+         "    %zero_f = arith.constant dense<0.0> : " << F << "\n"
+         "    %count = arith.constant dense<" << rows << "> : " << I << "\n"
+         "    %dim_v = arith.constant dense<" << dimensions << "> : " << I << "\n"
+         "    %cutoff_v = arith.constant dense<" << cutoff * cutoff << "> : " << F << "\n"
+         "    %c0 = arith.constant 0 : i64\n    %c1 = arith.constant 1 : i64\n"
+         "    %dim = arith.constant " << dimensions << " : i64\n"
+         "    %neighbors = arith.constant " << neighbors << " : i64\n"
+         "    %block = arith.constant " << lanes << " : i32\n"
+         "    %pid = tt.get_program_id x : i32\n"
+         "    %base = arith.muli %pid, %block : i32\n"
+         "    %base_v = tt.splat %base : i32 -> tensor<32xi32>\n"
+         "    %lane = tt.make_range {end = 32 : i32, start = 0 : i32} : tensor<32xi32>\n"
+         "    %slot32 = arith.addi %base_v, %lane : tensor<32xi32>\n"
+         "    %slot = arith.extsi %slot32 : tensor<32xi32> to " << I << "\n"
+         "    %row_mask = arith.cmpi slt, %slot, %count : " << I << "\n";
+  for (StringRef name : {"cell_ptr", "particle_order", "cell_coordinates"})
+    splat((name + "_v").str(), name, "!tt.ptr<i64>", "tensor<32x!tt.ptr<i64>>");
+  for (StringRef name : {"positions", "x", "out"})
+    splat((name + "_v").str(), name, "!tt.ptr<f32>", "tensor<32x!tt.ptr<f32>>");
+  out << "    %row_order_ptr = tt.addptr %particle_order_v, %slot : tensor<32x!tt.ptr<i64>>, " << I << "\n"
+         "    %row = tt.load %row_order_ptr, %row_mask, %zero_i : tensor<32x!tt.ptr<i64>>\n"
+         "    %row_base = arith.muli %row, %dim_v : " << I << "\n";
+  for (int64_t a = 0; a < dimensions; ++a) {
+    out << "    %a" << a << " = arith.constant " << a << " : i64\n"
+        << "    %av" << a << " = arith.constant dense<" << a << "> : " << I << "\n"
+        << "    %ri" << a << " = arith.addi %row_base, %av" << a << " : " << I << "\n"
+        << "    %cp" << a << " = tt.addptr %cell_coordinates_v, %ri" << a << " : tensor<32x!tt.ptr<i64>>, " << I << "\n"
+        << "    %coord" << a << " = tt.load %cp" << a << ", %row_mask, %zero_i : tensor<32x!tt.ptr<i64>>\n"
+        << "    %pp" << a << " = tt.addptr %positions_v, %ri" << a << " : tensor<32x!tt.ptr<f32>>, " << I << "\n"
+        << "    %p" << a << " = tt.load %pp" << a << ", %row_mask, %zero_f : tensor<32x!tt.ptr<f32>>\n"
+        << "    %ep" << a << " = tt.addptr %extents, %a" << a << " : !tt.ptr<i64>, i64\n"
+        << "    %extent" << a << " = tt.load %ep" << a << " : !tt.ptr<i64>\n"
+        << "    %mask" << a << " = arith.subi %extent" << a << ", %c1 : i64\n"
+        << "    %sp" << a << " = tt.addptr %strides, %a" << a << " : !tt.ptr<i64>, i64\n"
+        << "    %stride" << a << " = tt.load %sp" << a << " : !tt.ptr<i64>\n";
+    splat("maskv" + std::to_string(a), "mask" + std::to_string(a), "i64", I);
+    splat("stridev" + std::to_string(a), "stride" + std::to_string(a), "i64", I);
+  }
+  out << "    %cell_sum = scf.for %neighbor = %c0 to %neighbors step %c1 iter_args(%acc = %zero_f) -> (" << F << ") : i64 {\n"
+         "      %obase = arith.muli %neighbor, %dim : i64\n"
+         "      %key0 = arith.constant dense<0> : " << I << "\n";
+  for (int64_t a = 0; a < dimensions; ++a) {
+    out << "      %oi" << a << " = arith.addi %obase, %a" << a << " : i64\n"
+        << "      %op" << a << " = tt.addptr %neighbor_offsets, %oi" << a << " : !tt.ptr<i64>, i64\n"
+        << "      %offset" << a << " = tt.load %op" << a << " : !tt.ptr<i64>\n";
+    splat("ov" + std::to_string(a), "offset" + std::to_string(a), "i64", I);
+    out << "      %raw" << a << " = arith.addi %coord" << a << ", %ov" << a << " : " << I << "\n"
+        << "      %neighbor_coord" << a << " = arith.andi %raw" << a << ", %maskv" << a << " : " << I << "\n"
+        << "      %part" << a << " = arith.muli %neighbor_coord" << a << ", %stridev" << a << " : " << I << "\n"
+        << "      %key" << a+1 << " = arith.addi %key" << a << ", %part" << a << " : " << I << "\n";
+  }
+  out << "      %start_ptr = tt.addptr %cell_ptr_v, %key" << dimensions << " : tensor<32x!tt.ptr<i64>>, " << I << "\n"
+      << "      %key_next = arith.addi %key" << dimensions << ", %one_i : " << I << "\n"
+         "      %end_ptr = tt.addptr %cell_ptr_v, %key_next : tensor<32x!tt.ptr<i64>>, " << I << "\n"
+         "      %start = tt.load %start_ptr, %row_mask, %zero_i : tensor<32x!tt.ptr<i64>>\n"
+         "      %end = tt.load %end_ptr, %row_mask, %zero_i : tensor<32x!tt.ptr<i64>>\n"
+         "      %walk:2 = scf.while (%cursor = %start, %sum = %acc) : (" << I << ", " << F << ") -> (" << I << ", " << F << ") {\n"
+         "        %active = arith.cmpi slt, %cursor, %end : " << I << "\n"
+         "        %any = \"tt.reduce\"(%active) ({\n"
+         "        ^bb0(%a: i1, %b: i1):\n"
+         "          %both = arith.ori %a, %b : i1\n"
+         "          tt.reduce.return %both : i1\n"
+         "        }) {axis = 0 : i32} : (" << B << ") -> i1\n"
+         "        scf.condition(%any) %cursor, %sum : " << I << ", " << F << "\n"
+         "      } do {\n      ^bb0(%cursor: " << I << ", %sum: " << F << "):\n"
+         "        %active = arith.cmpi slt, %cursor, %end : " << I << "\n"
+         "        %source_ptr = tt.addptr %particle_order_v, %cursor : tensor<32x!tt.ptr<i64>>, " << I << "\n"
+         "        %source = tt.load %source_ptr, %active, %zero_i : tensor<32x!tt.ptr<i64>>\n"
+         "        %source_base = arith.muli %source, %dim_v : " << I << "\n"
+         "        %distance0 = arith.constant dense<0.0> : " << F << "\n";
+  for (int64_t a = 0; a < dimensions; ++a)
+    out << "        %si" << a << " = arith.addi %source_base, %av" << a << " : " << I << "\n"
+        << "        %spp" << a << " = tt.addptr %positions_v, %si" << a << " : tensor<32x!tt.ptr<f32>>, " << I << "\n"
+        << "        %s" << a << " = tt.load %spp" << a << ", %active, %zero_f : tensor<32x!tt.ptr<f32>>\n"
+        << "        %delta" << a << " = arith.subf %s" << a << ", %p" << a << " : " << F << "\n"
+        << "        %sq" << a << " = arith.mulf %delta" << a << ", %delta" << a << " : " << F << "\n"
+        << "        %distance" << a+1 << " = arith.addf %distance" << a << ", %sq" << a << " : " << F << "\n";
+  out << "        %within = arith.cmpf ole, %distance" << dimensions << ", %cutoff_v : " << F << "\n"
+         "        %not_self = arith.cmpi ne, %source, %row : " << I << "\n"
+         "        %valid0 = arith.andi %active, %not_self : " << B << "\n"
+         "        %valid = arith.andi %valid0, %within : " << B << "\n"
+         "        %xp = tt.addptr %x_v, %source : tensor<32x!tt.ptr<f32>>, " << I << "\n"
+         "        %value = tt.load %xp, %valid, %zero_f : tensor<32x!tt.ptr<f32>>\n"
+         "        %distance = math.sqrt %distance" << dimensions << " : " << F << "\n"
+         "        %raw_message = arith.mulf %distance, %value : " << F << "\n"
+         "        %message = arith.select %valid, %raw_message, %zero_f : " << B << ", " << F << "\n"
+         "        %updated = arith.addf %sum, %message : " << F << "\n"
+         "        %next = arith.addi %cursor, %one_i : " << I << "\n"
+         "        scf.yield %next, %updated : " << I << ", " << F << "\n"
+         "      }\n"
+         "      scf.yield %walk#1 : " << F << "\n    }\n"
+         "    %out_ptr = tt.addptr %out_v, %row : tensor<32x!tt.ptr<f32>>, " << I << "\n"
+         "    tt.store %out_ptr, %cell_sum, %row_mask : tensor<32x!tt.ptr<f32>>\n"
+         "    tt.return\n  }\n}\n";
+}
+
 static LogicalResult translateGeneratedRadius(
     kernel::GeneratedLaunchOp launch, llvm::raw_ostream &output) {
   MLIRContext *context = launch.getContext();
@@ -981,11 +1111,17 @@ static LogicalResult translateGeneratedRadius(
   if (!isScalarMultiplyRegion(launch.getRegions().front(), 2))
     return reject(launch, "edge region must multiply the scalar source by "
                           "the implicit Euclidean distance");
+  if (launch.getHashGrid()) {
+    emitHashRadiusDistanceTTIR(output, launch.getNumRowsAttr().getInt(),
+                              launch.getDimensionsAttr().getInt(),
+                              offsets.getDimSize(0), launch.getCutoffAttr().getValueAsDouble());
+    return success();
+  }
   emitGeneratedRadiusDistanceTTIR(
       output, launch.getNumRowsAttr().getInt(),
       launch.getDimensionsAttr().getInt(),
       offsets.getDimSize(0), launch.getCutoffAttr().getValueAsDouble(),
-      launch.getPeriodic());
+      launch.getPeriodic(), launch.getHashGrid());
   return success();
 }
 
@@ -2353,6 +2489,23 @@ static LogicalResult translateRankedRelation(
          << "      %tile_keys = arith.select " << valid
          << ", %candidate_key, %invalid_key : tensor<" << tile
          << "xi1>, tensor<" << tile << "xi64>\n";
+  // Exact pruning of selection work, not approximate neighbor search. If
+  // every tile key is >= the worst retained key, its candidates cannot enter
+  // the retained state. Packed (distance, source-index) keys preserve ties.
+  // Keeping selectionWidth >= k makes this conservative for non-power-of-two k.
+  output << "      %tile_min = \"tt.reduce\"(%tile_keys) <{axis = 0 : i32}> ({\n"
+         << "      ^bb0(%a: i64, %b: i64):\n"
+         << "        %m = arith.minui %a, %b : i64\n"
+         << "        tt.reduce.return %m : i64\n"
+         << "      }) : (tensor<" << tile << "xi64>) -> i64\n"
+         << "      %best_max = \"tt.reduce\"(%best) <{axis = 0 : i32}> ({\n"
+         << "      ^bb0(%a: i64, %b: i64):\n"
+         << "        %m = arith.maxui %a, %b : i64\n"
+         << "        tt.reduce.return %m : i64\n"
+         << "      }) : (tensor<" << selectionWidth << "xi64>) -> i64\n"
+         << "      %may_improve = arith.cmpi ult, %tile_min, %best_max : i64\n"
+         << "      %updated = scf.if %may_improve -> (tensor<"
+         << selectionWidth << "xi64>) {\n";
   std::string localSorted =
       emitBitonicKeySort(output, "%tile_keys", tile, "      ", "gf_local");
   output << "      %local_best = tt.gather " << localSorted
@@ -2371,8 +2524,11 @@ static LogicalResult translateRankedRelation(
          << "[%selection_rank_i32] {axis = 0 : i32} : (tensor<"
          << 2 * selectionWidth << "xi64>, tensor<" << selectionWidth
          << "xi32>) -> tensor<" << selectionWidth << "xi64>\n"
-         << "      scf.yield %next_best : tensor<" << selectionWidth
-         << "xi64>\n"
+         << "        scf.yield %next_best : tensor<" << selectionWidth << "xi64>\n"
+         << "      } else {\n"
+         << "        scf.yield %best : tensor<" << selectionWidth << "xi64>\n"
+         << "      }\n"
+         << "      scf.yield %updated : tensor<" << selectionWidth << "xi64>\n"
          << "    }\n"
          << "    %index32 = arith.trunci %selected : tensor<"
          << selectionWidth << "xi64> to tensor<" << selectionWidth
@@ -5378,7 +5534,9 @@ public:
         resultType.getDimSize(1) != features)
       return segment.emitError(
           "GPU segment_sum input and result feature extents must match");
-    if (edges != indexType.getDimSize(0) || edges <= 0 || edges > blockSize)
+    // An empty edge domain still produces one additive identity per segment.
+    // The existing lane < edges mask suppresses every input/index load.
+    if (edges != indexType.getDimSize(0) || edges < 0 || edges > blockSize)
       return segment.emitError(
           "GPU segment_sum edge extent exceeds the selected reduction block");
 
@@ -5538,20 +5696,23 @@ static StringRef tensorABIElementName(Type element) {
   return "i64";
 }
 
-class TensorCSRProductTTIREmitter {
+template <typename ReductionOp>
+class TensorCSRReduceTTIREmitter {
 public:
-  TensorCSRProductTTIREmitter(tensor::CSRSegmentProductOp product,
+  TensorCSRReduceTTIREmitter(ReductionOp product,
                               func::FuncOp function, int64_t blockSize,
                               llvm::raw_ostream &output)
       : product(product), function(function), blockSize(blockSize),
         output(output) {}
 
   LogicalResult emit() {
+    constexpr bool isSum = std::is_same_v<ReductionOp, tensor::CSRSegmentSumOp>;
+    StringRef entry = isSum ? "gf_tensor_csr_sum" : "gf_tensor_csr_product";
     auto inputType = dyn_cast<RankedTensorType>(product.getInput().getType());
     auto rowType = dyn_cast<RankedTensorType>(product.getRowPtr().getType());
     auto resultType = dyn_cast<RankedTensorType>(product.getResult().getType());
-    auto input = product.getInput().getDefiningOp<tensor::InputOp>();
-    auto rowPtr = product.getRowPtr().getDefiningOp<tensor::InputOp>();
+    auto input = product.getInput().template getDefiningOp<tensor::InputOp>();
+    auto rowPtr = product.getRowPtr().template getDefiningOp<tensor::InputOp>();
     if (!inputType || !rowType || !resultType || !input || !rowPtr ||
         (inputType.getRank() != 1 && inputType.getRank() != 2) ||
         rowType.getRank() != 1 || resultType.getRank() != inputType.getRank() ||
@@ -5561,7 +5722,7 @@ public:
         (!rowType.getElementType().isInteger(32) &&
          !rowType.getElementType().isInteger(64)))
       return product.emitError(
-          "GPU CSR product requires direct FP32 [E] or [E,F], integer "
+          "GPU CSR reduction requires direct FP32 [E] or [E,F], integer "
           "row_ptr and matching FP32 [R] or [R,F]");
     int64_t rows = product.getNumRows();
     int64_t features = inputType.getRank() == 2 ? inputType.getDimSize(1) : 1;
@@ -5573,14 +5734,14 @@ public:
     SmallVector<tensor::InputOp> inputs;
     function.walk([&](tensor::InputOp value) { inputs.push_back(value); });
     DenseMap<Value, unsigned> arguments;
-    output << "// tiga.tensor entry=gf_tensor_csr_product block_rows=1 "
+    output << "// tiga.tensor entry=" << entry << " block_rows=1 "
               "block_elements=" << blockSize << " num_warps=4 abi=";
     for (auto [ordinal, value] : llvm::enumerate(inputs)) {
       if (ordinal) output << ",";
       output << "arg" << ordinal;
       arguments[value.getResult()] = ordinal;
     }
-    output << ",out\nmodule {\n  tt.func public @gf_tensor_csr_product(";
+    output << ",out\nmodule {\n  tt.func public @" << entry << "(";
     for (auto [ordinal, value] : llvm::enumerate(inputs)) {
       if (ordinal) output << ", ";
       Type element = cast<RankedTensorType>(value.getResult().getType())
@@ -5598,7 +5759,8 @@ public:
            << " : i32, start = 0 : i32} : tensor<" << blockSize << "xi32>\n"
            << "    %lane = arith.extsi %lane_i32 : tensor<" << blockSize
            << "xi32> to tensor<" << blockSize << "xi64>\n"
-           << "    %one = arith.constant dense<1.000000e+00> : tensor<"
+           << "    %one = arith.constant dense<"
+           << (isSum ? "0.000000e+00" : "1.000000e+00") << "> : tensor<"
            << blockSize << "xf32>\n"
            << "    %program_i32 = tt.get_program_id x : i32\n";
     if (features == 1) {
@@ -5615,8 +5777,17 @@ public:
     output << "    %row = arith.extsi %row_i32 : i32 to i64\n"
            << "    %feature = arith.extsi %feature_i32 : i32 to i64\n";
     StringRef begin, end;
-    if (product.getUniformDegree()) {
-      output << "    %degree = arith.constant " << product.getMaxDegree()
+    bool uniform;
+    int64_t degree;
+    if constexpr (isSum) {
+      degree = product.getDegreeMax();
+      uniform = degree > 0 && degree == int64_t(product.getDegreeMin());
+    } else {
+      degree = product.getMaxDegree();
+      uniform = product.getUniformDegree();
+    }
+    if (uniform) {
+      output << "    %degree = arith.constant " << degree
              << " : i64\n"
              << "    %begin = arith.muli %row, %degree : i64\n"
              << "    %end = arith.addi %begin, %degree : i64\n";
@@ -5696,7 +5867,8 @@ public:
            << blockSize << "x!tt.ptr<f32>>\n"
            << "    %product = \"tt.reduce\"(%values) <{axis = 0 : i32}> ({\n"
            << "    ^bb0(%a: f32, %b: f32):\n"
-           << "      %next = arith.mulf %a, %b : f32\n"
+           << "      %next = " << (isSum ? "arith.addf" : "arith.mulf")
+           << " %a, %b : f32\n"
            << "      tt.reduce.return %next : f32\n"
            << "    }) : (tensor<" << blockSize << "xf32>) -> f32\n"
            << "    %out_index = arith.extsi %program_i32 : i32 to i64\n"
@@ -5707,7 +5879,7 @@ public:
   }
 
 private:
-  tensor::CSRSegmentProductOp product;
+  ReductionOp product;
   func::FuncOp function;
   int64_t blockSize;
   llvm::raw_ostream &output;
@@ -8448,6 +8620,15 @@ static LogicalResult translateTensorToTriton(Operation *root,
     if (!returnOp || returnOp.getNumOperands() != 1)
       return reduction.emitError("fused CSR sum requires one returned tensor");
     auto messageType = cast<RankedTensorType>(reduction.getInput().getType());
+    if (returnOp.getOperand(0) == reduction.getResult() &&
+        reduction.getInput().getDefiningOp<tensor::InputOp>() &&
+        reduction.getDegreeMax() > 0) {
+      int64_t blockSize = nextPowerOfTwo(reduction.getDegreeMax());
+      if (blockSize > 65536)
+        return reduction.emitError("bounded CSR sum degree is too large");
+      return TensorCSRReduceTTIREmitter<tensor::CSRSegmentSumOp>(
+          reduction, function, blockSize, output).emit();
+    }
     int64_t rows = std::max<int64_t>(1, reduction.getNumRows());
     int64_t averageDegree = std::max<int64_t>(
         1, (messageType.getDimSize(0) + rows - 1) / rows);
@@ -8532,7 +8713,7 @@ static LogicalResult translateTensorToTriton(Operation *root,
     if (blockSize > 65536)
       return operation->emitError("CSR product degree exceeds 65536");
     if (!productReductions.empty())
-      return TensorCSRProductTTIREmitter(
+      return TensorCSRReduceTTIREmitter<tensor::CSRSegmentProductOp>(
           productReductions.front(), function, blockSize, output).emit();
     return TensorCSRProductVJPTTIREmitter(
         productVJPs.front(), function, blockSize, output).emit();

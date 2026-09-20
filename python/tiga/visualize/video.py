@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import shutil
+import math
 import subprocess
 from pathlib import Path
 
@@ -102,6 +103,8 @@ def save_video(frames, path: str | Path, *, fps: float = 30) -> Path:
     ``.gif`` is written through Pillow; ``.mp4`` streams raw RGB frames into
     an ffmpeg subprocess, so generators are consumed without buffering.
     """
+    if isinstance(fps, bool) or not isinstance(fps, (int, float)) or not math.isfinite(fps) or fps <= 0:
+        raise ValueError("fps must be a finite positive number")
     destination = Path(path)
     destination.parent.mkdir(parents=True, exist_ok=True)
     suffix = destination.suffix.lower()

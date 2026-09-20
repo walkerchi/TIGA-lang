@@ -13,6 +13,7 @@ from dataclasses import dataclass, replace
 import hashlib
 from pathlib import Path
 import time
+import weakref
 from typing import TYPE_CHECKING, Mapping
 
 from .native import compile_cpu, launch_cpu
@@ -74,7 +75,7 @@ class CPUExecutable:
         )
 
 
-_IDENTITY_EXECUTABLES: dict[tuple[object, ...], CPUExecutable] = {}
+_IDENTITY_EXECUTABLES = weakref.WeakValueDictionary()
 _STRUCTURE_EXECUTABLES: dict[tuple[object, ...], CPUExecutable] = {}
 
 
@@ -114,6 +115,9 @@ def _physicalize_materialized_operands(output: Tensor) -> Tensor:
         found = memo.get(id(value))
         if found is not None:
             return found
+        if value._spill is not None or (value._expr is not None and value._expr.op in {
+                "device_copy", "distributed_halo_reverse"}):
+            value.realize()
         if not root and value._buffer is not None:
             physical = Tensor(
                 value.shape,
@@ -242,7 +246,9 @@ def compile_tensor(output: Tensor) -> CPUExecutable:
         compile_ms=compile_ms,
         cache_hit=False,
     )
-    _STRUCTURE_EXECUTABLES[structure] = executable
+    # Cache code, not bound Tensor storage. Pages and completed iterations must
+    # release their inputs even while the compiled code remains reusable.
+    _STRUCTURE_EXECUTABLES[structure] = replace(executable, inputs=())
     _IDENTITY_EXECUTABLES[identity] = executable
     return executable
 

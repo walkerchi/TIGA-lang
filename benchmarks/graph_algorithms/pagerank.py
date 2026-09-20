@@ -22,7 +22,7 @@ import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
 import torch  # noqa: E402
 
-import tiga as gf  # noqa: E402
+import tiga as tg  # noqa: E402
 from benchmarks.common.hardware_roofline import (  # noqa: E402
     interleaved_samples_ms,
     measure_roofs,
@@ -32,8 +32,8 @@ from benchmarks.common.perf_protocol import evaluate_sota_gates  # noqa: E402
 from benchmarks.common.plotting import provider_color  # noqa: E402
 
 
-class PageRankStep(gf.MessagePassing):
-    reducer = gf.sum()
+class PageRankStep(tg.MessagePassing):
+    reducer = tg.sum()
 
     def edge(self, src, dst, edge):
         del dst
@@ -56,17 +56,17 @@ def _case(nodes: int, degree: int, iterations: int, samples: int, roof):
     initial = torch.full(
         (nodes,), 1.0 / nodes, dtype=torch.float32, device="cuda")
     base = 0.15 / nodes
-    graph = gf.Graph.from_csr(
-        gf.from_torch(row), gf.from_torch(column), num_src=nodes)
-    native_weight = gf.from_torch(weight)
+    graph = tg.Graph.from_csr(
+        tg.from_torch(row), tg.from_torch(column), num_src=nodes)
+    native_weight = tg.from_torch(weight)
     # Do not charge asynchronous graph construction performed before this
     # scope to JIT compilation. The reported wall clock starts from a settled
     # input snapshot and still includes degree analysis, IR construction,
     # vendor compilation, allocation and prepared-launch binding.
     torch.cuda.synchronize()
     started = time.perf_counter_ns()
-    output = gf.repeat(
-        gf.from_torch(initial),
+    output = tg.repeat(
+        tg.from_torch(initial),
         lambda current: PageRankStep()(
             graph=graph,
             src={"rank": current},

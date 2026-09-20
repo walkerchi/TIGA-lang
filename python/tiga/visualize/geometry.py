@@ -2,7 +2,7 @@
 
 Point splatting and Delaunay triangle filling run on the host (NumPy /
 Matplotlib / Pillow) and produce a scalar field; that field is wrapped as a
-gf.Tensor and colored through the ordinary ``heatmap`` expression, so the
+tg.Tensor and colored through the ordinary ``heatmap`` expression, so the
 color transform stays device-side Tensor IR.
 """
 
@@ -177,7 +177,7 @@ def delaunay(
         from matplotlib.tri import Triangulation
     except ModuleNotFoundError as error:
         raise ModuleNotFoundError(
-            "delaunay() requires tiga-lang[visualization]"
+            "delaunay() requires Matplotlib for triangulation; install matplotlib"
         ) from error
     try:
         from PIL import Image, ImageDraw

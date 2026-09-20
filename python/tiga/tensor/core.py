@@ -19,6 +19,7 @@ from typing import Iterable, Sequence
 
 from ..runtime import Buffer, Device, Event
 from ..runtime import DeviceType
+from ..runtime.memory import managed_operation, current_execution
 
 
 class _CComplex64(ctypes.Structure):
@@ -37,7 +38,7 @@ class DType:
     kind: str
 
     def __repr__(self) -> str:
-        return f"gf.{self.name}"
+        return f"tg.{self.name}"
 
 
 float16 = DType("float16", 2, ctypes.c_uint16, "float")
@@ -290,6 +291,7 @@ class Tensor:
         expression: _Expr | None = None,
         version: int = 0,
         ready_event: Event | None = None,
+        _allocate: bool = True,
     ) -> None:
         self.shape = _normalize_shape(shape)
         if dtype.name not in _DTYPES or _DTYPES[dtype.name] is not dtype:
@@ -340,18 +342,21 @@ class Tensor:
                 tuple(operand._jit_key for operand in expression.operands),
                 region_key,
             )
-        if expression is None and buffer is None and self.device.type == DeviceType.CPU:
+        if _allocate and expression is None and buffer is None and self.device.type == DeviceType.CPU:
             self._buffer = Buffer(self.nbytes, device=self.device, _pooled=True)
-        if expression is None and buffer is None and self.device.type != DeviceType.CPU:
+        if _allocate and expression is None and buffer is None and self.device.type != DeviceType.CPU:
             raise RuntimeError(
                 f"direct Tensor construction for {self.device} requires a provider "
-                "allocation; use gf.empty() or gf.from_torch()"
+                "allocation; use tg.empty() or tg.from_torch()"
             )
         if (self._buffer is not None and self.ready_event is None and
                 self.device.type == DeviceType.CPU):
             self.ready_event = Event(self.device, _pooled=True)
         if self._buffer is not None and self._required_bytes() > self._buffer.nbytes:
             raise ValueError("Tensor view exceeds its physical buffer")
+        active = current_execution()
+        if active is not None:
+            active.track(self)
 
     @property
     def ndim(self) -> int:
@@ -551,8 +556,8 @@ class Tensor:
     def __bool__(self) -> bool:
         raise TypeError(
             "a tiga.Tensor cannot be used as a Python boolean: its "
-            "value lives behind lazy/device execution. Use an @gf.jit loop, "
-            "gf.control.while_loop, or an explicit observation like tolist()")
+            "value lives behind lazy/device execution. Use an @tg.jit loop, "
+            "tg.control.while_loop, or an explicit observation like tolist()")
 
     def __mul__(self, other: Tensor | int | float | complex) -> Tensor:
         return self._binary("mul", other)
@@ -843,7 +848,7 @@ class Tensor:
         """Expand destination rows over their CSR edge ranges."""
         if not isinstance(row_ptr, Tensor) or row_ptr.ndim != 1 or \
                 row_ptr.dtype.kind != "int":
-            raise TypeError("row_ptr must be a rank-one integer gf.Tensor")
+            raise TypeError("row_ptr must be a rank-one integer tg.Tensor")
         if self.ndim == 0 or row_ptr.shape[0] != self.shape[0] + 1:
             raise ValueError("row_ptr extent must equal node rows plus one")
         if self.device != row_ptr.device:
@@ -869,7 +874,7 @@ class Tensor:
         """Sum edge messages within each CSR destination row."""
         if not isinstance(row_ptr, Tensor) or row_ptr.ndim != 1 or \
                 row_ptr.dtype.kind != "int":
-            raise TypeError("row_ptr must be a rank-one integer gf.Tensor")
+            raise TypeError("row_ptr must be a rank-one integer tg.Tensor")
         if self.ndim == 0 or row_ptr.shape[0] != num_rows + 1:
             raise ValueError("row_ptr extent must equal num_rows plus one")
         if self.device != row_ptr.device:
@@ -898,7 +903,7 @@ class Tensor:
             raise TypeError("CSR segment product requires floating-point messages")
         if not isinstance(row_ptr, Tensor) or row_ptr.ndim != 1 or \
                 row_ptr.dtype.kind != "int":
-            raise TypeError("row_ptr must be a rank-one integer gf.Tensor")
+            raise TypeError("row_ptr must be a rank-one integer tg.Tensor")
         if self.ndim == 0 or row_ptr.shape[0] != num_rows + 1:
             raise ValueError("row_ptr extent must equal num_rows plus one")
         if self.device != row_ptr.device:
@@ -992,7 +997,7 @@ class Tensor:
         if destination.shape != source_index.shape or destination.ndim != 1:
             raise ValueError("destination/source_index must be matching vectors")
         if destination.dtype is not int64 or source_index.dtype is not int64:
-            raise TypeError("Euclidean CSR VJP indices must be gf.int64")
+            raise TypeError("Euclidean CSR VJP indices must be tg.int64")
         if lattice.shape != (dimensions, dimensions) or \
                 inverse_lattice.shape != lattice.shape:
             raise ValueError("lattice and inverse_lattice must have shape [D,D]")
@@ -1029,7 +1034,7 @@ class Tensor:
             raise TypeError("CSR segment maximum requires floating-point messages")
         if not isinstance(row_ptr, Tensor) or row_ptr.ndim != 1 or \
                 row_ptr.dtype.kind != "int":
-            raise TypeError("row_ptr must be a rank-one integer gf.Tensor")
+            raise TypeError("row_ptr must be a rank-one integer tg.Tensor")
         if self.ndim == 0 or row_ptr.shape[0] != num_rows + 1:
             raise ValueError("row_ptr extent must equal num_rows plus one")
         if self.device != row_ptr.device:
@@ -1056,6 +1061,7 @@ class Tensor:
             ), version=self.version,
         )
 
+    @managed_operation
     def realize(self) -> Tensor:
         if self._buffer is None and self._spill is not None:
             from .spill import reload_tensor
@@ -1063,6 +1069,34 @@ class Tensor:
             reload_tensor(self)
             return self
         if self._buffer is not None:
+            return self
+        if self._expr is not None and self._expr.op == "device_copy":
+            from .spill import copy_tensor
+            copied = copy_tensor(self._expr.operands[0], self.device)
+            self._buffer = copied._buffer
+            self.ready_event = copied.ready_event
+            return self
+        if (self.device.type == DeviceType.CPU and self._expr is not None
+                and self._expr.op == "distributed_halo_reverse"):
+            # Communication is a runtime stage, not a local LLVM instruction.
+            # Realize the cotangent with the selected backend before exchanging
+            # it; do not silently evaluate the whole producer DAG in Python.
+            from ..distributed.transport import (
+                current_distributed_runtime, reverse_halo_values,
+            )
+            runtime = current_distributed_runtime()
+            if runtime is None:
+                raise RuntimeError(
+                    "distributed halo VJP must execute inside DistributedRuntime")
+            cotangent = self._expr.operands[0].realize()
+            values = reverse_halo_values(
+                self._expr.attr("halo"), cotangent._read_flat(),
+                row_width=_numel(self.shape[1:]), transport=runtime.transport,
+            )
+            self._buffer = Buffer(self.nbytes, device=self.device, _pooled=True)
+            self._write_flat(values)
+            self.ready_event = Event(self.device, _pooled=True)
+            self._execution_info = {"backend": "distributed-halo-reverse"}
             return self
         paged_field = getattr(self, "_paged_field", None)
         if paged_field is not None:
@@ -1154,7 +1188,8 @@ class Tensor:
                 if hasattr(executable, "artifacts"):
                     self._execution_info["artifacts"] = executable.artifacts
                 prepare = getattr(executable, "prepare", None)
-                if prepare is not None:
+                active = current_execution()
+                if prepare is not None and not (active and active.eviction == "lru"):
                     self._prepared_launch = prepare(self)
                 return self
             except Exception as error:
@@ -1177,18 +1212,20 @@ class Tensor:
         }
         return self
 
+    @managed_operation
     def disk(self, *, name: str | None = None) -> Tensor:
         """Spill this tensor's payload to disk and free its in-memory buffer.
 
         The payload is materialized first if the tensor is still a deferred
         expression.  Every later read (``tolist``/``to_numpy``/execution)
-        lazily reloads the bytes into a native CPU buffer, so the tensor
-        keeps working as if nothing happened.
+        lazily reloads the bytes onto its original logical device. Autograd
+        history is preserved. Prefer spill() for temporary residency.
 
         Anonymous spills (the default) are managed by Tiga: the file is
         deleted when the tensor is collected or the process exits.  Pass
         ``name=...`` to persist the payload across processes — another
-        process attaches it with ``gf.from_disk(name)``.
+        process attaches it with ``tg.from_disk(name)``. Existing names are
+        rejected. Prefer save()/tg.load() for explicit persistent snapshots.
         """
         from .spill import spill_tensor
 
@@ -1196,17 +1233,51 @@ class Tensor:
         return self
 
     def cpu(self) -> Tensor:
-        """Ensure the payload is resident in CPU RAM, reloading a spill."""
-        if self._spill is not None:
-            self.realize()
+        """Return a CPU value; copy from another device without mutating it."""
+        return self.to("cpu")
+
+    @managed_operation
+    def to(self, device: Device | str) -> Tensor:
+        """Synchronous differentiable device copy; same-device reads return self."""
+        resolved = Device.parse(device)
+        if resolved == self.device:
+            return self.realize()
+        from .spill import copy_tensor
+        return copy_tensor(self, resolved)
+
+    @managed_operation
+    def spill(self) -> Tensor:
+        """Evict this handle's copy, retaining logical device and autograd.
+
+        Other views or external owners may keep the allocation alive. This is
+        temporary residency, not persistence. Reload returns to the logical
+        device. Spill is synchronous and never cuts the autograd graph.
+        """
+        from .spill import spill_tensor
+        spill_tensor(self)
         return self
+
+    @managed_operation
+    def save(self, path, *, overwrite: bool = False):
+        """Persist values without evicting or serializing autograd history."""
+        from .spill import save_tensor
+        return save_tensor(self, path, overwrite=overwrite)
+
+    @property
+    def residency(self):
+        """Describe this handle, not all aliases or process-wide physical RAM."""
+        return {"device": str(self.device), "resident": self._buffer is not None,
+                "backing": "snapshot" if self._spill and self._spill["named"] else
+                "temporary-spill" if self._spill else None,
+                "bytes": self.nbytes, "version": self.version}
 
     def __del__(self) -> None:
         # No imports here: __del__ can run during interpreter shutdown.
         spill = self.__dict__.get("_spill")
-        if spill is not None and not spill["named"]:
+        if spill is not None:
             with contextlib.suppress(Exception):
-                spill["path"].unlink(missing_ok=True)
+                from .spill import release_spill
+                release_spill(spill)
 
     def prepare(self):
         """Return a hot callable for repeatedly submitting this compiled DAG.
@@ -1216,6 +1287,9 @@ class Tensor:
         inputs in place. Cold capture/JIT remains visible on the first
         ``realize()`` and is never hidden inside the returned callable.
         """
+        active = current_execution()
+        if active is not None and active.eviction == "lru":
+            raise RuntimeError("prepare() binds storage and is unavailable with automatic eviction")
         self.realize()
         launch = self._prepared_launch
         if launch is None:
@@ -1302,6 +1376,10 @@ class Tensor:
         key = id(self)
         if key in cache:
             return cache[key]
+        if self._spill is not None:
+            self.realize()
+        if self._expr is not None and self._expr.op == "device_copy":
+            self.realize()
         if self._buffer is not None:
             result = self._read_flat()
             cache[key] = result
@@ -1757,6 +1835,7 @@ class Tensor:
             else:
                 pointer[index] = value
 
+    @managed_operation
     def tolist(self):
         self.realize()
         values = self._read_flat()
@@ -1771,6 +1850,7 @@ class Tensor:
 
         return nest(0, self.shape)
 
+    @managed_operation
     def to_numpy(self):
         """Copy this logical Tensor into a contiguous NumPy array.
 
@@ -1854,7 +1934,7 @@ class Tensor:
     def __repr__(self) -> str:
         state = "materialized" if self._buffer is not None else "deferred"
         return (
-            f"gf.Tensor(shape={self.shape}, dtype={self.dtype!r}, "
+            f"tg.Tensor(shape={self.shape}, dtype={self.dtype!r}, "
             f"device='{self.device}', {state}, requires_grad={self.requires_grad})"
         )
 
@@ -1863,10 +1943,11 @@ def empty(
     shape: int | Sequence[int],
     *,
     dtype: DType = float32,
-    device: Device | str = "cpu",
+    device: Device | str | None = None,
     requires_grad: bool = False,
 ) -> Tensor:
-    resolved = Device.parse(device)
+    from ..runtime.memory import default_device
+    resolved = Device.parse(default_device() if device is None else device)
     if resolved.type == DeviceType.CUDA:
         normalized = _normalize_shape(shape)
         return Tensor(
@@ -1890,7 +1971,7 @@ def tensor(
     data: object,
     *,
     dtype: DType | None = None,
-    device: Device | str = "cpu",
+    device: Device | str | None = None,
     requires_grad: bool = False,
 ) -> Tensor:
     shape, values = _flatten_data(data)

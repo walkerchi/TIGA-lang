@@ -13,7 +13,7 @@ import warnings
 
 import torch
 
-import tiga as gf
+import tiga as tg
 from tiga.codegen import prepare_ttir_generated_radius
 from tiga.interop.torch.compiler_bridge import (
     lower_kernel_to_ttir_plan,
@@ -33,8 +33,8 @@ from benchmarks.kernels.sparse_triton_oracles import (
 )
 
 
-class DistanceAggregation(gf.MessagePassing):
-    reducer = gf.sum()
+class DistanceAggregation(tg.MessagePassing):
+    reducer = tg.sum()
 
     def edge(self, src, dst, edge):
         return edge.distance * src.x
@@ -131,7 +131,7 @@ def main() -> None:
     ) ** (1.0 / args.dimensions)
     roof = measure_roofs(torch.device("cuda"), args.quick, args.repeat)
 
-    generated_graph = gf.Graph.radius(positions, cutoff)
+    generated_graph = tg.Graph.radius(positions, cutoff)
     directory = generated_graph.generated_cell_directory()
     if directory is None:
         raise RuntimeError("dense generated cell directory is unavailable")
@@ -155,7 +155,7 @@ def main() -> None:
         num_warps=direct_manifest.num_warps,
     )
 
-    materialized_graph = gf.Graph.radius(positions, cutoff)
+    materialized_graph = tg.Graph.radius(positions, cutoff)
     row_ptr, col_idx = materialized_graph.resolve_csr()
     edges = col_idx.numel()
     candidate_pairs = int(materialized_graph.build_info["candidate_pairs"])
@@ -180,11 +180,11 @@ def main() -> None:
     torch.testing.assert_close(direct_consume(), expected, rtol=3e-4, atol=3e-4)
     torch.testing.assert_close(materialized_consume(), expected, rtol=3e-4, atol=3e-4)
 
-    dynamic_graph = gf.Graph.radius(positions, cutoff)
+    dynamic_graph = tg.Graph.radius(positions, cutoff)
     dynamic_kernel = DistanceAggregation()
     generated_reuse = lambda: dynamic_kernel(
         graph=dynamic_graph, src={"x": x}, dst={"x": x})
-    csr_graph = gf.Graph.radius(positions, cutoff)
+    csr_graph = tg.Graph.radius(positions, cutoff)
 
     def materialized_reuse():
         current_row, current_col = csr_graph.resolve_csr()
@@ -195,11 +195,11 @@ def main() -> None:
         return launch.output
 
     def generated_build_consume():
-        graph = gf.Graph.radius(positions, cutoff)
+        graph = tg.Graph.radius(positions, cutoff)
         return dynamic_kernel(graph=graph, src={"x": x}, dst={"x": x})
 
     def materialized_build_consume():
-        graph = gf.Graph.radius(positions, cutoff)
+        graph = tg.Graph.radius(positions, cutoff)
         current_row, current_col = graph.resolve_csr()
         launch = launch_radius_distance_sum(
             current_row, current_col, positions, x,

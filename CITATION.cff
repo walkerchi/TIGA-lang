@@ -1,0 +1,22 @@
+cff-version: 1.2.0
+title: "Tiga: a differentiable JIT compiler for graph message-passing programs"
+message: >-
+  If you use this software in a publication, please cite it using
+  the following metadata.
+type: software
+authors:
+  - family-names: walkerchi
+    affiliation: Independent Developer
+    email: walker.chi.000@gmail.com
+identifiers: []
+repository-code: "https://github.com/walkerchi/TIGA-lang"
+url: "https://github.com/walkerchi/TIGA-lang"
+license: Apache-2.0
+version: "0.1.0"
+keywords:
+  - compiler
+  - graph neural networks
+  - message passing
+  - sparse computation
+  - MLIR
+  - automatic differentiation

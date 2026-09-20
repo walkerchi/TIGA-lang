@@ -1,61 +1,73 @@
 # Current status and roadmap
 
-This page is a public summary. The authoritative completion ledger is
-`PROJECT.md §15.3`; when a statement here conflicts with that ledger, the
-ledger wins. A feature is not promoted from **partial** until correctness,
-inspectable compiler artifacts and the declared performance/conformance gate
-all exist.
+## Supported environment { #latest-validation }
 
-## Support matrix
+Tiga is alpha software. The supported package environment is Linux x86-64,
+CPython 3.11/3.12 and glibc ≥ 2.38. The Torch adapter uses Torch 2.11.x;
+CUDA compilation additionally uses Triton 3.6.x. Torch is installed separately.
+See [installation](getting-started.md) and [release availability](support.md#publication).
 
-| Target | Status | Executable path | Remaining release gate |
-|---|---|---|---|
-| NVIDIA CUDA | local alpha | `gf.domain/tensor → gf.iter → gf.kernel → serialized TTIR → vendor Triton → PTX/cubin`; native CUDA Driver runtime | broader shape/layout/dtype and multi-device matrix |
-| CPU | local alpha | `gf_tensor → Vector/SCF/MemRef → LLVM → ExecutionEngine`; fused relation range parallelism | ragged/power-law NUMA and broader dtype/layout matrix |
-| AMD ROCm / Hygon DCU | provider pending | provider ABI and conformance inputs exist | vendor TTIR→hsaco plugin plus real-hardware artifacts |
-| Apple Metal | provider pending | provider ABI and conformance inputs exist | legal IR→MSL/metallib plugin plus Apple hardware CI |
-| PPU | provider pending | provider ABI and conformance inputs exist | vendor compiler/runtime plugin plus hardware CI |
+## Support matrix { #support-matrix }
 
-Detection by Torch or Triton is not support. A provider must pass correctness,
-artifact inspection, cold/warm compilation, runtime and matched performance on
-the target hardware.
+| Target | Execution path | Availability |
+|---|---|---|
+| NVIDIA CUDA | Domain/Tensor → Iter → Kernel → TTIR → Triton → PTX/cubin | Implemented for supported operators, shapes and dtypes |
+| CPU | Tensor → Vector/SCF/MemRef → LLVM → ExecutionEngine | Native JIT, including Torch-free execution |
+| AMD ROCm / Hygon DCU | Provider extension interface | No supported device implementation |
+| Apple Metal | Provider extension interface | No supported device implementation |
+| PPU | Provider extension interface | No supported device implementation |
 
-## Implemented vertical slices
+GPU detection by Torch or Triton is independent of Tiga provider support.
+Use [execution diagnostics](execution.md) to inspect the selected provider.
 
-<div class="gf-feature-grid">
-  <div class="gf-card"><div class="gf-card__label">Compiler</div><h3>Inspectable native IR</h3><p>Tensor, relation and reducer capture; Domain→Iter→Kernel; automatic VJP; CPU LLVM and GPU TTIR translation.</p></div>
-  <div class="gf-card"><div class="gf-card__label">Runtime</div><h3>Torch-independent execution</h3><p>CPU buffers/ExecutionEngine and CUDA Driver allocation, streams, events, modules, launch and pinned DMA.</p></div>
-  <div class="gf-card"><div class="gf-card__label">Structure</div><h3>Static + generated relations</h3><p>CSR, dense/triangular, generated Euclidean radius, degree-aware sparse scheduling and builder–consumer fusion.</p></div>
-  <div class="gf-card"><div class="gf-card__label">Differentiation</div><h3>Compiler-derived VJP</h3><p>Tensor views/broadcast/reduce/scan/matmul, complex values and relation/reducer families without user backward kernels.</p></div>
-  <div class="gf-card"><div class="gf-card__label">Memory</div><h3>Physical planning</h3><p>Capacity, versions, checkpoint/spill, pinned↔HBM DMA and RAM↔NVMe execution represented in IR.</p></div>
-  <div class="gf-card"><div class="gf-card__label">Distribution</div><h3>Owned / ghost / halo tasks</h3><p>Two-process MPI correctness, CPU overlap and CUDA stream dependency ordering below the user kernel.</p></div>
-</div>
+## Feature support { #feature-support }
 
-## Active closure items
+Graph construction and graph execution have separate coverage. The following
+table describes the consumer path, including its gradient behavior.
 
-| Ledger | Status | What exists | Required to close |
-|---|---|---|---|
-| K0 · exact procedural kNN | **partial — ranked M0 measured** | `gf.ranked_relation` → ranked-pairs → ranked launch; stable candidate-tile top-k, masked arbitrary k≤64, hierarchical merge, selected-edge fusion, live-coordinate rebind, three passing N/D/k gates | large k, general metric UDF, memory-budgeted spill/task plan, backward lowering |
-| X0 · distributed execution | **partial** | typed halo Event DAG, MPI two-process forward/VJP, CPU overlap, NCCL rank-one binding and CUDA submission-order fixture | real 2+ GPU NCCL correctness/profiler overlap/performance and RCCL evidence |
-| P0 · release engineering | **partial** | pinned LLVM build, local wheel audit, no-Torch smoke, sdist rebuild and hosted compiler CI | complete CPython/Linux/macOS release matrix, trusted publishing and first PyPI release |
-| G0 · graph-algorithm probes | **partial** | fixed-iteration PageRank compiler/control path and registered performance cases | reverse structured loop/tape performance, device-side convergence, representative frontier and sorted-intersection IR probes |
-| L0 · matrix-free solvers | **partial** | solver sugar in `examples/solvers.py` (MessagePassing kernel as operator, no wrapper), multi-result `repeat/while` + CPU typed double buffers and `scf.while`, MessagePassing FEM stiffness apply, fixed/residual-driven CG with optional preconditioner | multi-state CUDA loop plan, distributed reductions, structured reverse loop, implicit adjoint VJP, and matched forward/backward artifacts |
-| Vendor providers | **pending** | provider ABI, plugin entry point and fail-closed conformance command | independently distributed provider plus target-hardware artifacts for each vendor |
+| Path | Supported behavior | Constraints |
+|---|---|---|
+| Native Tensor MessagePassing | Materialized CSR and default Euclidean radius; forward and VJP | Other relation realizations are rejected by this entry point |
+| Native paged CSR | CPU forward/VJP and CUDA FP32 forward; [1B-edge measurement](memory.md#billion-edge-capacity) | CUDA backward unsupported; output remains resident; staging uses host memory |
+| Torch interface | Ordinary Torch input/output and autograd; dense, triangular and generated relations | Fusion depends on relation, dtype and shape; some CSR backward paths replay Torch operations |
+| Generated exact kNN | FP32 selection and fused consumption, k ≤ 64 | Target/shape guards; larger k, general metric UDF and generated backward use other paths or remain unsupported |
+| Graph composition | `Graph.cat([Graph.triangular(n), ...])`, stencil and CSR construction | `cat` materializes CSR; discrete neighbor selection is not differentiated |
+| Reducers | sum, mean, product, online softmax and supported custom algebras | Lowering depends on declared algebraic properties |
+| Tensor dtypes | f16/f32/f64, i32/i64, complex64/128 and bool storage | Operator/backend coverage is narrower than storage coverage |
+| EdgeNN | Captured Torch modules; guarded CUDA tile forward and VJP for inputs, positions and parameters | Supported trace operators only; gradients hold selected neighbors fixed |
+| Distributed | CPU/MPI and CUDA TCP/NCCL halo exchange with reverse VJP | Fixed ownership; communication completes before computation; no GPU-speed-aware repartitioning |
+| Memory hierarchy | Native-Tensor budgets, opt-in whole-Tensor LRU spill/reload, differentiable copy and snapshots | Does not manage Torch-owned storage or tile arbitrary oversized kernels |
+| Tile-pruned attention | Explicitly selected approximate CUDA dense forward | Backward unsupported; approximation depends on the threshold and input |
+| Visualization | `tg.visualize.gaussians`, volumes, meshes and fields | Gaussian geometry/rendering uses host work and is not differentiable |
 
-The exact-kNN gates time live all-pairs rebuild plus consume in one launch;
-cached spatial-directory reuse is not substituted for rebuild timing.
+[API recipes](api-examples.md), [memory and storage](memory.md), and
+[distributed execution](memory-and-distributed.md) provide runnable entry points.
+[Performance and scalability](experiments.md) records the corresponding measured workloads.
 
-## Engineering order
+## Compiler capabilities { #implemented-vertical-slices }
 
-1. Extend ranked-relation lowering beyond the measured FP32/k≤64 M0
-   contract, including bounded scratch/spill tasks and generated backward.
-2. Extend general sparse/vector/high-degree and nonlinear fusion coverage using
-   registered natural degree distributions.
-3. Validate real multi-device communication/compute overlap and add topology-
-   aware partition cost models.
-4. Run the full release matrix and publish the first signed PyPI artifacts.
-5. Add vendor providers only when their toolchain and hardware conformance can
-   run continuously.
-6. Use the FEM/solver probe to add bounded multi-state control flow and
-   residual-guarded implicit differentiation without introducing
-   workload-named kernels.
+The compiler retains relation structure and reducer algebra through Domain,
+Iter and Kernel IR, derives supported VJPs, and lowers to CPU LLVM or GPU TTIR.
+Task/Storage IR describes dependencies, placement and data movement.
+[The IR walkthrough](ir-walkthrough.md) follows an executable program through these layers.
+
+## Planned extensions { #active-closure-items }
+
+| Area | Planned work |
+|---|---|
+| Generated relations | Larger-k selection, general metric lowering, budgeted scratch storage and generated backward |
+| Distributed graphs | Compute-aware partitioning, partition-local topology at larger scales and failure recovery |
+| Paging | Reduce host staging copies, assemble outputs directly on device and overlap page movement with execution |
+| Graph algorithms | Device-side convergence, structured reverse loops and frontier/intersection traversal |
+| Solvers | Multi-state CUDA loops, distributed reductions and implicit adjoint differentiation |
+| Providers | Additional vendor backends with hardware correctness and performance coverage |
+| Packaging | Broader platform/Python coverage and versioned public documentation |
+
+## Development priorities { #engineering-order }
+
+Extend operator and gradient coverage, improve large-graph staging and partitioning,
+and maintain reproducible tests for each supported backend.
+Each additional provider requires its own toolchain and hardware validation.
+
+Contributor build and test instructions are in [development](development.md).
+Report problems through the [support guide](support.md#bug-report).

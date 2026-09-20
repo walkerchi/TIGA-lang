@@ -9,7 +9,7 @@ import platform
 import statistics
 import time
 
-import tiga as gf
+import tiga as tg
 from tiga.compiler.gpu_tensor import compile_tensor
 
 import torch
@@ -71,8 +71,8 @@ def main() -> None:
     torch.manual_seed(7)
     x_torch = torch.randn((args.rows, args.cols), device="cuda")
     scale_torch = torch.randn((args.cols,), device="cuda")
-    x = gf.from_torch(x_torch)
-    scale = gf.from_torch(scale_torch)
+    x = tg.from_torch(x_torch)
+    scale = tg.from_torch(scale_torch)
 
     begin = time.perf_counter_ns()
     first = (x * scale + x).sum(axis=1)

@@ -1,6 +1,6 @@
 """Capture torch.nn modules called inside MessagePassing edge UDFs.
 
-``gf.nn.trace(module)`` wraps a module so one source drives two paths:
+``tg.nn.trace(module)`` wraps a module so one source drives two paths:
 
 - called with Torch tensors (eager/reference execution) the inputs are
   concatenated along the feature dimension and forwarded to the module

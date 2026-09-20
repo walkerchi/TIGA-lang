@@ -1,6 +1,6 @@
 // RUN: gf-translate --gf-tensor-to-ttir %s | FileCheck %s
 
-// CHECK: graphforge.tensor entry=gf_tensor_pointwise
+// CHECK: tiga.tensor entry=gf_tensor_pointwise
 // CHECK: %neg{{[0-9]+}} = arith.subf %zero_float, %input{{[0-9]+}}
 // CHECK-NOT: arith.negf
 // CHECK: tt.store

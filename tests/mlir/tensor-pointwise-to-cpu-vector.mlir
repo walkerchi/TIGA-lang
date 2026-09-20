@@ -2,7 +2,7 @@
 
 // CHECK-LABEL: func.func @pointwise
 // CHECK-SAME: %[[BEGIN:[a-zA-Z0-9_]+]]: index, %[[END:[a-zA-Z0-9_]+]]: index)
-// CHECK-SAME: graphforge.cpu.vector_width = 16
+// CHECK-SAME: tiga.cpu.vector_width = 16
 // CHECK: %[[COUNT:.*]] = arith.subi %[[END]], %[[BEGIN]] : index
 // CHECK: %[[STEP:.*]] = arith.constant 16 : index
 // CHECK: %[[BLOCKS:.*]] = arith.divui %[[COUNT]], %[[STEP]] : index

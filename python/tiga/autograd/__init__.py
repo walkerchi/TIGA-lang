@@ -112,7 +112,7 @@ def _expand_fixed_repeats(output: Tensor) -> tuple[Tensor, dict[int, Tensor]]:
             return
         if expression.op == "while":
             raise NotImplementedError(
-                "autograd through gf.while_loop requires structured control "
+                "autograd through tg.while_loop requires structured control "
                 "VJP or an implicit-solve rule; Tiga does not unroll a "
                 "data-dependent loop through host scalar synchronization")
         for operand in expression.operands:
@@ -191,7 +191,7 @@ def _expand_fixed_repeats(output: Tensor) -> tuple[Tensor, dict[int, Tensor]]:
                     resolved = rebuild(region_value)
                 elif nested.op == "repeat":
                     raise NotImplementedError(
-                        "autograd of nested gf.repeat regions is not supported yet")
+                        "autograd of nested tg.repeat regions is not supported yet")
                 elif nested.region is not None:
                     raise NotImplementedError(
                         "autograd supports only flat fixed repeat regions")
@@ -261,15 +261,18 @@ def _expand_program_leaves(output: Tensor) -> Tensor:
     """
     from ..program import leaf_expression
 
-    memo: dict[int, Tensor] = {}
+    # Inline expansions are temporary DAGs. Retain each source node alongside
+    # its replacement: a bare id -> replacement cache lets an expansion die,
+    # then mistakes a later leaf's recycled Python id for the previous node.
+    memo: dict[int, tuple[Tensor, Tensor]] = {}
 
     def rebuild(value: Tensor) -> Tensor:
         cached = memo.get(id(value))
         if cached is not None:
-            return cached
+            return cached[1]
         expression = value._expr
         if expression is None:
-            memo[id(value)] = value
+            memo[id(value)] = (value, value)
             return value
         if expression.op == "program_value":
             program = expression.attr("program")
@@ -284,12 +287,13 @@ def _expand_program_leaves(output: Tensor) -> Tensor:
                 ) from error
             # A dependent apply re-expands to an expression that itself
             # references earlier leaves; recurse so they expand too.
-            memo[id(value)] = rebuild(expanded)
-            return memo[id(value)]
+            rebuilt = rebuild(expanded)
+            memo[id(value)] = (value, rebuilt)
+            return rebuilt
         if expression.op == "paged_message_passing":
             # Eager execution boundary with a materialized buffer; there are
             # no program leaves below it that need expansion.
-            memo[id(value)] = value
+            memo[id(value)] = (value, value)
             return value
         if expression.region is not None:
             raise NotImplementedError(
@@ -306,7 +310,7 @@ def _expand_program_leaves(output: Tensor) -> Tensor:
             ),
             version=value.version,
         )
-        memo[id(value)] = rebuilt
+        memo[id(value)] = (value, rebuilt)
         return rebuilt
 
     return rebuild(output)
@@ -463,6 +467,8 @@ def grad(
         elif expression.op == "conj":
             operand = operands[0]
             _accumulate(adjoints, operand, upstream.conj())
+        elif expression.op == "device_copy":
+            _accumulate(adjoints, operands[0], upstream.to(operands[0].device))
         elif expression.op in {"checkpoint", "checkpoint_candidate"}:
             _accumulate(adjoints, operands[0], upstream)
         elif expression.op == "sum":

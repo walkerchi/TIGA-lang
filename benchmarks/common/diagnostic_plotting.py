@@ -56,13 +56,17 @@ def _tensor_fusion(payload: dict, output: Path) -> None:
          or payload.get("torch_compile", {}).get("median_ms")),
     ]
     methods = [(name, float(value)) for name, value in methods if value is not None]
-    fig, ax = plt.subplots(figsize=(9.5, 5.2), constrained_layout=True)
-    _bars(ax, [name for name, _value in methods],
-          [value for _name, value in methods],
-          [provider_color(name) for name, _value in methods],
-          ylabel="Warm result-ready latency (ms)", log=True)
+    fig, axes = plt.subplots(1, 2, figsize=(10, 4.5), constrained_layout=True)
+    for ax, kernel_only in zip(axes, (False, True)):
+        selected = [(name, value) for name, value in methods
+                    if (name == "tiga.kernel") == kernel_only]
+        _bars(ax, [name for name, _value in selected],
+              [value for _name, value in selected],
+              [provider_color(name) for name, _value in selected],
+              ylabel="Latency (ms)", log=True)
+        ax.set_title("Kernel-only · diagnostic" if kernel_only else "Warm end-to-end · matched scope")
     shape = " × ".join(str(value) for value in payload.get("shape", []))
-    ax.set_title(f"Tensor fusion · {payload.get('dtype', '')} · {shape}")
+    fig.suptitle(f"Tensor fusion · {payload.get('dtype', '')} · {shape}")
     _save(fig, output)
 
 
@@ -209,12 +213,10 @@ def _generic(payload: dict, output: Path, title: str) -> None:
     if scalars:
         labels = [key for key, _value in scalars]
         values = [value for _key, value in scalars]
-        positions = np.arange(len(labels))
-        ax.barh(positions, values, color="#2563eb")
-        ax.set_yticks(positions, labels)
-        ax.invert_yaxis()
-        ax.set_xlabel("Recorded scalar value")
-        ax.grid(True, axis="x")
+        ax.table(cellText=[[name, f"{value:g}"] for name, value in zip(labels, values)],
+                 colLabels=["Recorded field", "Value (original unit)"],
+                 loc="center", cellLoc="left")
+        ax.set_axis_off()
     else:
         keys = "\n".join(sorted(payload)[:24])
         ax.text(0.03, 0.97, "Structured fields:\n" + keys,

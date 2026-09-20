@@ -1,0 +1,176 @@
+{
+  "operation": "diffusion",
+  "case": "regular_random_cuda_i64_n8192_degree16",
+  "workload": "diffusion",
+  "roof": {
+    "dram_bandwidth_gbs": 917.3893486334431,
+    "l2_bandwidth_gbs": 944.6631024077303,
+    "fp32_gflops": 31027.621485225885,
+    "dram_tensor_bytes": 33554432,
+    "l2_tensor_bytes": 8388608,
+    "matmul_size": 2048
+  },
+  "results": [
+    {
+      "topology": "regular",
+      "locality": "random",
+      "cache": "hot",
+      "provider": "torch.sparse_laplacian",
+      "nodes": 8192,
+      "edges": 131072,
+      "features": 1,
+      "index_dtype": "i64",
+      "milliseconds": 0.03996799886226654,
+      "gedges_per_second": 3.2794236321834966,
+      "achieved_gflops": 9.83827089655049,
+      "algorithmic_gbs_no_reuse": 68.04824052794136,
+      "memory_roof": "L2",
+      "optimistic_roof_gflops": 217.99815397475393,
+      "percent_of_optimistic_roof": 4.513006517334934,
+      "ideal_cache_bytes": 1703944,
+      "arithmetic_intensity_flop_per_byte": 0.2307681473100055,
+      "samples_ms": [
+        0.04438399896025658,
+        0.03996799886226654,
+        0.037151999771595,
+        0.03734400123357773,
+        0.04419200122356415
+      ]
+    },
+    {
+      "topology": "regular",
+      "locality": "random",
+      "cache": "hot",
+      "provider": "torch.index_add",
+      "nodes": 8192,
+      "edges": 131072,
+      "features": 1,
+      "index_dtype": "i64",
+      "milliseconds": 0.03788800165057182,
+      "gedges_per_second": 3.45945930874984,
+      "achieved_gflops": 10.37837792624952,
+      "algorithmic_gbs_no_reuse": 71.78399180519862,
+      "memory_roof": "L2",
+      "optimistic_roof_gflops": 217.99815397475393,
+      "percent_of_optimistic_roof": 4.760764133558409,
+      "ideal_cache_bytes": 1703944,
+      "arithmetic_intensity_flop_per_byte": 0.2307681473100055,
+      "samples_ms": [
+        0.039264000952243805,
+        0.03788800165057182,
+        0.03683200106024742,
+        0.04339199885725975,
+        0.03705599904060364
+      ]
+    },
+    {
+      "topology": "regular",
+      "locality": "random",
+      "cache": "hot",
+      "provider": "tiga.auto",
+      "nodes": 8192,
+      "edges": 131072,
+      "features": 1,
+      "index_dtype": "i64",
+      "milliseconds": 0.02611199952661991,
+      "gedges_per_second": 5.019607934136889,
+      "achieved_gflops": 15.058823802410668,
+      "algorithmic_gbs_no_reuse": 104.15717100589502,
+      "memory_roof": "L2",
+      "optimistic_roof_gflops": 217.99815397475393,
+      "percent_of_optimistic_roof": 6.907775835640613,
+      "ideal_cache_bytes": 1703944,
+      "arithmetic_intensity_flop_per_byte": 0.2307681473100055,
+      "samples_ms": [
+        0.031808000057935715,
+        0.028704000636935234,
+        0.02611199952661991,
+        0.025631999596953392,
+        0.02473600022494793
+      ]
+    },
+    {
+      "topology": "regular",
+      "locality": "random",
+      "cache": "hot",
+      "provider": "tiga.reference",
+      "nodes": 8192,
+      "edges": 131072,
+      "features": 1,
+      "index_dtype": "i64",
+      "milliseconds": 0.18675200641155243,
+      "gedges_per_second": 0.701850558494947,
+      "achieved_gflops": 2.105551675484841,
+      "algorithmic_gbs_no_reuse": 14.563441926328654,
+      "memory_roof": "L2",
+      "optimistic_roof_gflops": 217.99815397475393,
+      "percent_of_optimistic_roof": 0.9658575713116737,
+      "ideal_cache_bytes": 1703944,
+      "arithmetic_intensity_flop_per_byte": 0.2307681473100055,
+      "samples_ms": [
+        0.1809920072555542,
+        0.19222399592399597,
+        0.18902400135993958,
+        0.18675200641155243,
+        0.1804479956626892
+      ]
+    },
+    {
+      "topology": "regular",
+      "locality": "random",
+      "cache": "hot",
+      "provider": "triton.csr",
+      "nodes": 8192,
+      "edges": 131072,
+      "features": 1,
+      "index_dtype": "i64",
+      "milliseconds": 0.032127998769283295,
+      "gedges_per_second": 4.07968143117941,
+      "achieved_gflops": 12.239044293538232,
+      "algorithmic_gbs_no_reuse": 84.65363870096635,
+      "memory_roof": "L2",
+      "optimistic_roof_gflops": 217.99815397475393,
+      "percent_of_optimistic_roof": 5.614288043446285,
+      "ideal_cache_bytes": 1703944,
+      "arithmetic_intensity_flop_per_byte": 0.2307681473100055,
+      "samples_ms": [
+        0.03484800085425377,
+        0.032127998769283295,
+        0.03161599859595299,
+        0.031488001346588135,
+        0.03286400064826012
+      ]
+    }
+  ],
+  "sota_gates": [
+    {
+      "topology": "regular",
+      "locality": "random",
+      "cache": "hot",
+      "nodes": 8192,
+      "edges": 131072,
+      "features": 1,
+      "index_dtype": "i64",
+      "candidate": "tiga.auto",
+      "baseline": "triton.csr",
+      "candidate_ms": 0.02611199952661991,
+      "baseline_ms": 0.032127998769283295,
+      "speedup_vs_sota": 1.230392132036092,
+      "speedup_ci_low": 1.0100603216412452,
+      "speedup_ci_high": 1.334558880438395,
+      "threshold": 1.0,
+      "passed": true,
+      "reason": null
+    }
+  ],
+  "skipped": [
+    {
+      "provider": "pyg.message_passing",
+      "reason": "torch_geometric is not installed"
+    },
+    {
+      "provider": "dgl.gspmm",
+      "reason": "the exact message reads both src and dst; one binary gspmm op does not"
+    }
+  ]
+}

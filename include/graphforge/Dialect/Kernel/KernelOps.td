@@ -68,6 +68,7 @@ def GraphForge_GeneratedLaunchOp
     F64Attr:$cutoff,
     I64Attr:$dimensions,
     BoolAttr:$periodic,
+    DefaultValuedAttr<BoolAttr, "false">:$hash_grid,
     StrAttr:$traversal,
     ArrayAttr:$reducers,
     DenseI64ArrayAttr:$region_kinds,

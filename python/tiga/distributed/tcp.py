@@ -11,6 +11,7 @@ battle-tested deployment path; this transport mirrors the exact
 from __future__ import annotations
 
 import json
+import math
 import pickle
 import socket
 import struct
@@ -109,9 +110,6 @@ class TCPTransport:
         self._connections = dict(connections)
         self._send_locks = {peer: threading.Lock() for peer in connections}
         self._port = port
-        # TCP deployments may span hosts; the automatic executor can hide a
-        # meaningful fraction of their halo latency behind interior work.
-        self.prefer_compute_overlap = True
 
     @property
     def port(self) -> int | None:
@@ -124,6 +122,8 @@ class TCPTransport:
         timeout: float = 30.0,
     ) -> TCPTransport:
         """Bring up the rendezvous and wait for every other rank to join."""
+        if not math.isfinite(timeout) or timeout <= 0:
+            raise ValueError("TCP timeout must be finite and positive")
         if not 0 <= rank < world_size:
             raise ValueError("invalid transport rank")
         rendezvous = _listener(host, port)
@@ -160,6 +160,8 @@ class TCPTransport:
         timeout: float = 30.0,
     ) -> TCPTransport:
         """Join the rendezvous hosted by another rank and build the mesh."""
+        if not math.isfinite(timeout) or timeout <= 0:
+            raise ValueError("TCP timeout must be finite and positive")
         if not 0 <= rank < world_size:
             raise ValueError("invalid transport rank")
         listener = _listener("", 0)
@@ -306,7 +308,9 @@ class TCPTransport:
             raise
         listener.close()
         for connection in connections.values():
-            connection.settimeout(None)
+            # Keep data-plane waits bounded too. A dead rank must not leave
+            # halo progress (and executor shutdown) waiting forever.
+            connection.settimeout(timeout)
             connection.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
         return connections
 
@@ -337,6 +341,10 @@ class TCPTransport:
 
     def close(self) -> None:
         for connection in self._connections.values():
+            try:
+                connection.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
             connection.close()
 
 

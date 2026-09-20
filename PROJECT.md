@@ -1,7 +1,40 @@
 # Tiga v2 项目设计
 
+定位：内部架构规划与历史实现记录，不是快速入门或当前 API 支持承诺。
+公开使用入口见 [README.zh.md](README.zh.md)，当前接口与边界见
+[API reference](docs/api.zh.md) 和 [roadmap](docs/roadmap.zh.md)。
+
 状态：alpha compiler vertical slice  
 日期：2026-08-17
+
+核验说明（2026-09-18）：本文包含设计目标和历史完成证据，不是所有接口的无条件
+支持承诺。当前安装、参数和路径边界以 `docs/api.md`、`docs/roadmap.md` 及相应测试
+为准；下文旧测试数量/性能数字只对应原记录，不能视为当前 checkout 的新测量。
+性能结果从 `benchmarks/evidence_snapshot` 校验后生成，禁止手抄旧 ratio 作为新版本结论。
+官方方向为 GitHub + PyPI + arXiv tech report；当前均只做本地发布准备。
+唯一作者/维护者为 walkerchi（Independent Developer），支持与私密安全邮箱为
+walker.chi.000@gmail.com。首发前仍须准备公开文档、版本化产物与完整平台矩阵。
+独立 `tiga-lang-paper` 为本地报告草稿，无 arXiv ID。
+
+实验更新（2026-09-19）：当前性能、容量、分布式证据见 `docs/experiments.md`。
+36 个 Torch/PyG 对照配置均通过完整输出检查，Torch 对照为纯 Torch 分块建图与聚合。
+精确 kNN 通过安全 executable 复用和精确 tile selection 剪枝扩展至 128K points，
+最大点为 172.37 ms，对照 PyG 393.21 ms，Torch 1908.43 ms。
+1B 容量沿用原三次完整记录；另一次真实 1B host/CUDA profiling（414.81 秒）
+确认 host staging 为主要开销，旧 10M profiling 仅保留在归档。
+真实两机 NCCL 主实验改为按空间平面切分的三维六面体网格，截至 22.51M edges；
+最大规模仅 2.08% boundary、双向 halo 1.125 MiB，平均分行时仍未超过较快单卡。
+这更新的是实测覆盖，不是异构负载均衡、分布式拓扑容量或正向扩展收益的完成声明。
+当前 distributed 公开策略固定为先通信、再计算；旧 overlap 只保留内部回归，
+不再依据 transport 自动启用，也不提供用户模式选择。
+
+接口更新（2026-09-18）：日常应用默认使用 `torch.Tensor` 输入/输出和 Torch
+autograd，但 Torch 不是默认安装依赖，使用 Torch 路径时先自行安装 Torch。
+无 Torch 时 Tiga 仍可运行原生 Tensor、MessagePassing 与 autograd。
+原生 `tg.Tensor` 也用于目前 Torch 不支持的
+hierarchy memory、distributed、结构化控制流、自定义 reducer 或直接检查原生
+Tensor IR/checkpoint 等高级能力。`tg.tensor()` 保留原生类型，不改变兼容语义。
+底层运行时保持独立，不意味着应用需要学习第二套 Tensor。
 
 Tiga 是一个面向科学计算的 graph/relation compiler。用户使用粗粒度
 `MessagePassing` 描述 Static Graph 或 Dynamic Graph 上的计算；compiler 保留图结构、
@@ -41,12 +74,12 @@ wheel smoke 通过。CI 两条 workflow：`compiler-ci.yml`（Linux：干净构�
 |---|---|---|
 | `tensor/` | native C++ OpBuilder 捕获 `gf_tensor`；CPU `gf_tensor → SCF/MemRef → LLVM → ExecutionEngine`（仓库不再生成 C/C++ source）；CUDA TTIR；matmul/cumsum/broadcast/views/complex | `test_tensor_runtime`（69）+ lit |
 | `message_passing/` | class `edge()`/optional `node()` 捕获；lazy JIT；reference evaluator；autotuned native CSR dispatch；reducer 由 region 类型与代数结构识别（不依赖类名/`kind` hint）；单机 paged_csr 分页前向执行（按 destination 行页流式读盘 + 后台线程 prefetch 双缓冲，`page_rows`/`TIGA_PAGED_PAGE_ROWS` 可调，结果可 named-spill 写回） | `test_reference`（36）、`test_mlir_bridge`（21）、`test_paged_message_passing`（6）+ example `paged_giant_graph.py`（1M 节点/4M 边 disk→JIT→disk 全链路） |
-| `reducer/` | 内置 `gf.sum`/`gf.mean`（tuple-state (sum,count)，结构证明 componentwise-additive）/`gf.prod`（结构证明 product monoid→零安全 product IR）/`gf.online_softmax`（tuple-state 流式）+ 自定义 `gf.Reducer` 四 region 捕获；torch oracle 覆盖全部内置（mean/prod 经 `index_add_`/`index_reduce_` 可微）；native 路径 VJP 自动生成 | `test_builtin_reducers`（7，native+torch 前向/梯度/空行语义对拍）、`test_message_passing_autograd` |
-| `compiler/nn_capture` + `edge_nn_tile` + `edge_nn_vjp` | `gf.nn.trace` 捕获 edge() 内 torch.nn 线性链（fx→MessageDAG）；结构证明 + Python TTIR 发射（edge-centric tile + `tt.dot` + masked atomic 段归约，O(E) 激活为 0）；guarded fast-path executable 接入 native `_torch_fast_path`；训练路径为符号 VJP 重算式反向 tile kernel（激活 tile 内重放、dW tile 外积 + atomic、db `tt.reduce`），前后向均无 [E,·] 物化。op 白名单（严格 edge-local）：Linear + 17 种分量激活（relu/gelu/sigmoid/tanh/silu/elu/leaky_relu/hardtanh(含 clamp/relu6)/hardsigmoid/hardswish/mish/selu/softplus/exp/log/sqrt/rsqrt/abs/sin/cos/square）+ 标量常数算术（x·c、x+c、c−x、x/c、c/x、x**p、−x）+ 特征维 LayerNorm（行归约 `tt.reduce`，γ/β 符号梯度）+ Identity；tile 形状可配 `trace(block_e=, num_warps=)`（默认按 lowering 分：sum 128/4、attention 16/1，pow2 校验） | `test_edge_nn_tile`（15+4）、`test_edge_nn_vjp`（6）、`test_edge_nn_ops`（10+12）、`radius_edge_mlp` benchmark（compiled≈手写 oracle 1.00–1.04×）、`edge_nn_backward` benchmark（vs eager autograd 13.45× 加速 / 18.4× 省内存 @4M 边） |
+| `reducer/` | 内置 `tg.sum`/`tg.mean`（tuple-state (sum,count)，结构证明 componentwise-additive）/`tg.prod`（结构证明 product monoid→零安全 product IR）/`tg.online_softmax`（tuple-state 流式）+ 自定义 `tg.Reducer` 四 region 捕获；torch oracle 覆盖全部内置（mean/prod 经 `index_add_`/`index_reduce_` 可微）；native 路径 VJP 自动生成 | `test_builtin_reducers`（7，native+torch 前向/梯度/空行语义对拍）、`test_message_passing_autograd` |
+| `compiler/nn_capture` + `edge_nn_tile` + `edge_nn_vjp` | `tg.nn.trace` 捕获 edge() 内 torch.nn 线性链（fx→MessageDAG）；结构证明 + Python TTIR 发射（edge-centric tile + `tt.dot` + masked atomic 段归约，O(E) 激活为 0）；guarded fast-path executable 接入 native `_torch_fast_path`；训练路径为符号 VJP 重算式反向 tile kernel（激活 tile 内重放、dW tile 外积 + atomic、db `tt.reduce`），前后向均无 [E,·] 物化。op 白名单（严格 edge-local）：Linear + 17 种分量激活（relu/gelu/sigmoid/tanh/silu/elu/leaky_relu/hardtanh(含 clamp/relu6)/hardsigmoid/hardswish/mish/selu/softplus/exp/log/sqrt/rsqrt/abs/sin/cos/square）+ 标量常数算术（x·c、x+c、c−x、x/c、c/x、x**p、−x）+ 特征维 LayerNorm（行归约 `tt.reduce`，γ/β 符号梯度）+ Identity；tile 形状可配 `trace(block_e=, num_warps=)`（默认按 lowering 分：sum 128/4、attention 16/1，pow2 校验） | `test_edge_nn_tile`（15+4）、`test_edge_nn_vjp`（6）、`test_edge_nn_ops`（10+12）、`radius_edge_mlp` benchmark（compiled≈手写 oracle 1.00–1.04×）、`edge_nn_backward` benchmark（vs eager autograd 13.45× 加速 / 18.4× 省内存 @4M 边） |
 | `compiler/edge_nn_attention` | online_softmax reducer + nn score（GAT 式）的融合 tile kernel：行中心 CSR（一行一 program），score 链在寄存器内按 chunk 求值，online-softmax 状态 (m, l, acc) 走 `scf.for` iter_args 重缩放，无 [E,·] score/权重物化；前向持久化每行 (m, l)，反向为 softmax Jacobian 伴随 + 符号链 VJP（dW tile 外积、字段/位置 masked atomic），训练同样无 [E,·]；value 为单字段 gather（src/dst/edge），score 链 out_features=1 | `test_edge_nn_attention`（11，含融合训练 vs eager oracle 梯度对拍、空行、多 chunk、dst/edge value）、`gat_attention` benchmark（vs eager autograd 3.64× 加速 / 35× 省内存 @4M 边）、example `gat_edge_attention.py` |
 | `graph/` | `from_csr`/`radius`/`triangular`/`knn`（ranked relation）/`cu_seqlens`（varlen 块对角 CSR）/`cat`（块对角组合，等价于逐块 cu_seqlens）/`stencil`（规则网格模板）/`halo()`；版本化 `.gfg` 存取 | examples + 各 graph 测试 |
 | `control/` | `Repeat`/`While` class + functional shorthand；CPU  lowering 为 `scf.for`/`scf.while` + ping-pong MemRef；单状态 CUDA repeat | `test_solvers`（12）等 |
-| `jit.py` | `@gf.jit` 编排层 AST 子集：range-for→repeat、bounded while、break 提前退出；闭包按值快照 | `test_jit`（8） |
+| `jit.py` | `@tg.jit` 编排层 AST 子集：range-for→repeat、bounded while、break 提前退出；闭包按值快照 | `test_jit`（8） |
 | `autograd/` | functional `grad`/`value_and_grad`；`checkpoint=auto/save/recompute`（`gf-plan-tensor-checkpoints` pass）；`joint_plan` Task DAG；MessagePassing gather/segment VJP 与 custom tuple reducer 自动求导 | `test_message_passing_autograd`（14）等 |
 | `codegen/` | serialized TTIR provider 边界；out-of-process compile worker（崩溃恢复） | `test_ttir_provider`（18） |
 | `runtime/` | ctypes C ABI over `libgraphforge_runtime.so`；buffer pool；CUDA Driver 自管理；pinned↔HBM DMA；RAM↔NVMe spill；Torch-free cuBLASLt | runtime 测试 + examples |
@@ -84,7 +117,7 @@ histogram 时显式标记 `provider-deferred-high-degree`。registered 性能证
 - PageRank convergence-mode SOTA：需 device-side termination 与 matched cuGraph/GraphBLAS
   peer；当前 registered 行为 fixed iteration。
 - 原生可微 `maximum`/`minimum` Tensor op（亚梯度 VJP + provider lowering）及对应
-  `gf.max()`/`gf.min()` 内置 reducer；median/quantile 非结合 monoid，不属于一遍 reducer
+  `tg.max()`/`tg.min()` 内置 reducer；median/quantile 非结合 monoid，不属于一遍 reducer
   语义（需两遍算法或 t-digest 类 sketch）。
 - paged 前向的 VJP（当前 paged 执行 forward-only）、edge 字段随拓扑一并分页
   （v1 边界是字段驻 RAM、仅拓扑分页）。
@@ -200,7 +233,7 @@ HBM cache 或 NVMe spill。
    row、subgraph tile、CPU loop 或其他合法实现。
 2. **逻辑 graph 与物理 format 分离。** `StaticGraph` 不是 CSR；CSR 只是一个
    PhysicalInstance。
-3. **粗粒度 API 优先。** M0–M2 不公开 graph loop language 或 `gf.Schedule`。
+3. **粗粒度 API 优先。** M0–M2 不公开 graph loop language 或 `tg.Schedule`。
 4. **内部结构不能过早丢失。** Relation provenance、ragged iteration、AccessMap、Effect
    和 Reducer 必须保留到 target lowering。
 5. **优化必须端到端计时。** Graph build、preprocess、format conversion、padding、copy
@@ -212,9 +245,9 @@ HBM cache 或 NVMe spill。
 首阶段只承诺：
 
 - Python frontend；
-- Torch-independent `gf.Tensor` metadata/storage 与最小 Buffer/Stream/Event runtime；
+- Torch-independent `tg.Tensor` metadata/storage 与最小 Buffer/Stream/Event runtime；
 - semantic reverse-mode autograd vertical slice；
-- PyTorch Tensor 作为可选 zero-copy adapter；
+- PyTorch Tensor 作为默认应用接口，内部经 adapter 绑定；
 - coarse `MessagePassing`；
 - `StaticGraph`：COO/CSR 输入；
 - `DynamicGraph`：builder/lifetime/rebuild 语义；
@@ -232,7 +265,7 @@ HBM cache 或 NVMe spill。
 
 - public fine-grained node/edge/neighbor loop language；
 - public schedule/layout/pipeline DSL；
-- 任意 Python control flow 和副作用（编排层 bounded `for`/`while` 的 `@gf.jit` AST
+- 任意 Python control flow 和副作用（编排层 bounded `for`/`while` 的 `@tg.jit` AST
   子集除外，见 §2.8）；
 - optimizer、NN Module、dataset/data loader 和完整训练框架；
 - 完整 eager Tensor operator surface、高阶梯度与任意 mutation autograd；
@@ -250,7 +283,7 @@ HBM cache 或 NVMe spill。
 
 ### 2.1 统一 Graph 对象
 
-Public API 只有一个 `gf.Graph`。用户不设置 `dynamic=True/False`；构造 topology 的方式
+Public API 只有一个 `tg.Graph`。用户不设置 `dynamic=True/False`；构造 topology 的方式
 决定其 provenance 和 lifecycle。
 
 ```text
@@ -311,9 +344,9 @@ partition。`kernel.inspect().explain()` 必须报告选择及峰值 working-set
 MVP 通过 COO/CSR 构造 static topology：
 
 ```python
-import tiga as gf
+import tiga as tg
 
-graph = gf.Graph.from_csr(
+graph = tg.Graph.from_csr(
     row_ptr=row_ptr,
     col_idx=col_idx,
     num_src=num_nodes,
@@ -331,7 +364,7 @@ graph = gf.Graph.from_csr(
 任意 mutation 无法被可靠拦截。改变 topology 直接构造新 snapshot：
 
 ```python
-graph = gf.Graph.from_csr(
+graph = tg.Graph.from_csr(
     row_ptr=new_row_ptr,
     col_idx=new_col_idx,
     num_src=num_nodes,
@@ -360,7 +393,7 @@ Dynamic Graph 的 topology 由 runtime Fields 派生，Graph 保存 builder、de
 lifetime 和 invalidation condition。首个 builder 是 radius relation：
 
 ```python
-graph = gf.Graph.radius(
+graph = tg.Graph.radius(
     positions=position,
     cutoff=cutoff,
 )
@@ -373,7 +406,7 @@ Radius relation 允许编译器可捕获的 builder UDF，而不把“距离”�
 particle_type = torch.tensor([0, 1, 0, 1], dtype=torch.int64)
 metric_scale = torch.tensor([1.0, 1.5])
 
-class DifferentTypeAnisotropicRadius(gf.RadiusGraph):
+class DifferentTypeAnisotropicRadius(tg.RadiusGraph):
     def metric(self, src, dst, edge, metric_scale):
         return torch.linalg.vector_norm(
             edge.displacement * metric_scale, dim=-1)
@@ -474,10 +507,10 @@ cross = grid.neighbors(
     offsets=[(-1, 0), (+1, 0), (0, -1), (0, +1)],
 )
 
-class CentralDerivative(gf.MessagePassing):
-    reducer = gf.sum()
+class CentralDerivative(tg.MessagePassing):
+    reducer = tg.sum()
 
-    def edge(self, src, dst, edge, axis: gf.Const):
+    def edge(self, src, dst, edge, axis: tg.Const):
         return (
             edge.logical_offset[axis]
             * src.u
@@ -494,10 +527,10 @@ du_dy = CentralDerivative()(graph=cross, src={"u": u}, dst={"u": u}, axis=1)
 变系数和 edge-wise nonlinear 计算仍使用同一个 relation：
 
 ```python
-class NonlinearDiffusion(gf.MessagePassing):
-    reducer = gf.sum()
+class NonlinearDiffusion(tg.MessagePassing):
+    reducer = tg.sum()
 
-    def edge(self, src, dst, edge, eps: gf.Const):
+    def edge(self, src, dst, edge, eps: tg.Const):
         # k 可以是 node Field，也可以依赖当前 state。
         k_src = nonlinear_k(src.u, src.material)
         k_dst = nonlinear_k(dst.u, dst.material)
@@ -520,8 +553,8 @@ residual = NonlinearDiffusion()(
 ```python
 wide_x = grid.neighbors(offsets=[(-2, 0), (-1, 0), (0, 0), (+1, 0), (+2, 0)])
 
-class WENO5(gf.NeighborhoodKernel):
-    def compute(self, center, nbr, h: gf.Const):
+class WENO5(tg.NeighborhoodKernel):
+    def compute(self, center, nbr, h: tg.Const):
         return weno5(
             nbr[-2, 0].u,
             nbr[-1, 0].u,
@@ -592,12 +625,12 @@ finite polygonal patch:            constrained IndexDomain
 mesh = gf.mesh.periodic(
     domain=gf.domain.integer_set(...),
     lattice_vectors=B,
-    unit_cell=gf.UnitCell(
+    unit_cell=tg.UnitCell(
         sites={"A": c_A, "B": c_B},
         links={
             "nearest": [
-                gf.Link(dst="A", src="B", cell_shift=delta_0),
-                gf.Link(dst="A", src="B", cell_shift=delta_1),
+                tg.Link(dst="A", src="B", cell_shift=delta_0),
+                tg.Link(dst="A", src="B", cell_shift=delta_1),
             ],
         },
     ),
@@ -632,10 +665,10 @@ Relation 同时提供 `edge.offset` 与 `edge.displacement = basis @ offset`。�
 `sum_k d_k d_k^T = 3 a^2 I`，因此一个对旋转对称的 gradient operator 是：
 
 ```python
-class HexGradient(gf.MessagePassing):
-    reducer = gf.sum()
+class HexGradient(tg.MessagePassing):
+    reducer = tg.sum()
 
-    def edge(self, src, dst, edge, a: gf.Const):
+    def edge(self, src, dst, edge, a: tg.Const):
         return edge.displacement * (src.u - dst.u) / (3 * a * a)
 
 grad_u = HexGradient()(
@@ -659,7 +692,7 @@ relations。它们共享 MessagePassing，但不能假装都是 affine periodic 
 
 #### 不规则、曲线和非结构 Mesh
 
-`grid` 只是 structured mesh builder；public compute model 不依赖它。更一般的 `gf.Mesh` 是
+`grid` 只是 structured mesh builder；public compute model 不依赖它。更一般的 `tg.Mesh` 是
 typed EntitySets、oriented incidence Relations 与 geometry Fields 的命名集合：
 
 ```text
@@ -698,10 +731,10 @@ cell_neighbors = mesh.adjacency(
 destination cell 定向的 `normal`、`measure`、center distance 和 boundary/region tag：
 
 ```python
-class FiniteVolumeFlux(gf.MessagePassing):
-    reducer = gf.sum()
+class FiniteVolumeFlux(tg.MessagePassing):
+    reducer = tg.sum()
 
-    def edge(self, src, dst, face, eps: gf.Const):
+    def edge(self, src, dst, face, eps: tg.Const):
         k_face = harmonic(src.k, dst.k, eps)
         normal_grad = (src.u - dst.u) / face.center_distance
         return k_face * normal_grad * face.measure / dst.volume
@@ -747,13 +780,13 @@ invalidation/rebuild 原因、当前 physical instances、statistics 和 materia
 首版唯一 public compute API 是 coarse MessagePassing：
 
 ```python
-class Diffusion(gf.MessagePassing):
-    reducer = gf.sum(identity=0.0)
+class Diffusion(tg.MessagePassing):
+    reducer = tg.sum(identity=0.0)
 
     def edge(self, src, dst, edge):
         return edge.weight * (src.u - dst.u)
 
-    def node(self, dst, total, dt: gf.Const):
+    def node(self, dst, total, dt: tg.Const):
         return dst.u + dt * total
 ```
 
@@ -790,8 +823,8 @@ neighbor iteration。
 如果算子语义只是计算 spatial residual/flux，推荐省略 `node()`：
 
 ```python
-class DiffusionResidual(gf.MessagePassing):
-    reducer = gf.sum()
+class DiffusionResidual(tg.MessagePassing):
+    reducer = tg.sum()
 
     def edge(self, src, dst, edge):
         return edge.weight * (src.u - dst.u)
@@ -812,8 +845,8 @@ Reducer 是具有显式状态和代数契约的对象，但这些是 compiler co
 内建 online softmax 的标准写法是：
 
 ```python
-class Attention(gf.MessagePassing):
-    reducer = gf.online_softmax()
+class Attention(tg.MessagePassing):
+    reducer = tg.online_softmax()
 
     def edge(self, src, dst, edge, scale):
         score = (src.key * dst.query).sum(-1) * scale + edge.bias
@@ -858,28 +891,28 @@ finalize(s) = s.numerator / s.denominator
 `wa/wb` 自动在 payload axes 上 broadcast。该 combine 允许 compiler 在 lane、warp、block、
 split row 和 distributed ranks 间分层归约，不物化 score/probability edge tensor。零度 destination
 返回零 value；FP16/BF16 默认用 FP32 state，FP32/FP64 默认保持 dtype；可用
-`gf.online_softmax(accumulation_dtype=...)` 覆盖。NaN policy、fast exp、reassociation 和
+`tg.online_softmax(accumulation_dtype=...)` 覆盖。NaN policy、fast exp、reassociation 和
 deterministic tree 必须进入 numeric policy/specialization key，不能由 backend 静默改变。
 
 Custom reducer 才使用完整 protocol；同样不声明 state type：
 
 ```python
-class Welford(gf.Reducer):
+class Welford(tg.Reducer):
     associative = True
     commutative = True
 
     def identity(self, like):
-        return dict(count=0, mean=gf.zeros_like(like), m2=gf.zeros_like(like))
+        return dict(count=0, mean=tg.zeros_like(like), m2=tg.zeros_like(like))
 
     def lift(self, value):
-        return dict(count=1, mean=value, m2=gf.zeros_like(value))
+        return dict(count=1, mean=value, m2=tg.zeros_like(value))
 
     def combine(self, a, b):
         # restricted staged Python; may return tuple/list/dict/dataclass pytree
         ...
 
     def finalize(self, state):
-        return state.m2 / gf.maximum(state.count - 1, 1)
+        return state.m2 / tg.maximum(state.count - 1, 1)
 ```
 
 Compiler 用 symbolic `message` tracing `identity/lift/combine/finalize`，统一 pytree structure，
@@ -917,7 +950,7 @@ shape inference、数值稳定和 zero-degree 行；online-softmax 的 direct TT
 
 ### 2.8 Lazy JIT、执行与调试
 
-`gf.MessagePassing` 继承 `gf.Kernel`。Kernel 对象本身是 lazy JIT callable，正常路径不
+`tg.MessagePassing` 继承 `tg.Kernel`。Kernel 对象本身是 lazy JIT callable，正常路径不
 显式调用 `gf.compile()`：
 
 ```python
@@ -981,22 +1014,22 @@ compile/cache/launch/build/consume timings
 fallback and unsupported capability
 ```
 
-### 2.9 两层捕获边界与 `@gf.jit`
+### 2.9 两层捕获边界与 `@tg.jit`
 
 Tiga 有两层用户代码捕获，边界必须清晰：
 
 - **UDF region（`edge()`/`node()`/reducer regions）**：proxy tracing。staged 值重载
   运算符录成 IR；静态 `for range` 在 trace 期展开；data-dependent Python `if` 经
   `Tensor.__bool__` fail-closed。这层永远不做 AST 解析。
-- **编排层（调用 kernel/Tensor 代数的外层函数）**：可选 `@gf.jit` AST 子集。它把
+- **编排层（调用 kernel/Tensor 代数的外层函数）**：可选 `@tg.jit` AST 子集。它把
   `for i in range(k)` 重写为 `gf_control.repeat`、把裸 `while cond:` 重写为
-  `gf_control.while`（上界来自 `@gf.jit(max_iterations=k)`），`for` body 首句的
+  `gf_control.while`（上界来自 `@tg.jit(max_iterations=k)`），`for` body 首句的
   `if cond: break` 是提前退出。loop-carried 变量由静态规则推导（body 内赋值 ∩
   循环前已定义，且必须是 Tensor）；`continue`、body 中部 `break`、`while True`、
   非 `range` 迭代器、loop `else` 全部 fail-closed。
 
-`@gf.jit` 只是拼写层：两种写法 lower 到完全相同的 `gf_control` primitive，
-`gf.control.Repeat/While`（class 主拼写）与 `repeat/while_loop`（functional shorthand）
+`@tg.jit` 只是拼写层：两种写法 lower 到完全相同的 `gf_control` primitive，
+`tg.control.Repeat/While`（class 主拼写）与 `repeat/while_loop`（functional shorthand）
 继续作为不使用 AST 时的等价入口。闭包变量在装饰时按值快照进 staged globals；
 取不到源码（lambda/REPL/exec）时报错。AST 路线不得进入 UDF region，也不得把
 任意 Python 控制流偷偷变成合法——子集之外的构造必须在 transform 期报错。
@@ -1161,7 +1194,7 @@ EntitySet 是 global `(row_dof, col_dof)` entries；matrix-free apply 则直接 
 node residual，不生成 matrix。
 
 多个 leaf operator 自动形成 lazy `GraphProgram` SSA DAG。普通 Tiga-native 用法不要求
-`@gf.program`：
+`@tg.program`：
 
 ```python
 def euler_rhs(mesh, q, geometry):
@@ -1180,8 +1213,8 @@ component。Program IR 保留 Field version、Relation、Effect 和中间值用�
 producer-consumer fusion、tile chaining、buffer reuse 或 recomputation，资源/通信代价过高
 时仍拆成多个 kernels。
 
-`@gf.program` 只保留为可选的显式 capture/AOT/export/debug boundary，不是 fusion hint，也
-不是正常 JIT 所必需；`@gf.jit` 是统一的用户入口，自动激活同一 program 上下文（C11）。
+`@tg.program` 只保留为可选的显式 capture/AOT/export/debug boundary，不是 fusion hint，也
+不是正常 JIT 所必需；`@tg.jit` 是统一的用户入口，自动激活同一 program 上下文（C11）。
 对 raw eager `torch.Tensor`，一旦第一个 custom op 已 launch 就无法
 事后融合；M0/M1 接受 eager op boundary，跨 op capture 由 `torch.compile`/FX region 提供。
 长期可用 Tiga lazy Field 或 Torch tensor-subclass/dispatch bridge 透明建立同一 DAG。
@@ -1849,9 +1882,9 @@ cooperative staging intent
 
 ## 8. Tensor、Autograd 与可选框架适配
 
-### 8.1 `gf.Tensor` 与 basic runtime
+### 8.1 `tg.Tensor` 与 basic runtime
 
-`gf.Tensor` 是 compiler value handle，不是完整 ATen replacement。它必须独立于 Torch 保存：
+`tg.Tensor` 是 compiler value handle，不是完整 ATen replacement。它必须独立于 Torch 保存：
 
 ```text
 dtype, shape/SymShape, strides, offset
@@ -1907,7 +1940,7 @@ FP32/i64 bucket 为 0.0585 ms；手写 Triton 0.0592 ms，速度比 1.012x、95%
 `[1.007, 1.020]`，通过该单桶 SOTA gate。JIT 333.07 ms 与 transpose materialization
 56.38 ms 单独报告，未混入 warm backward。
 
-edge-field VJP 也已经从相同前向 UDF 自动导出。`gf.autograd.grad` 的 `checkpoint=` 接受
+edge-field VJP 也已经从相同前向 UDF 自动导出。`tg.autograd.grad` 的 `checkpoint=` 接受
 `auto|save|recompute`；`auto` 以语义 identity `gf_tensor.checkpoint_candidate` 留在 canonical
 IR。`gf-plan-tensor-checkpoints` 按静态 byte budget 与 producer cost proof 稳定选择 candidate，
 改写为 `gf_tensor.checkpoint` 或原始 producer；GPU storage physicalization 只消费该决策并将
@@ -1940,12 +1973,16 @@ atomic TTIR launch；N=32768/D=3/degree≈32 为 0.2403 ms，对 matched handwri
 Hierarchical storage planner 决定 save/recompute/spill；distributed VJP 保留 reverse
 halo/collective Event DAG。
 
-Public autograd 优先采用 functional API：`gf.autograd.grad` 与
-`gf.autograd.value_and_grad`。`.backward()`/`.grad` mutation、高阶梯度和 optimizer 均不属于第一阶段。
+默认应用接口使用 `torch.autograd.grad` 或 Torch `.backward()`。
+高级原生 autograd 采用 functional API：`tg.autograd.grad` 与
+`tg.autograd.value_and_grad`，不维护 Torch 式 `.grad` mutation。
+Tiga 不另行实现 optimizer；高阶梯度不属于当前承诺。
 
-### 8.3 PyTorch 只是可选 adapter
+### 8.3 PyTorch 默认应用接口与独立原生运行时
 
-Torch 不再是 base dependency。安装 `tiga-lang[torch]` 后才提供：
+Torch 不是 base dependency。使用 Torch 路径时先自行安装匹配硬件的 Torch，
+再安装 Tiga；没有 Torch 仍可使用原生运行时与 CPU JIT。
+`tiga-lang[torch]` 仅是显式 opt-in extra，不影响普通安装。adapter 的实现与规划范围包括：
 
 1. `torch.Tensor` 的 DLPack/ExternalInstance zero-copy binding；
 2. current device/stream/Event interop，无隐藏 host sync；
@@ -2066,7 +2103,7 @@ runtime physical plan。二者共享 dependency/cost information，但不能伪�
 
 ```python
 # 非默认 API：不要把 optimization policy 塞进 Field
-gf.Field(..., placement=..., cache=..., spill=...)
+tg.Field(..., placement=..., cache=..., spill=...)
 ```
 
 机器内存预算和允许的 storage tier 属于独立 deployment input；persistence、checkpoint、
@@ -2088,19 +2125,19 @@ engine 将下一 tile 经 pinned RAM 搬入 buffer B；Event DAG 管理 prefetch
 和 buffer reuse。若 PCIe/NVMe 带宽是实际下界，compiler 必须在 `explain()`/profile 中报告，
 不能把 stall 隐藏成 kernel 时间。
 
-Public 永远只有 `gf.Graph`，不定义 `SSDGraph`/`DistributedGraph` 子类，也不要求用户调用
+Public 永远只有 `tg.Graph`，不定义 `SSDGraph`/`DistributedGraph` 子类，也不要求用户调用
 `.stream()`。Backing store 是 Tiga-owned Region 的 PhysicalInstance，不改变 logical
 Graph API。Memory budget、prefetch depth、允许的 tiers 等放在 deployment config/CLI，并由
 自动 planner 选择 materialized、paged 或 generated plan。
 
-`gf.load()` 只是从持久化文件/对象存储恢复一个普通 `gf.Graph` handle；它读取 manifest/schema，
+`tg.load()` 只是从持久化文件/对象存储恢复一个普通 `tg.Graph` handle；它读取 manifest/schema，
 不承诺把 graph data eager 搬入 RAM：
 
 ```python
-graph_in_memory = gf.Graph.from_csr(row_ptr=row_ptr, col_idx=col_idx, ...)
-gf.save(graph_in_memory, "dataset.gfg")
+graph_in_memory = tg.Graph.from_csr(row_ptr=row_ptr, col_idx=col_idx, ...)
+tg.save(graph_in_memory, "dataset.gfg")
 
-graph_from_ssd = gf.load("dataset.gfg")    # type(graph_from_ssd) is gf.Graph
+graph_from_ssd = tg.load("dataset.gfg")    # type(graph_from_ssd) is tg.Graph
 
 def step(graph, u):
     return Diffusion()(graph=graph, src={"u": u}, dst={"u": u})
@@ -2203,13 +2240,13 @@ remote partial reduce ─→ pack/exchange ─→ owner combine ────┘
 manifest。示意：
 
 ```python
-mesh = gf.DeviceMesh("cuda", (2, 4), names=("rack", "gpu"))
-graph = gf.load("mesh.gfg").halo(
+mesh = tg.DeviceMesh("cuda", (2, 4), names=("rack", "gpu"))
+graph = tg.load("mesh.gfg").halo(
     mesh,
-    partition=gf.ByDestination(mesh_axis="gpu", balance="edges"),
+    partition=tg.ByDestination(mesh_axis="gpu", balance="edges"),
     depth="auto",
-)                                  # still an ordinary gf.Graph
-u = gf.Field.from_local(local_u, entities=graph.nodes)
+)                                  # still an ordinary tg.Graph
+u = tg.Field.from_local(local_u, entities=graph.nodes)
 u_next = Diffusion()(graph=graph, src={"u": u}, dst={"u": u}, dt=dt)
 ```
 
@@ -2242,7 +2279,7 @@ data binding、dirty Region、GPU geometry preparation 和 compute/graphics queu
 Plot API：
 
 ```python
-fig, ax = gf.viz.subplots(size=(1200, 720), backend="auto")
+fig, ax = tg.viz.subplots(size=(1200, 720), backend="auto")
 
 ax.scatter(
     particles.position,              # device-resident Field/Torch Tensor
@@ -2265,7 +2302,7 @@ fig.save("frame.png")
 Scene API：
 
 ```python
-window = gf.viz.Window("Simulation", size=(1280, 720), backend="vulkan")
+window = tg.viz.Window("Simulation", size=(1280, 720), backend="vulkan")
 scene = window.scene()
 
 scene.particles(
@@ -2311,7 +2348,7 @@ Window | device Image Field | PNG/video encoder | explicit readback
 ```
 
 Triton 用于 render 前后的 tensor/graph compute，不替代固定功能 rasterizer、swapchain、字体
-atlas 或窗口系统。稳定 render contract 是 `gf.viz` semantic scene/render plan；首个跨厂商
+atlas 或窗口系统。稳定 render contract 是 `tg.viz` semantic scene/render plan；首个跨厂商
 graphics backend 优先 Vulkan，WebGPU 作为浏览器/受限 portability backend。Backend 与 codegen
 provider 的分离沿用第 6 节，不能把 Vulkan 当作 Tiga compiler IR。
 
@@ -2734,13 +2771,13 @@ HOOMD/LAMMPS。正式 artifact 位于
 `benchmarks/graph_operations/radius_pipeline.py` 已把同一公开工作负载拆成三个阶段：
 
 ```python
-class DistanceAggregation(gf.MessagePassing):
-    reducer = gf.sum()
+class DistanceAggregation(tg.MessagePassing):
+    reducer = tg.sum()
 
     def edge(self, src, dst, edge):
         return edge.distance * src.x
 
-out = DistanceAggregation()(graph=gf.Graph.radius(position, cutoff),
+out = DistanceAggregation()(graph=tg.Graph.radius(position, cutoff),
                             src={"x": x}, dst={"x": x})
 ```
 
@@ -2894,7 +2931,7 @@ benchmarks/
 
 - 固定 LLVM/MLIR revision、CMake、TableGen 和 CI；
 - Torch-independent runtime C ABI：CPU Buffer/Stream/Event 与明确 unsupported provider；
-- `gf.Tensor` dtype/shape/stride/offset/version/PhysicalInstance metadata；
+- `tg.Tensor` dtype/shape/stride/offset/version/PhysicalInstance metadata；
 - broadcast/view/axis-reduction、complex dtype/conj capture 与 functional reverse-mode VJP；
 - 最小 `gf.domain` 与 verifier；
 - Entity/Field/Relation/Reducer/Effect；
@@ -2912,7 +2949,7 @@ benchmarks/
 - 可选 PyTorch adapter 的 custom op、FakeTensor/meta、opcheck 和 current-stream contract；
 - diffusion example 和 differential tests。
 
-完成标准：不安装 Torch 仍可 import/allocate/inspect `gf.Tensor` 并构造 VJP；StaticGraph 与
+完成标准：不安装 Torch 仍可 import/allocate/inspect `tg.Tensor` 并构造 VJP；StaticGraph 与
 RadiusGraph 的 coarse MessagePassing 能 capture、dump、round-trip，并与 PyTorch adapter
 reference 一致；无 public schedule/fine-loop API。
 
@@ -3192,7 +3229,7 @@ TODO 台账；所有未完成项只在 §15.3 登记：
 18. checkpoint planner 已使用真实 SSA live interval、抽象 recompute cost 与 peak-live budget，
     可选择 device save、host-pinned spill 或 recompute；CUDA runtime 会实际异步搬移 spill，
     `autograd.joint_plan` 已执行同 snapshot forward/backward Task DAG；
-19. `gf.online_softmax()` 在自有 Tensor runtime 中展开为稳定的 detached row-shift、exp、
+19. `tg.online_softmax()` 在自有 Tensor runtime 中展开为稳定的 detached row-shift、exp、
     CSR reductions 与 normalize，forward 和 score/value VJP 均由 native Tensor IR/LLVM JIT
     执行；power-law backward 的 dx/dweight 正式门槛也已通过。
 20. `gf_control.repeat/while` 已把一个或多个 loop-carried Tensor state capture 为 multi-result
@@ -3201,8 +3238,8 @@ TODO 台账；所有未完成项只在 §15.3 登记：
     MemRef，rank-0 reduction/scalar algebra 每迭代 hoist 一次，不在 vector element loop 内重复。
     单状态 CUDA repeat runtime 复用两个 device buffer；多状态 CUDA repeat/while command
     graph/persistent plan 仍待实现且当前 fail closed，不做 host polling。前端有三种等价
-    拼写：`gf.control.Repeat/While` class（主入口）、`repeat/while_loop` functional
-    shorthand、以及编排层 `@gf.jit` AST 子集（见 §2.9）；三者 lower 到同一 op。
+    拼写：`tg.control.Repeat/While` class（主入口）、`repeat/while_loop` functional
+    shorthand、以及编排层 `@tg.jit` AST 子集（见 §2.9）；三者 lower 到同一 op。
     CSR sum IR 保留真实 `degree_min/max` proof；fixed-degree weighted gather、sum 和任意由
     add/mul/div 组成的 node epilogue 结构融合为 row×neighbor TTIR tile，每次迭代一次 launch，
     未知或长尾 relation 进入任意长度 tiled-loop fallback。fixed repeat 的自动 VJP correctness
@@ -3230,7 +3267,7 @@ benchmark artifact 的能力，`PARTIAL` 不得用于发布声明。每关闭一
 | ID | 状态 | 收口项 | 完成证据 |
 |---|---|---|---|
 | C0 | DONE | LLVM/MLIR 22.1.8 权威 Linux CI | 本机用官方 SDK SHA256 pin 完成 clean build、66/66 lit、252 Python tests + 1 env-gated skip + 10 subtests、strict docs、manylinux_2_38 audit、两次 wheel/no-Torch smoke 与 sdist→wheel rebuild；hosted run `31793915112` 的 LLVM/MLIR clean-build 与独立 Torch compatibility jobs 均通过（该 hosted run 对应变更前的 53 lit/206 Python tests） |
-| C1 | DONE | straight-line GraphProgram SSA/canonical hash | native module composition/round-trip、relation CSE、跨 apply SSA 与 stale-version negative、optional `@gf.program` JIT；有依赖的 applies lower 为带显式 value read/write 与 depends-on 的 runtime `ExecutableBundle`，CPU differential 和 CUDA 两个独立 generated PTX leaf 均执行通过；无依赖 applies 仍走单个 horizontal product kernel |
+| C1 | DONE | straight-line GraphProgram SSA/canonical hash | native module composition/round-trip、relation CSE、跨 apply SSA 与 stale-version negative、optional `@tg.program` JIT；有依赖的 applies lower 为带显式 value read/write 与 depends-on 的 runtime `ExecutableBundle`，CPU differential 和 CUDA 两个独立 generated PTX leaf 均执行通过；无依赖 applies 仍走单个 horizontal product kernel |
 | C2 | DONE | multi-output apply、vector projection、horizontal fusion codegen | generic product Domain→TTIR differential；N=131072/D=16 matched gate 1.043x handwritten fused oracle，95% CI low=1.008 |
 | C3 | DONE | general Tensor canonicalization/layout/dtype coverage | strided/broadcast view、FP16/32/64/complex CPU 与 FP16/32/64/complex64/128 CUDA TTIR differential；`Dim/TensorSpec/ShapeSpecializer` 统一跨参数 guards 并以实际 binding 生成 concrete MLIR cache specialization |
 | C4 | DONE | automatic VJP 与 reducer coverage | sum/additive tuple、stable weighted 与任意 captured associative reducer 的 balanced/deterministic tree VJP 均由 compiler 生成；非交换 tuple-state 覆盖 empty/ragged/order。结构证明的 scalar/vector product 已提升为一等 `gf_tensor.csr_segment_product{,_vjp}`，CPU LLVM 与 CUDA TTIR 均执行，排除当前 edge 的反向在零值处精确；uniform-degree row/feature CTA mapping 一次产生整行梯度。Dynamic Euclidean radius 以固定 selected-topology snapshot 自动生成 position/source VJP，并由 packed `gf_tensor.csr_euclidean_distance_sum_vjp` 一次 launch 执行。Product N=131072/D=16 对 tuned handwritten Triton 为 1.021x（95% CI low=1.016）；radius N=32768/D3/degree≈32 为 1.079x（CI `[1.073,1.082]`）；stable tuple softmax、matmul VJP、power-law dx 与 dweight-F16 gate 亦通过 |
@@ -3240,24 +3277,24 @@ benchmark artifact 的能力，`PARTIAL` 不得用于发布声明。每关闭一
 | C8 | DONE | structured scan 与动态 tile reducer | 一等 `gf_tensor.cumsum(axis,reverse)`、CPU LLVM/CUDA TTIR 和 reverse-mode VJP；普通 map→scan→contract Tensor DAG 结构融合为单 recurrent kernel，L64/T512/K16/V16 对 official FLA 最快 peer 为 1.037x（CI low 1.025）。`online_softmax(block_prune_threshold=...)` 作为 reducer 近似语义保留在 Domain/Kernel IR，generic dense lowering 生成只包围 payload load/update 的动态 `scf.if`；B1/H16/N4096/D64 对 official FSA 为 1.182x（CI low 1.177），并分别对 exact Flash SDPA 审计误差 |
 | C9 | DONE | CPU LLVM vector/parallel mapping | contiguous pointwise DAG 使用 512-bit semantic Vector IR、LLVM 合法拆分、动态 scalar tail 与懒创建 persistent range worker pool；4M FP32 fusion 对 Inductor 1.073x（CI low 1.053）。MessagePassing 的 gather→edge UDF→CSR reduce 融为嵌套 LLVM loop；N131072/degree16/i32/permuted 热 SpMV 对最快已安装 provider-native CSR peer 6.318x（CI low 5.540）。只登记这两个 bucket，不外推 power-law CPU |
 | C10 | DONE | implicit triangular relation、causal dense streaming 与 grouped lanes | `Graph.triangular()` 表达通用 lower-inclusive topology，不引入 attention core op；edge count/degree/reference materialization 正确，boundary 贯穿 Domain→Iter→Kernel，TTIR 使用动态 source tile 上界与 `src<=dst` mask。source/destination lane 可按整除 group 映射，GQA 不复制 KV。width-aware schedule 对 full/triangular/GQA(Hq16/Hkv4) B1/N4096/D64 分别超过 external Flash SDPA 1.074x（CI low 1.069）/1.117x（CI low 1.100）/1.084x（CI low 1.078），并保留 tuned benchmark-only Triton parity oracle |
-| S0 | DONE | Static MessagePassing registered performance matrix | social-like power-law 已覆盖 local/random × i32/i64 × hot/cold 八个 public-auto gate（CI low 1.255–1.849）；i32 compiler-generated CDF bucket + chunked-tail TTIR 的 local/random × hot/cold 四项为 1.353–1.525x（CI low 1.337–1.495），log-normal/exponential generated hot/cold 也全部过线。fixed-degree vector TTIR 的 random/i32/degree16 F16 hot/cold 为 4.322x/3.801x、F64 为 1.966x/1.302x（最低 CI low 1.288）；bounded-ragged degree 0–32 的 F16 为 4.213x/3.270x、F64 为 1.595x/1.283x（最低 CI low 1.270）。provider 逐样本轮转交错，避免 thermal/order drift。irregular/skewed diffusion、regular degree 2–64 与 horizontal fusion 也严格通过；仅对 manifest 已登记 case 声明 |
+| S0 | DONE | Static MessagePassing historical registered matrix | 对应历史存档的注册用例与数值测试，不是当前 Torch 接口的端到端性能。`benchmarks/evidence_manifest.json` 固定比较范围，`benchmarks/evidence_snapshot` 保留原始测量与 hash；`docs/includes/full-matrix{,.zh}.md` 从原始毫秒数重新计算 ratio/CI 并保留所有已注册 topology/feature。缺失的旧 revision/环境信息不伪造，公开新版本性能需重新测量。 |
 | D0 | DONE | default Euclidean RadiusGraph performance-ready | compiler generated relation ABI 已携带 box/skew lattice 与 inverse，wrapped cell traversal 在 kernel 内执行 minimum-image 并直接 reduction，不物化 CSR/distance；N=32768、D=2/3、none/box/skew、consume/reuse/rebind/rebuild 共 24 个严格 gate 全过，periodic rebuild 为 3.861–6.064x（CI low 3.769–5.909）。Torch-free runtime 也以通用 gather/square/sum/sqrt/reducer Tensor IR 执行 fixed-snapshot forward/VJP；CPU custom metric/select 接受一次 batched Tensor UDF，membership stop-gradient，selected-edge metric 保持可导 |
 | D1 | DONE | generated builder-consumer fusion | N=32768/D3/degree32 fresh pipeline 对 materialized 4.425x（CI low 4.397），显式 CSR/distance/message ABI 为零、modeled peak bytes 降 7.03x |
 | K0 | PARTIAL（ranked M0 已测） | exact procedural kNN build+consume | `Graph.knn` 已捕获为 provider-neutral `gf.ranked_relation`，经 `ranked-pairs` lower 到 `gf_kernel.ranked_launch`；compiler-emitted TTIR 完成 256-candidate stable local top-k、pairwise hierarchical merge 与 selected-edge UDF/reducer fusion，不物化 N² distance matrix/CSR，位置 mutation 复用同一 executable。任意 k≤64 使用 masked `next_pow2(k)` physical state；CUDA differential 覆盖 k3 全重合 stable tie、k13 bipartite 与 k63 上界。三个端到端严格 gate 已通过：N8192/D3/k32 为 1.327x（CI low 1.326），N4096/D5/k16 为 1.626x（CI low 1.619），N4096/D5/k13 为 0.6625 ms 对 1.0744 ms、1.622x（CI low 1.617）。关闭剩余范围仍需 large k、general metric UDF、memory-budgeted spill/task bundle 与 generated backward；不得外推到 ANN |
 | R0 | DONE | runtime-owned provider ABI | CPU ExecutionEngine；CUDA Driver primary context、allocator、stream/event、module/function/kernel launch；TTIR 经 runtime-owned launcher 执行，且 native CUDA Tensor 在禁止 import Torch 的子进程完成 compile/launch/readback |
-| M0 | DONE | hierarchy memory execution | `gf_storage.transfer/release` bundle lowering、capacity/peak-liveness、native pinned↔HBM async DMA、RAM↔NVMe spill/version differential；32 MiB artifact H2D/D2H 7.20/7.13 GB/s |
-| X0 | PARTIAL | distributed partition/halo execution | typed overlap DAG、exact owner/ghost、bundle resolver、CPU/CUDA rank-local forward/reverse VJP、版本化 `.gfg` paged shard 与 mpi4py/MPICH `mpiexec -n 2` 均通过；16 MiB MPI halo 为 8.87 ms/1.892 GB/s。CPU host-transport 自动执行器已缓存 interior/boundary subgraph，实际并行 halo worker 与 interior LLVM execution，并以 `gf_tensor.scatter_rows` 合并；N65536/degree16/F64 的受控 5 ms link model 测得 13.7224 ms overlap 和 1.069x 端到端收益。Torch-free NCCL provider 直接接受 native/external device-buffer slices；rank-one NCCL 2.28.9 communicator + local D2D byte gate 通过。CUDA device fixture 已验证 communication-stream halo enqueue、独立 compiler-stream interior、wait、boundary、CUDA scatter merge 及 automatic reverse VJP 的提交顺序；host trace 不冒充 GPU 并发计时或 NCCL P2P 证据。当前只有一张 GPU；RCCL、真实 2+ GPU NCCL correctness/profiler overlap timeline 和 peer-link performance 待完成 |
+| M0 | DONE（限定已测路径） | hierarchy memory execution | `gf_storage.transfer/release` bundle lowering、capacity/peak-liveness、native pinned↔HBM DMA、RAM↔NVMe spill/version differential；32 MiB artifact H2D/D2H 7.20/7.13 GB/s。新增 16 GiB RTX 5070 Ti 上的 1B-edge / F32 CUDA paged forward：三次全量核对零误差，中位前向 414.25 s，最大 native GPU peak 10.27 GiB，对应完整 CSR+input+output 下界 22.82 GiB。10M/100M/1B 各三个 fresh processes 与源码 hash 见 `output/paper-20260919/billion`。这是 host-staged 单次前向，不是 CUDA paged backward、十亿边递推训练、超 host RAM 或按字节预算自动分页的完成证据 |
+| X0 | PARTIAL | distributed partition/halo execution | typed overlap DAG、exact owner/ghost、bundle resolver、CPU/CUDA rank-local forward/reverse VJP、版本化 `.gfg` paged shard 与 mpi4py/MPICH `mpiexec -n 2` 均通过；16 MiB MPI halo 为 8.87 ms/1.892 GB/s。CPU host-transport 自动执行器已缓存 interior/boundary subgraph，实际并行 halo worker 与 interior LLVM execution，并以 `gf_tensor.scatter_rows` 合并；N65536/degree16/F64 的受控 5 ms link model 测得 13.7224 ms overlap 和 1.069x 端到端收益。Torch-free NCCL provider 直接接受 native/external device-buffer slices；rank-one NCCL 2.28.9 communicator + local D2D byte gate 通过。CUDA device fixture 已验证 communication-stream halo enqueue、独立 compiler-stream interior、wait、boundary、CUDA scatter merge 及 automatic reverse VJP 的提交顺序；host trace 不冒充 GPU 并发计时或 NCCL P2P 证据。5070 Ti + 4070 Ti SUPER 双机 TCP 与 NCCL 前向/VJP 均已通过（`output/paper-20260919/nccl-graph-final`）；NCCL 2.28.9 经 WireGuard/Socket 传输，不是 GPUDirect RDMA。实测 TCP 两机曲线慢于单 GPU；NCCL/RCCL scaling、profiler overlap timeline、更多图覆盖与故障恢复仍待完成 |
 | B0 | PENDING | ROCm/DCU provider | vendor TTIR pipeline、真机 correctness/performance CI |
 | B1 | PENDING | Metal provider | provider ABI、MSL/Metal lowering、Apple 真机 CI |
 | B2 | PENDING | PPU provider | vendor compiler/runtime plugin 与真机 CI |
 | J0 | DONE | persistent isolated vendor compile/cache worker | out-of-process JSON protocol、content-addressed vendor cache warmup、worker crash/PID recovery test；RTX 5070 Ti artifact：cold 248.994 ms、warm-worker 2.751 ms、runtime disk-load 2.455 ms |
 | P0 | PARTIAL | PyPI release engineering | compiler CI 的 hosted Linux clean-build/audit/smoke 已通过；CPython 3.10–3.12 × manylinux_2_38 x86_64/macOS arm64 release workflow、pinned LLVM SDK SHA、auditwheel/delocate、no-Torch smoke、strict twine、sdist 与 trusted publishing 已提交。repository/maintainer/issue URL 已进入 PEP 621 metadata；增强后的 smoke 会从安装后 METADATA 校验它们。当前源码重新生成 sdist 后在独立目录完成 native wheel rebuild、auditwheel manylinux_2_38 repair、strict twine、无 Torch clean-venv compiler/runtime/metadata smoke。两份 SDK URL 和 workflow actionlint 通过，PyPI JSON 当前为 404（只说明尚未发布，不构成名称保留）。待完整 hosted release matrix、PyPI trusted-publishing environment 与首次发布 |
 | A0 | DONE | optional Torch adapter productization | zero-copy/current-stream；CSR topology 与 UDF fields 均为显式 functional `torch.library` operands，FakeTensor/meta、registered autograd、四项 `opcheck` 与 Inductor fullgraph forward+backward test/example |
-| V0 | DONE | GPU-native visualization parallel track | 独立 `gf.visualize.heatmap` 只组合通用 Tensor IR，返回可查看 MLIR/TTIR 的 lazy `Raster`；`Tensor.prepare()` 绑定稳定动画 buffer，`to_numpy/save/show` 位于可选 interop/encoding 边界。2048² FP32 scalar→RGB 对 matched torch.compile/Inductor 为 1.153x（CI low 1.140），cold JIT 与 PNG encoding 分开报告；core 无 heatmap/render op |
+| V0 | DONE | GPU-native visualization parallel track | 独立 `tg.visualize.heatmap` 只组合通用 Tensor IR，返回可查看 MLIR/TTIR 的 lazy `Raster`；`Tensor.prepare()` 绑定稳定动画 buffer，`to_numpy/save/show` 位于可选 interop/encoding 边界。2048² FP32 scalar→RGB 对 matched torch.compile/Inductor 为 1.153x（CI low 1.140），cold JIT 与 PNG encoding 分开报告；core 无 heatmap/render op |
 | G0 | PARTIAL | representative graph-algorithm compiler probes | fixed-iteration PageRank 已有 `gf_control.repeat`、CPU/CUDA correctness、bounded canonical IR、2-buffer/1-launch-per-iteration artifact，以及 degree 4/16/32 × N65536/262144 的 matched `torch.sparse.mm` roofline/latency benchmark；RTX 5070 Ti 完整 artifact 为 1.049–2.337x（CI low 1.043–2.312），首个 cold provider compile 后其余 shape 的 capture+compile+prepare wall 为 13.70–17.01 ms。fixed repeat 的 pointwise/CSR MessagePassing 自动 VJP correctness fallback 已通过，但反向结构化 loop/tape/performance、设备侧 convergence、BFS frontier/worklist、triangle sorted-intersection 仍待完成；没有用 NetworkX 作性能分母 |
 | L0 | PARTIAL | matrix-free solver compiler probe | solver 是 examples/solvers.py 中的 grammar sugar，不是 core 接口：bound 到 Graph 的 MessagePassing kernel 直接作为 operator（`field=` 命名未知量，常量 edge fields/params 一次绑定），纯 Tensor 代数可用 plain callable，无 `LinearOperator` 包装、无 shape/对称性元数据；`gf_control.repeat/while` 已支持多 shape/type carried SSA、variadic yield 和 native verifier，while condition 是 rank-0 `gf_tensor.compare` 且强制 `max_iterations`。CPU lowering 为每个 state 复用 typed double buffer，fixed 路径降到 `scf.for`、residual-driven 路径降到 `scf.while`，rank-0 reduction/scalar algebra 与 multi-use vector SSA（`A(p)`/next residual）每迭代只物化一次，单 use vector 仍融合。`cg` 同时支持 fixed-count 和 `tolerance + max_iterations`，并接受 callable preconditioner；一维 P1 FEM 不组装 sparse matrix，generated-radius shifted Laplacian 复用同一 solver sugar，native radius debug realization 走 uniform cell list。CPU LLVM fixed/residual-driven forward 与 fixed-loop algorithmic VJP 通过。关闭范围仍需 retained `gf_linalg.solve` + `(solution, converged, iterations, residual)` status ABI、multi-state CUDA loop plan、distributed collective semantics、structured reverse loop/tape、residual-guarded implicit adjoint VJP，以及 matched forward/backward performance artifact |
 
-| C11 | DONE | 统一 `@gf.program` 与 `@gf.jit` 捕获模型 | 用户只需要 `@gf.jit`：AST 循环改写之外，jit 自动激活 GraphProgram 上下文（空 program 时为零开销 no-op）；ProgramValue 经 `program.leaf_tensor` 通道接入惰性表达式体系（`program_value` 表达式叶子引用 (program, producer)，`Tensor._binary`/`__sub__`/`__rsub__`/`__rtruediv__` 自动转换），`GraphProgram.outputs()` 接受叠了算术的 Tensor 表达式并提取传递引用的叶子（裸叶子输出保持既有融合 fast path，applies/post_fusion 不变）；control staging 期间（`control.staging_active`）kernel 调用内联进循环体而不注册顶层叶子；单叶子 program 经 `_run_single` 走普通 kernel 路径；`gf.program` 保留为兼容入口，两装饰器任意顺序叠加均合法（jit 先 `inspect.unwrap`）。叶子 autograd 已打通：叶子 requires_grad 从捕获字段传播，`gf.autograd.grad` 逐叶子内联展开求 VJP（前向保持融合、反向不融合），共享输入字段梯度累加，torch 字段/不支持的关系实现 fail closed（`autograd/_expand_program_leaves` + `program.leaf_expression`）。证据：`test_jit_auto_captures_and_fuses_sibling_kernel_calls`（applies=2, post_fusion=1）、`test_jit_auto_fusion_and_epilogue_match_eager_kernels`（CUDA 上与逐 kernel eager 对拍）、`test_program_leaf_participates_in_tensor_arithmetic`、`test_jit_expression_output_keeps_leaf_fusion`、`test_loop_body_kernel_calls_do_not_register_as_program_leaves`（applies=1）、`test_stacked_program_and_jit_picard_loop_runs`（昨天的失败用例，两种叠加顺序均通过）、`ProgramAutogradTest`（共享输入梯度=eager 对拍+有限差分、epilogue 梯度、dependent 叶子 VJP 复合、torch 字段/dense 关系 fail-closed 断言）；全套 390 passed + 1 skipped，全部 examples 可运行 |
+| C11 | DONE | 统一 `@tg.program` 与 `@tg.jit` 捕获模型 | 用户只需要 `@tg.jit`：AST 循环改写之外，jit 自动激活 GraphProgram 上下文（空 program 时为零开销 no-op）；ProgramValue 经 `program.leaf_tensor` 通道接入惰性表达式体系（`program_value` 表达式叶子引用 (program, producer)，`Tensor._binary`/`__sub__`/`__rsub__`/`__rtruediv__` 自动转换），`GraphProgram.outputs()` 接受叠了算术的 Tensor 表达式并提取传递引用的叶子（裸叶子输出保持既有融合 fast path，applies/post_fusion 不变）；control staging 期间（`control.staging_active`）kernel 调用内联进循环体而不注册顶层叶子；单叶子 program 经 `_run_single` 走普通 kernel 路径；`tg.program` 保留为兼容入口，两装饰器任意顺序叠加均合法（jit 先 `inspect.unwrap`）。叶子 autograd 已打通：叶子 requires_grad 从捕获字段传播，`tg.autograd.grad` 逐叶子内联展开求 VJP（前向保持融合、反向不融合），共享输入字段梯度累加，torch 字段/不支持的关系实现 fail closed（`autograd/_expand_program_leaves` + `program.leaf_expression`）。证据：`test_jit_auto_captures_and_fuses_sibling_kernel_calls`（applies=2, post_fusion=1）、`test_jit_auto_fusion_and_epilogue_match_eager_kernels`（CUDA 上与逐 kernel eager 对拍）、`test_program_leaf_participates_in_tensor_arithmetic`、`test_jit_expression_output_keeps_leaf_fusion`、`test_loop_body_kernel_calls_do_not_register_as_program_leaves`（applies=1）、`test_stacked_program_and_jit_picard_loop_runs`（昨天的失败用例，两种叠加顺序均通过）、`ProgramAutogradTest`（共享输入梯度=eager 对拍+有限差分、epilogue 梯度、dependent 叶子 VJP 复合、torch 字段/dense 关系 fail-closed 断言）；全套 390 passed + 1 skipped，全部 examples 可运行 |
 
 执行顺序固定为 `C0/C1/C2/C3/C4/C6 → S0/D0/D1/K0 → R0/M0/X0 → B*/J0/P0/A0`；V0 是独立
 track；G0/L0 是以算法驱动 compiler 修改的独立 diagnostic track。外部硬件或发布凭据缺失不会把对应项伪标为 DONE，而应保留 PENDING 并记录可复现的
@@ -3286,8 +3323,8 @@ track；G0/L0 是以算法驱动 compiler 修改的独立 diagnostic track。外
 15. Logical Graph 不要求完整物化；M0 固定 materialized/paged/generated 的 IR contract，
     generate-consume、out-of-core 与 distributed 执行分别在 M4/M6/M7 落地。
 16. `assembly` 是 generalized MessagePassing 的 typed route/reduce，不是独立 public primitive；
-17. 普通 Tiga-native composition 默认 lazy auto-plan；`@gf.jit` 自动捕获平级
-    kernel 调用，`@gf.program` 保留为兼容入口，二者都不是 fusion hint；
+17. 普通 Tiga-native composition 默认 lazy auto-plan；`@tg.jit` 自动捕获平级
+    kernel 调用，`@tg.program` 保留为兼容入口，二者都不是 fusion hint；
     raw eager Torch 的跨 op fusion 首期通过 `torch.compile` capture。
 18. Fusion 是独立的 legality/grouping/planning pass pipeline；domain-level 合法 fusion 与
     target-level profitable kernel fusion 分开，所有拒绝与拆组理由可观测。

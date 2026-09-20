@@ -127,10 +127,8 @@ def unique_id(*, library: str | os.PathLike[str] | None = None) -> bytes:
 class NCCLTransport:
     """NCCL communicator implementing Tiga's device-buffer extension."""
 
-    # Point-to-point operations are enqueued on the caller-provided CUDA
-    # stream and return an Event.  The distributed executor may therefore run
-    # an independent interior kernel before waiting for the halo stream.
-    prefer_compute_overlap = True
+    # Point-to-point operations return an Event on the caller-provided stream.
+    # The public executor waits for halo completion before local computation.
 
     def __init__(
         self,

@@ -8,12 +8,12 @@ import sys
 
 from mpi4py import MPI
 
-import tiga as gf
+import tiga as tg
 from tiga.distributed import DistributedRuntime, owned_range
 
 
-class NeighborSum(gf.MessagePassing):
-    reducer = gf.sum()
+class NeighborSum(tg.MessagePassing):
+    reducer = tg.sum()
 
     def edge(self, src, dst, edge):
         del dst, edge
@@ -25,13 +25,13 @@ def main() -> None:
     rank, world_size = MPI.COMM_WORLD.Get_rank(), MPI.COMM_WORLD.Get_size()
     if world_size != 2:
         raise RuntimeError("MPI integration case requires exactly two ranks")
-    graph = gf.load(graph_path).halo(gf.DeviceMesh("cpu", world_size), depth=1)
+    graph = tg.load(graph_path).halo(tg.DeviceMesh("cpu", world_size), depth=1)
     begin, end = owned_range(graph.schema.num_dst, world_size, rank)
-    local_x = gf.tensor(
+    local_x = tg.tensor(
         [float(entity) for entity in range(begin, end)], requires_grad=True)
     with DistributedRuntime.from_provider("mpi", communicator=MPI.COMM_WORLD):
         output = NeighborSum()(graph=graph, src={"x": local_x}, dst={})
-        gradient = gf.autograd.grad(output.sum(), local_x)
+        gradient = tg.autograd.grad(output.sum(), local_x)
         payload = {
             "rank": rank,
             "output": output.tolist(),

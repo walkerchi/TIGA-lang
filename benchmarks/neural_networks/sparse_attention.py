@@ -19,17 +19,17 @@ import torch
 import torch.nn.functional as F
 from torch.nn.attention import SDPBackend, sdpa_kernel
 
-import tiga as gf
+import tiga as tg
 from benchmarks.common.hardware_roofline import measure_roofs, samples_ms
 from benchmarks.common.output_layout import operation_dir
 from benchmarks.common.perf_protocol import evaluate_sota_gates
 from benchmarks.common.plotting import plot_latency, plot_roofline
 
 
-class TilePrunedAttention(gf.MessagePassing):
+class TilePrunedAttention(tg.MessagePassing):
     def __init__(self, threshold: float):
         super().__init__()
-        self.reducer = gf.online_softmax(
+        self.reducer = tg.online_softmax(
             block_prune_threshold=threshold,
         )
 
@@ -100,7 +100,7 @@ def main() -> None:
         args.sequence, lanes, args.width)
     v_nodes = v_lane.permute(2, 0, 1, 3).reshape(
         args.sequence, lanes, args.width)
-    graph = gf.Graph.dense(args.sequence, device=device)
+    graph = tg.Graph.dense(args.sequence, device=device)
     candidate = TilePrunedAttention(threshold)
     scale = args.width**-0.5
 

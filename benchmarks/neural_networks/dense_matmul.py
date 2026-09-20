@@ -12,7 +12,7 @@ import time
 
 import torch
 
-import tiga as gf
+import tiga as tg
 from benchmarks.common.hardware_roofline import measure_roofs, samples_ms
 from benchmarks.common.output_layout import operation_dir
 from benchmarks.common.perf_protocol import evaluate_sota_gates
@@ -50,8 +50,8 @@ def main() -> None:
         generator=generator)
     output_torch = torch.empty(
         (args.m, args.n), device=device, dtype=torch.float16)
-    lhs = gf.from_torch(lhs_torch)
-    rhs = gf.from_torch(rhs_torch)
+    lhs = tg.from_torch(lhs_torch)
+    rhs = tg.from_torch(rhs_torch)
     output = lhs @ rhs
 
     previous_provider = os.environ.get("TIGA_MATMUL_PROVIDER")
@@ -145,7 +145,7 @@ def main() -> None:
     write_report(payload, None, None, None, output_dir)
     (output_dir / "REPORT.md").write_text(
         "# Dense matmul calibration\n\n"
-        "Tiga preserves the native `gf.Tensor` contraction as "
+        "Tiga preserves the native `tg.Tensor` contraction as "
         "`gf_tensor.matmul`. The selected provider is reported explicitly; "
         "`auto` may dispatch a legal contiguous FP16 contraction to cuBLAS, "
         "while `--provider ttir` measures compiler-emitted `tt.dot`. Neither "

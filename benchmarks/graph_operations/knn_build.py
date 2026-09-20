@@ -10,7 +10,7 @@ import statistics
 
 import torch
 
-import tiga as gf
+import tiga as tg
 from benchmarks.common.hardware_roofline import measure_roofs, samples_ms
 from benchmarks.common.output_layout import operation_dir
 from benchmarks.common.perf_protocol import evaluate_sota_gates
@@ -38,7 +38,7 @@ def main() -> None:
     generator = torch.Generator(device=device).manual_seed(20260813)
     positions = torch.rand(
         (args.nodes, args.dimensions), device=device, generator=generator)
-    graph = gf.Graph.knn(positions, args.k)
+    graph = tg.Graph.knn(positions, args.k)
 
     # Warm only immutable fixed-degree CSR metadata. resolve_csr still runs
     # exhaustive distance/top-k on every timed invocation and never reuses

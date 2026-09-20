@@ -3,7 +3,7 @@ from __future__ import annotations
 import importlib.util
 from pathlib import Path
 
-import tiga as gf
+import tiga as tg
 import pytest
 
 EXAMPLES = Path(__file__).parents[2] / "examples"
@@ -21,8 +21,8 @@ solvers = _load_module(
     "graphforge_example_solvers", EXAMPLES / "solvers.py")
 
 
-class _ScaledLaplacian(gf.MessagePassing):
-    reducer = gf.sum()
+class _ScaledLaplacian(tg.MessagePassing):
+    reducer = tg.sum()
 
     def edge(self, src, dst, edge):
         del dst
@@ -30,19 +30,19 @@ class _ScaledLaplacian(gf.MessagePassing):
 
 
 def _laplacian_operator():
-    graph = gf.Graph.from_csr(
-        gf.tensor([0, 2, 4], dtype=gf.int64),
-        gf.tensor([0, 1, 0, 1], dtype=gf.int64),
+    graph = tg.Graph.from_csr(
+        tg.tensor([0, 2, 4], dtype=tg.int64),
+        tg.tensor([0, 1, 0, 1], dtype=tg.int64),
         num_src=2,
     )
-    weights = gf.tensor([2.0, -1.0, -1.0, 2.0], dtype=gf.float32)
+    weights = tg.tensor([2.0, -1.0, -1.0, 2.0], dtype=tg.float32)
     return _ScaledLaplacian(), graph, weights
 
 
 def test_message_passing_kernel_is_the_operator(monkeypatch):
     monkeypatch.setenv("TIGA_TENSOR_BACKEND", "native")
     kernel, graph, weights = _laplacian_operator()
-    rhs = gf.tensor([1.0, 1.0], dtype=gf.float32)
+    rhs = tg.tensor([1.0, 1.0], dtype=tg.float32)
 
     solution = solvers.cg(
         kernel,
@@ -60,7 +60,7 @@ def test_message_passing_kernel_is_the_operator(monkeypatch):
 
 def test_kernel_operator_rejects_bad_bindings():
     kernel, graph, weights = _laplacian_operator()
-    rhs = gf.tensor([1.0, 1.0], dtype=gf.float32)
+    rhs = tg.tensor([1.0, 1.0], dtype=tg.float32)
 
     with pytest.raises(TypeError, match="graph= and field="):
         solvers.cg(kernel, rhs, graph=graph, iterations=1)
@@ -77,16 +77,16 @@ def test_kernel_operator_rejects_bad_bindings():
     with pytest.raises(ValueError, match="rhs shape"):
         solvers.cg(
             kernel,
-            gf.tensor([1.0], dtype=gf.float32),
+            tg.tensor([1.0], dtype=tg.float32),
             graph=graph,
             field="u",
             edge={"value": weights},
             iterations=1,
         )
 
-    rectangular = gf.Graph.from_csr(
-        gf.tensor([0, 1], dtype=gf.int64),
-        gf.tensor([0], dtype=gf.int64),
+    rectangular = tg.Graph.from_csr(
+        tg.tensor([0, 1], dtype=tg.int64),
+        tg.tensor([0], dtype=tg.int64),
         num_src=3,
     )
     with pytest.raises(ValueError, match="square relation"):
@@ -103,25 +103,25 @@ def test_kernel_operator_rejects_bad_bindings():
 
 
 def test_callable_operator_applies_without_wrapper():
-    diagonal = gf.tensor([2.0, 3.0], dtype=gf.float32)
+    diagonal = tg.tensor([2.0, 3.0], dtype=tg.float32)
     actual = solvers.cg(
         lambda value: diagonal * value,
-        gf.tensor([4.0, 6.0], dtype=gf.float32),
+        tg.tensor([4.0, 6.0], dtype=tg.float32),
         iterations=2,
     )
     assert actual.tolist() == pytest.approx([2.0, 2.0], abs=2.0e-6)
 
     with pytest.raises(ValueError, match="square"):
         solvers.cg(
-            lambda value: gf.tensor([1.0], dtype=gf.float32),
-            gf.tensor([1.0, 1.0], dtype=gf.float32),
+            lambda value: tg.tensor([1.0], dtype=tg.float32),
+            tg.tensor([1.0, 1.0], dtype=tg.float32),
             iterations=1,
         )
 
 
 def test_dot_and_norm_are_compiler_visible_tensor_algebra():
-    left = gf.tensor([1.0, 2.0, 2.0], dtype=gf.float32)
-    right = gf.tensor([3.0, 4.0, 5.0], dtype=gf.float32)
+    left = tg.tensor([1.0, 2.0, 2.0], dtype=tg.float32)
+    right = tg.tensor([3.0, 4.0, 5.0], dtype=tg.float32)
     product = solvers.dot(left, right)
     length = solvers.vector_norm(left)
 
@@ -133,9 +133,9 @@ def test_dot_and_norm_are_compiler_visible_tensor_algebra():
 
 def test_richardson_is_one_bounded_control_region_and_differentiable(monkeypatch):
     monkeypatch.setenv("TIGA_TENSOR_BACKEND", "native")
-    diagonal = gf.tensor([2.0, 4.0], dtype=gf.float32)
-    rhs = gf.tensor(
-        [2.0, 8.0], dtype=gf.float32, requires_grad=True)
+    diagonal = tg.tensor([2.0, 4.0], dtype=tg.float32)
+    rhs = tg.tensor(
+        [2.0, 8.0], dtype=tg.float32, requires_grad=True)
     solution = solvers.richardson(
         lambda value: diagonal * value,
         rhs,
@@ -145,15 +145,15 @@ def test_richardson_is_one_bounded_control_region_and_differentiable(monkeypatch
 
     assert solution.tolist() == pytest.approx([0.875, 2.0], abs=2.0e-6)
     assert solution.mlir().count("gf_control.repeat") == 1
-    gradient = gf.autograd.grad(solution.sum(), rhs)
+    gradient = tg.autograd.grad(solution.sum(), rhs)
     assert gradient.tolist() == pytest.approx([0.4375, 0.25], abs=2.0e-6)
 
 
 def test_multi_state_repeat_lowers_to_typed_cpu_double_buffers(monkeypatch):
     monkeypatch.setenv("TIGA_TENSOR_BACKEND", "native")
-    vector = gf.tensor([1.0, 2.0], dtype=gf.float32)
-    scalar = gf.tensor(0.0, dtype=gf.float32)
-    result = gf.repeat(
+    vector = tg.tensor([1.0, 2.0], dtype=tg.float32)
+    scalar = tg.tensor(0.0, dtype=tg.float32)
+    result = tg.repeat(
         (vector, scalar),
         lambda current, total: (current + 1.0, total + current.sum()),
         iterations=3,
@@ -174,10 +174,10 @@ def test_multi_state_repeat_lowers_to_typed_cpu_double_buffers(monkeypatch):
 
 def test_bounded_while_is_device_control_and_respects_iteration_limit(monkeypatch):
     monkeypatch.setenv("TIGA_TENSOR_BACKEND", "native")
-    vector = gf.tensor([1.0, 2.0], dtype=gf.float32)
-    counter = gf.tensor(0.0, dtype=gf.float32)
+    vector = tg.tensor([1.0, 2.0], dtype=tg.float32)
+    counter = tg.tensor(0.0, dtype=tg.float32)
 
-    shifted, final_counter = gf.while_loop(
+    shifted, final_counter = tg.while_loop(
         (vector, counter),
         lambda _value, step: step < 3.0,
         lambda value, step: (value + 1.0, step + 1.0),
@@ -193,7 +193,7 @@ def test_bounded_while_is_device_control_and_respects_iteration_limit(monkeypatc
     assert "scf.condition" in lowered
     assert "tiga.cpu.max_iterations = 10" in lowered
 
-    limited = gf.while_loop(
+    limited = tg.while_loop(
         counter,
         lambda step: step < 10.0,
         lambda step: step + 1.0,
@@ -207,15 +207,15 @@ def test_class_based_repeat_and_while_lower_like_the_functional_forms(
 ):
     monkeypatch.setenv("TIGA_TENSOR_BACKEND", "native")
 
-    class Integrate(gf.control.Repeat):
+    class Integrate(tg.control.Repeat):
         def __init__(self, rate):
             self.rate = rate
 
         def body(self, value, total):
             return value * (1.0 + self.rate), total + value.sum()
 
-    vector = gf.tensor([1.0, 2.0], dtype=gf.float32)
-    total = gf.tensor(0.0, dtype=gf.float32)
+    vector = tg.tensor([1.0, 2.0], dtype=tg.float32)
+    total = tg.tensor(0.0, dtype=tg.float32)
     value_out, total_out = Integrate(0.5)((vector, total), iterations=3)
     assert value_out.tolist() == pytest.approx([3.375, 6.75])
     assert total_out.tolist() == pytest.approx(14.25)
@@ -223,7 +223,7 @@ def test_class_based_repeat_and_while_lower_like_the_functional_forms(
     assert ir.count("gf_control.repeat") == 1
     assert "num_carried = 2" in ir
 
-    class Countdown(gf.control.While):
+    class Countdown(tg.control.While):
         def __init__(self, threshold):
             self.threshold = threshold
 
@@ -233,7 +233,7 @@ def test_class_based_repeat_and_while_lower_like_the_functional_forms(
         def body(self, value):
             return value - 1.0
 
-    counter = gf.tensor(5.0, dtype=gf.float32)
+    counter = tg.tensor(5.0, dtype=tg.float32)
     final = Countdown(2.5)(counter, max_iterations=10)
     assert final.tolist() == pytest.approx(2.0)
     semantic = final.mlir(verify=True)
@@ -243,18 +243,18 @@ def test_class_based_repeat_and_while_lower_like_the_functional_forms(
     assert "tiga.cpu.max_iterations = 10" in lowered
 
     with pytest.raises(NotImplementedError):
-        gf.control.Repeat()(counter, iterations=1)
+        tg.control.Repeat()(counter, iterations=1)
     with pytest.raises(NotImplementedError):
-        gf.control.While()(counter, max_iterations=1)
+        tg.control.While()(counter, max_iterations=1)
 
 
 def test_fixed_cg_is_one_multi_state_region_and_automatically_differentiable(
     monkeypatch,
 ):
     monkeypatch.setenv("TIGA_TENSOR_BACKEND", "native")
-    diagonal = gf.tensor([2.0, 4.0], dtype=gf.float32)
-    rhs = gf.tensor(
-        [2.0, 8.0], dtype=gf.float32, requires_grad=True)
+    diagonal = tg.tensor([2.0, 4.0], dtype=tg.float32)
+    rhs = tg.tensor(
+        [2.0, 8.0], dtype=tg.float32, requires_grad=True)
 
     solution = solvers.cg(
         lambda value: diagonal * value, rhs, iterations=2)
@@ -269,10 +269,10 @@ def test_fixed_cg_is_one_multi_state_region_and_automatically_differentiable(
     assert lowered.count("iter_args(") == 4
     assert solution.mlir().count("gf_control.repeat") == 1
     assert "num_carried = 4" in solution.mlir()
-    gradient = gf.autograd.grad(solution.sum(), rhs)
+    gradient = tg.autograd.grad(solution.sum(), rhs)
     assert gradient.tolist() == pytest.approx([0.5, 0.25], abs=2.0e-5)
 
-    inverse_diagonal = gf.tensor([0.5, 0.25], dtype=gf.float32)
+    inverse_diagonal = tg.tensor([0.5, 0.25], dtype=tg.float32)
     preconditioned = solvers.cg(
         lambda value: diagonal * value,
         rhs,
@@ -284,9 +284,9 @@ def test_fixed_cg_is_one_multi_state_region_and_automatically_differentiable(
 
 def test_tolerance_cg_lowers_to_bounded_while_without_host_polling(monkeypatch):
     monkeypatch.setenv("TIGA_TENSOR_BACKEND", "native")
-    diagonal = gf.tensor([2.0, 4.0], dtype=gf.float32)
-    rhs = gf.tensor(
-        [2.0, 8.0], dtype=gf.float32, requires_grad=True)
+    diagonal = tg.tensor([2.0, 4.0], dtype=tg.float32)
+    rhs = tg.tensor(
+        [2.0, 8.0], dtype=tg.float32, requires_grad=True)
 
     solution = solvers.cg(
         lambda value: diagonal * value,
@@ -309,7 +309,7 @@ def test_tolerance_cg_lowers_to_bounded_while_without_host_polling(monkeypatch):
     )
     assert already_converged.tolist() == pytest.approx([0.0, 0.0])
     with pytest.raises(NotImplementedError, match="structured control VJP"):
-        gf.autograd.grad(solution.sum(), rhs)
+        tg.autograd.grad(solution.sum(), rhs)
 
 
 def test_fem_poisson_example_is_matrix_free_and_accurate(monkeypatch):
@@ -352,10 +352,10 @@ def test_dynamic_radius_linear_solve_keeps_operator_inside_bounded_while(
     assert "scf.while" in lowered
 
 
-class _LowerBidiagonal(gf.MessagePassing):
+class _LowerBidiagonal(tg.MessagePassing):
     """A[i,i] = 2, A[i,i-1] = -1 — a nonsymmetric matrix-free operator."""
 
-    reducer = gf.sum()
+    reducer = tg.sum()
 
     def edge(self, src, dst, edge):
         return edge.w * src.u
@@ -370,18 +370,18 @@ def _lower_bidiagonal_operator(nodes: int = 8):
         col_idx.append(dst)
         weights.append(2.0)
         row_ptr.append(len(col_idx))
-    graph = gf.Graph.from_csr(
-        gf.tensor(row_ptr, dtype=gf.int64),
-        gf.tensor(col_idx, dtype=gf.int64),
+    graph = tg.Graph.from_csr(
+        tg.tensor(row_ptr, dtype=tg.int64),
+        tg.tensor(col_idx, dtype=tg.int64),
         num_src=nodes,
     )
-    return _LowerBidiagonal(), graph, gf.tensor(weights, dtype=gf.float32)
+    return _LowerBidiagonal(), graph, tg.tensor(weights, dtype=tg.float32)
 
 
 def test_bicgstab_solves_a_nonsymmetric_operator(monkeypatch):
     monkeypatch.setenv("TIGA_TENSOR_BACKEND", "native")
     kernel, graph, weights = _lower_bidiagonal_operator(8)
-    rhs = gf.tensor([1.0] * 8, dtype=gf.float32)
+    rhs = tg.tensor([1.0] * 8, dtype=tg.float32)
     # Exact solution by forward substitution: x₀ = 1/2, xᵢ = (1 + xᵢ₋₁)/2.
     exact = [0.5]
     for _ in range(7):
@@ -402,8 +402,8 @@ def test_bicgstab_solves_a_nonsymmetric_operator(monkeypatch):
 
 def test_linear_solve_dispatches_method_and_validates(monkeypatch):
     monkeypatch.setenv("TIGA_TENSOR_BACKEND", "native")
-    diagonal = gf.tensor([2.0, 4.0], dtype=gf.float32)
-    rhs = gf.tensor([2.0, 8.0], dtype=gf.float32)
+    diagonal = tg.tensor([2.0, 4.0], dtype=tg.float32)
+    rhs = tg.tensor([2.0, 8.0], dtype=tg.float32)
     operator = lambda value: diagonal * value
 
     via_dispatch = solvers.linear_solve(operator, rhs, iterations=2)
@@ -411,8 +411,8 @@ def test_linear_solve_dispatches_method_and_validates(monkeypatch):
     assert via_dispatch.tolist() == pytest.approx(direct.tolist(), abs=1e-6)
 
     via_bicgstab = solvers.linear_solve(
-        lambda value: gf.tensor([2.0, 3.0, 5.0, 7.0]) * value,
-        gf.tensor([1.0, 1.0, 1.0, 1.0], dtype=gf.float32),
+        lambda value: tg.tensor([2.0, 3.0, 5.0, 7.0]) * value,
+        tg.tensor([1.0, 1.0, 1.0, 1.0], dtype=tg.float32),
         method="bicgstab", tolerance=1.0e-6, max_iterations=16)
     expected = [0.5, 1.0 / 3.0, 0.2, 1.0 / 7.0]
     assert via_bicgstab.tolist() == pytest.approx(expected, abs=1.0e-5)

@@ -8,8 +8,14 @@ below it.
 - [`python examples/hierarchical_memory.py`](https://github.com/walkerchi/TIGA-lang/blob/main/examples/hierarchical_memory.py)
 - [`python examples/paged_giant_graph.py`](https://github.com/walkerchi/TIGA-lang/blob/main/examples/paged_giant_graph.py)
 - [`python examples/auto_offload.py`](https://github.com/walkerchi/TIGA-lang/blob/main/examples/auto_offload.py)
+- [`python examples/paged_cuda.py`](https://github.com/walkerchi/TIGA-lang/blob/main/examples/paged_cuda.py)
 
-### Distributed execution { #distributed-execution }
+The CUDA paging example persists a graph, opens it on CUDA under a 128 KiB
+native-buffer budget, and checks three recurrent forward steps against NumPy.
+The paging path uses `tg.Tensor`, host staging and a resident output; it does not
+implement paged CUDA backward. See [the memory contract](../memory.md#large-graphs-current-boundary).
+
+<span id="distributed-execution"></span>
 
 ## Two-process halo exchange { #two-process-halo-exchange }
 
@@ -51,119 +57,75 @@ ghost-cotangent→owner accumulation below the unchanged user kernel.
 
 ## Running across processes and machines { #running-across-processes-and-machines }
 
-The example above spawns two local processes for portability. The same
-program runs under a real MPI launcher by swapping the transport — ranks and
-world size come from the MPI communicator, and Tiga reads no rank
-environment variables:
+The example above is a complete two-process CPU forward/VJP program, not a
+multi-GPU launcher. Expected rank outputs are `[8,3,6,9]` and `[12,15,18,13]`;
+both source gradients are `[3,3,3,3]`.
 
-```python
-from mpi4py import MPI
-import tiga as gf
-from tiga.distributed import DistributedRuntime
-
-world = MPI.COMM_WORLD
-graph = gf.load("ring.gfg").halo(gf.DeviceMesh("cpu", world.Get_size()), depth=1)
-with DistributedRuntime.from_provider("mpi", communicator=world):
-    out = NeighborSum()(graph=graph, src={"x": local_x}, dst={})
-```
+For an executable MPI transport check, install the `mpi` and `benchmarks`
+extras plus a working MPI launcher, then run the repository's
+[mpi_halo_exchange.py](https://github.com/walkerchi/TIGA-lang/blob/main/benchmarks/distributed/mpi_halo_exchange.py):
 
 ```bash
-mpiexec -n 2 python mpi_halo.py                  # two local ranks
-mpiexec -np 2 -H host1,host2 python mpi_halo.py  # across machines
+mpiexec -n 2 python -m benchmarks.distributed.mpi_halo_exchange \
+  --entities 64 --features 4 --repeats 3 --output output/mpi-sanity/results.json
 ```
 
-A multi-host run needs no Tiga-side change: mpi4py hands the
-communicator — network included — to the runtime, which derives the same
-owner/ghost halo maps from the graph. Because the graph is a paged `.gfg`,
-each rank reads only its own rows from disk; no rank ever holds the whole
-adjacency in RAM. The validated configuration is two local MPICH processes
-(forward and VJP, byte-exact); multi-host uses the identical API, and the
-NCCL device transport is currently validated at rank-one loopback only.
+Success writes `correct=true` and `gate="PASS"`. This command checks packed halo
+bytes, not MessagePassing gradients. Multi-host MPI additionally needs a configured
+launcher/network, matching environments and access to the same graph snapshot.
 
-A dependency-free alternative is the stdlib TCP transport: rank zero hosts
-a rendezvous, the remaining ranks join through it, and the world brings up
-a full mesh of sockets with a validated rank handshake:
+For **two machines with CUDA**, use the [complete two-host forward/VJP commands](../memory-and-distributed.md#two-host-cuda-sanity).
+They start one process per host; both may use local `cuda:0`.
+TCP stages data through host memory. The
+[NCCL path](../memory-and-distributed.md#two-host-nccl) exchanges device buffers
+through NCCL and also supports forward/VJP.
 
-```python
-from tiga.distributed import DistributedRuntime, TCPTransport
+TCP `host()` and `join()` are blocking alternatives in **different processes**,
+not consecutive calls in one script. Peers must be trusted (object messages use
+pickle), reachable, and configured with a finite timeout that permits cold JIT.
+Automatic halo scheduling does not discover hosts or launch remote processes.
 
-transport = TCPTransport.host(rank=0, world_size=2, port=29617)                    # rank 0 listens
-transport = TCPTransport.join(rank=1, world_size=2, host="10.0.0.1", port=29617)  # rank 1 dials
-with DistributedRuntime(transport):
-    out = NeighborSum()(graph=graph, src={"x": local_x}, dst={})
-```
-
-MPI is the battle-tested path for multi-host runs; the stdlib TCP transport
-is the dependency-free option, currently validated over loopback.
-
-### Memory hierarchy { #memory-hierarchy }
+<span id="memory-hierarchy"></span>
 
 ## Spilling tensors to disk { #spilling-tensors-to-disk }
 
-**What it is.** Computers store data in a *memory hierarchy*: small, fast,
-expensive tiers in front of larger, slower, cheaper ones. When a working set
-exceeds RAM, *spilling* moves a tensor to NVMe (Non-Volatile Memory Express)
-storage and frees its buffer; any later read transparently *restores* it.
-The API is two chainable methods on a tensor: `.disk()` writes, `.cpu()`
-reads back — the files are managed by Tiga, not the caller.
-
-![The memory hierarchy ladder — SMEM/registers, GPU HBM, RAM and NVMe with typical capacity, bandwidth and latency — and the gf-managed .disk()/.cpu() channel between RAM and NVMe](../assets/examples/hierarchical-memory.svg)
-
-The lifecycle contract:
-
-- **anonymous** `x.disk()` — the spill file lives in a per-process temporary
-  directory and is deleted when the tensor is collected or the process exits;
-- **named** `x.disk(name="...")` — the file persists in
-  `TIGA_SPILL_DIR` (or `~/.cache/tiga/spill`), and another
-  process attaches it with `gf.from_disk(name)`, payload loaded lazily on
-  first use.
-
-The example spills an eight-element tensor RAM → NVMe → RAM and then
-re-spills it under a name. Under the hood the same bytes feed the
-capacity/version-accounted `HierarchyRuntime` instances that compiler bundle
-plans consume — see
-[memory hierarchy and distributed execution](../memory-and-distributed.md).
+`spill()` changes residency while preserving logical device and autograd history; `cpu()` is a device-copy operation. `save/load` persist value snapshots at explicit paths. Budget scope, shared views, file lifetime and CPU paging limits are explained in [memory and storage](../memory.md).
 
 ```python
 --8<-- "examples/hierarchical_memory.py:core"
 ```
 
-??? example "Full source: examples/hierarchical_memory.py (runs as-is)"
-
-    ```python
-    --8<-- "examples/hierarchical_memory.py"
-    ```
+The example verifies the gradient `[0, 2, 4, 6, 8, 10, 12, 14]` and exact snapshot values. Leaving execution does not invalidate a Tensor; the example's own temporary directory cleans up its demonstration snapshot.
 
 ## A disk-resident giant graph { #a-disk-resident-giant-graph }
 
 **What it is.** When the graph itself — not just the tensors on it — exceeds
 RAM, *paging* keeps the topology (the CSR adjacency) on disk and reads it in
-bounded destination-row pages, one page resident at a time. A background
-thread *prefetches* page k+1 from disk while page k computes, so the
-[kernel](https://en.wikipedia.org/wiki/Compute_kernel) never waits on the
-disk. Because destination rows are independent, each page runs through the
-unchanged native MessagePassing path and any
-[reducer](https://en.wikipedia.org/wiki/Fold_(higher-order_function))
-produces exactly the global per-row result. Fields can join the topology on
-disk: `gf.save(graph, path, fields={"src": ..., "edge": ...})` persists them
-as fixed-width rows, `gf.load(path).fields("src", requires_grad=True)`
+bounded destination-row pages. Prefetch may keep multiple pages resident and
+can hide some I/O latency; it does not guarantee that computation never waits
+on storage. Destination-row independence preserves per-row semantics for the
+supported paged reducers and operations. Fields can join the topology on
+disk: `tg.save(graph, path, fields={"src": ..., "edge": ...})` persists them
+as fixed-width rows, `tg.load(path).fields("src", requires_grad=True)`
 returns lazily-read shells, and both the forward pass and
-`gf.autograd.grad` then run paged — the only boundary left is CPU-only.
+`tg.autograd.grad` then run paged on supported CPU/native paths. Construction,
+resident fields, prefetched pages and a materialized output can still consume
+RAM; paging is not a hard process-RSS limit.
 
 The round trip is three phases on one unchanged kernel:
 
 $$
-\text{build} \xrightarrow{\texttt{gf.save}} \texttt{.gfg on disk}
-\xrightarrow[\text{stream pages}]{\texttt{gf.load} + \text{MessagePassing}}
+\text{build} \xrightarrow{\texttt{tg.save}} \texttt{.gfg on disk}
+\xrightarrow[\text{stream pages}]{\texttt{tg.load} + \text{MessagePassing}}
 \text{result} \xrightarrow{\texttt{out.disk(name=...)}} \text{NVMe}
-\xrightarrow{\texttt{gf.from\_disk}} \text{reattach} .
+\xrightarrow{\texttt{tg.from\_disk}} \text{reattach} .
 $$
 
 The example builds a 1000×1000 four-neighbor stencil (1M nodes, ~4M edges),
-persists it once with `gf.save`, reopens it with `gf.load` — which reads only
+persists it once with `tg.save`, reopens it with `tg.load` — which reads only
 the manifest, leaving the CSR on disk — runs one Jacobi smoothing step over
 100k-row pages with prefetch on, spills the result under a stable name, and
-reattaches it with `gf.from_disk` to verify the checksum survives the
+reattaches it with `tg.from_disk` to verify the checksum survives the
 disk → JIT → disk round trip.
 
 Measured on a 2000×2000 stencil (4M nodes, ~16M edges, NVMe ext4, Ryzen
@@ -176,10 +138,10 @@ checksum in every row:
 | 100,000 | off | 40 | 37.7 s | 1.08 GB |
 | 100,000 | on | 40 | 36.6 s | 1.09 GB |
 
-Peak RSS tracks the page size, not the graph size (3.1× lower here, and the
-gap grows with the graph). Prefetch recovers most of the paging overhead;
-the remainder is page setup, not disk latency — with slower storage the
-overlap matters more.
+In these archived measurements, 100,000-row pages reduce peak RSS from 3.34 GB
+to about 1.09 GB, with a longer completed-call time. The elapsed time includes
+page loading and computation. Use the benchmark with the intended hardware and
+page size to evaluate this tradeoff.
 
 ```python
 --8<-- "examples/paged_giant_graph.py:core"
@@ -193,14 +155,15 @@ overlap matters more.
 
 ## Automatic offload under a RAM budget { #automatic-graph-offload }
 
-**What it is.** The explicit `gf.save`/`gf.load` dance above exists for
-cross-process handoff. When the goal is simply "do not let the topology
-exceed RAM", a budget does the paging decision: while
-`gf.runtime.auto_offload(ram=...)` is active, every CSR builder
+**What it is.** The explicit `tg.save`/`tg.load` dance above exists for
+cross-process handoff. A per-CSR threshold can make the paging decision automatically: while
+`tg.runtime.auto_offload(ram=...)` is active, every CSR builder
 (`Graph.from_csr`, `Graph.stencil`, `Graph.cat`, ...) checks the CSR byte
 size and, over budget, persists the topology and returns a paged graph —
-the unchanged kernel call then streams pages with prefetch, no `gf.save` /
-`gf.load` in sight:
+the unchanged native kernel call then streams pages with prefetch.
+The threshold is checked **after CSR construction**; it is not an out-of-core
+builder or a total-RSS/working-set budget:
+
 
 ```python
 --8<-- "examples/auto_offload.py:core"
@@ -217,8 +180,8 @@ tunable per call (`prefetch_depth=4`) or process-wide
 (`TIGA_PAGED_PREFETCH_DEPTH`); page size follows `page_rows=` or
 `TIGA_PAGED_PAGE_ROWS`. Offloaded graphs land in a per-process
 directory cleaned up at exit, or under `TIGA_SPILL_DIR` when the
-graph should outlive the process. The remaining boundary is CPU graphs only;
-fields can be offloaded too via `gf.save(..., fields=...)`, and both forward
+graph should outlive the process. This path requires CPU/native graphs and supported paged operations;
+fields can be offloaded too via `tg.save(..., fields=...)`, and both forward
 and backward run paged.
 ??? info "Measured compilation artifacts (Ryzen 7 255 · RTX 5070 Ti)"
 
@@ -233,5 +196,5 @@ and backward run paged.
         remark: [planning] edge/node UDFs remain in the differentiable Tensor DAG
         remark: [planning] gf-tensor-vjp generates CSR gather/segment-sum adjoints
         remark: [planning] reducer lowering: builtin-additive-state
-        executable cache: hits=0, misses=10
+        variant cache: hits=0, misses=10
         ```

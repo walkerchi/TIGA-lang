@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="760" height="280" viewBox="0 0 760 280" role="img" aria-labelledby="title desc">
   <title id="title">Radius relation and shifted graph Laplacian</title>
-  <desc id="desc">Points in the plane; any two points closer than the cutoff radius r become neighbors. The operator applied at point i is m times its own value plus the sum over neighbors of the difference between its value and each neighbor's value.</desc>
+  <desc id="desc">Distinct points at distance at most the cutoff radius r become neighbors. The operator applied at point i is m times its own value plus the sum over neighbors of the difference between its value and each neighbor's value.</desc>
   <defs>
     <style>
       text{font-family:Arial,sans-serif}
@@ -17,8 +17,8 @@
   </defs>
 
   <!-- cutoff around p_i -->
-  <circle cx="380" cy="140" r="118" class="radius" />
-  <path d="M380 140 L448 43" class="tick" />
+  <circle cx="380" cy="124" r="118" class="radius" />
+  <path d="M380 124 L448 27" class="tick" />
   <text x="430" y="86" class="rLbl">r</text>
 
   <!-- chain of points; edges exist only inside r -->
@@ -37,5 +37,5 @@
   <text x="270" y="138" class="sub">pⱼ</text>
   <text x="490" y="136" class="sub">pⱼ</text>
 
-  <text x="380" y="270" class="sub">j ~ i when ‖pᵢ − pⱼ‖ &lt; r — the operator at i sums uᵢ − uⱼ over those neighbors</text>
+  <text x="380" y="270" class="sub">j ≠ i and ‖pᵢ − pⱼ‖ ≤ r: sum uᵢ − uⱼ over these neighbors</text>
 </svg>

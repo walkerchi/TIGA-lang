@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1200" height="750" viewBox="0 0 1200 750" role="img" aria-labelledby="title desc">
-  <title id="title">GraphForge compiler pipeline: four IR stages and the provider handoff</title>
+  <title id="title">Tiga compiler pipeline: four IR stages and the provider handoff</title>
   <desc id="desc">A Python program is captured into Domain IR, lowered through Iter IR and Kernel IR, planned as Task IR, and finally handed to a provider: serialized TTIR on GPU, MLIR to LLVM on CPU.</desc>
   <defs>
     <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">

@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 import math
 
-import tiga as gf
+import tiga as tg
 
 
 # --8<-- [start:core]
@@ -15,8 +15,8 @@ def scalar_field_to_rgb(size: int, device: str):
          for x in range(size)]
         for y in range(size)
     ]
-    field = gf.tensor(values, dtype=gf.float32, device=device)  # (H, W)
-    return gf.visualize.heatmap(field).realize()  # pixels (H*W, 3), viridis
+    field = tg.tensor(values, dtype=tg.float32, device=device)  # (H, W)
+    return tg.visualize.heatmap(field).realize()  # pixels (H*W, 3), viridis
 # --8<-- [end:core]
 
 

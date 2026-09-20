@@ -40,7 +40,7 @@ func.func @generic_dense(%x: tensor<?xf32>) -> tensor<?xf32> {
   return %result : tensor<?xf32>
 }
 
-// CHECK: graphforge.launch entry=gf_dense_scalar_reduce
+// CHECK: tiga.launch entry=gf_dense_scalar_reduce
 // CHECK-SAME: abi=x,out
 // CHECK: tt.func public @gf_dense_scalar_reduce
 // CHECK: %[[STATE:.*]]:2 = scf.for

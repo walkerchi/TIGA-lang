@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security policy / 安全策略
+    url: https://github.com/walkerchi/TIGA-lang/blob/main/SECURITY.md
+    about: Send private reports to walker.chi.000@gmail.com; do not disclose vulnerabilities publicly.

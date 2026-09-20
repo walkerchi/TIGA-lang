@@ -1,6 +1,6 @@
 // RUN: gf-translate --gf-tensor-to-ttir %s | FileCheck %s
 
-// CHECK: graphforge.tensor entry=gf_tensor_cumsum
+// CHECK: tiga.tensor entry=gf_tensor_cumsum
 // CHECK: tt.func public @gf_tensor_cumsum
 // CHECK: scf.for
 // CHECK: %logical = arith.subi

@@ -6,8 +6,8 @@ decisions, IR sketches, scheduling research, and related systems.
 !!! warning "Normative versus exploratory"
 
     These pages preserve design context and may discuss future work. The
-    [Python API](api.md), [current status](roadmap.md), and the completion ledger
-    in `PROJECT.md §15.3` define what is executable today. If a research note
+    [Python API](api.md), [current status](roadmap.md), and implementation tests
+    define what is executable today. If a research note
     conflicts with those sources, it is not a supported feature.
 
 ## Reading order

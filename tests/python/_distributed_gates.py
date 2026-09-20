@@ -29,9 +29,9 @@ def mpi_launcher() -> str | None:
 
 def cuda_device_available(device: str) -> bool:
     try:
-        import tiga as gf
+        import tiga as tg
 
-        gf.runtime.cuda_compute_capability(device)
+        tg.runtime.cuda_compute_capability(device)
     except (ModuleNotFoundError, RuntimeError):
         return False
     return True
@@ -40,10 +40,10 @@ def cuda_device_available(device: str) -> bool:
 def nccl_skip_reason(device: str = "cuda:0") -> str | None:
     """Return None when CUDA plus NCCL unique-id creation works in-process."""
     try:
-        import tiga as gf
+        import tiga as tg
         from tiga.distributed import nccl_unique_id
 
-        gf.runtime.cuda_compute_capability(device)
+        tg.runtime.cuda_compute_capability(device)
         nccl_unique_id()
     except (ModuleNotFoundError, RuntimeError) as error:
         return f"NCCL/CUDA runtime is unavailable: {error}"

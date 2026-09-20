@@ -1,0 +1,161 @@
+# 构建与贡献 { #development }
+
+前置阅读：[IR 实例教程](ir-walkthrough.md)解释编译器模型；
+仅需安装时从[入门教程](getting-started.md)开始。本页面向修改项目的开发工作，
+不是运行第一个程序的前置要求。
+
+## 完成第一次编译器修改
+
+1. 用最小 Python 测试或 MLIR 输入复现问题。
+2. 使用 IR 教程中的 `gf-opt` 命令，定位最早出现错误的阶段。
+3. 修改相关 verifier 或 [pass](https://en.wikipedia.org/wiki/Compiler_pass)，补充回归测试。
+4. 执行下方 Python 和 MLIR 检查；仅在编译输出有意变化时重新生成文档快照。
+
+| 修改内容 | 实现入口 |
+|---|---|
+| 公共字段与调用检查 | `python/tiga/message_passing/` |
+| Domain 操作与验证 | `include/graphforge/Dialect/Domain/`、`lib/Dialect/Domain/` |
+| 关系遍历 | `lib/Transforms/LowerDomainToIter.cpp` |
+| Kernel 表示与调度 | `lib/Transforms/LowerIterToKernel.cpp`、`lib/Transforms/SelectKernelSchedule.cpp` |
+| 分布式任务依赖 | `lib/Transforms/PlanDistributedTasks.cpp` |
+| 目标 TTIR 输出 | `lib/Target/Triton/Translate.cpp` |
+
+## 仓库结构
+
+| 目录 | 职责 |
+|---|---|
+| `include/graphforge/Dialect/`、`lib/Dialect/` | 操作定义、约束与 verifier |
+| `lib/Transforms/`、`lib/Target/` | 编译转换与目标代码生成 |
+| `python/tiga/` | 公共 Python API，按 tensor、graph、autograd、message_passing 等子包组织 |
+| `python_bindings/`、`lib/Runtime/` | 原生编译绑定与不依赖 Torch 的运行时 |
+| `tools/` | 编译工具入口与验证脚本 |
+| `examples/` | 用户程序 |
+| `benchmarks/` | 工作负载、测量协议与报告 |
+| `benchmarks/kernels/` | 仅用于性能对照的手写实现，不由核心代码导入 |
+| `tests/mlir/`、`tests/python/` | 编译器与 Python/运行时回归测试 |
+| `output/roofline/` | 按操作与案例保留的性能证据 |
+
+`PROJECT.md` 保存内部架构规划与历史实现记录；`DESIGN_DECISION_TIMELINE.md`
+记录设计选择、否决方案及原因。两者都不是当前功能的无条件支持承诺；
+现行边界以 [API reference](api.zh.md)、[支持矩阵](roadmap.zh.md) 和实现测试为准。
+`SECURITY.md` 是面向外部贡献者的安全漏洞私密报告政策。
+
+## 构建与检查 { #building-and-checks }
+
+先按[源码安装](getting-started.md#source-build)配置 LLVM SDK 与
+`CMAKE_ARGS`，将安装命令替换为：
+
+```bash
+python -m pip install -e ".[test,docs]"
+python -m pytest tests/python -q
+python -m mkdocs build --strict
+python tools/render_api_reference.py --check
+python tools/check_docs_links.py site
+```
+
+### MLIR 测试 { #mlir-tests }
+
+editable 安装默认关闭编译器测试。为 [lit](https://en.wikipedia.org/wiki/LLVM)
+测试使用独立 CMake 构建目录；先将 `TIGA_LLVM_ROOT` 指向 LLVM/MLIR 22.1.8 SDK。
+
+部分二进制 SDK 不含 FileCheck、not、count 和 lit。下方辅助脚本下载固定版本的
+LLVM 源码、验证校验和，并仅将测试工具构建到独立目录，不修改 SDK。
+已有源码归档可通过 `--archive` 指定。
+
+```bash
+python tools/bootstrap_llvm_test_tools.py \
+  --llvm-root "$TIGA_LLVM_ROOT" \
+  --output "$PWD/build/llvm-test-tools"
+
+cmake -S . -B build/compiler -G Ninja \
+  -DMLIR_DIR="$TIGA_LLVM_ROOT/lib/cmake/mlir" \
+  -DLLVM_DIR="$TIGA_LLVM_ROOT/lib/cmake/llvm" \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DTIGA_INCLUDE_TESTS=ON \
+  -DLLVM_EXTERNAL_LIT="$PWD/build/llvm-test-tools/lit/lit.py" \
+  -DTIGA_LLVM_TEST_TOOLS_DIR="$PWD/build/llvm-test-tools/bin"
+cmake --build build/compiler --target check-tiga --parallel 2
+python tools/render_ir_docs.py --gf-opt build/compiler/bin/gf-opt --check
+```
+
+发布工具链固定为 LLVM/MLIR 22.1.8（`llvmorg-22.1.8`）。
+`TIGA_STRICT_LLVM_VERSION` 默认开启；关闭仅用于显式 API 兼容性实验，
+不会改变发布 ABI 或编译缓存身份。
+
+目标工具链通过进程边界衔接：
+`gf-translate -gf-kernel-to-ttir` 将验证后的 Kernel IR 序列化为 TTIR 与
+launch manifest。Triton 使用的 MLIR 版本可能不同，不能在同一地址空间共享
+两个版本的 MLIR C++ 对象。
+
+### CUDA 与包检查 { #cuda-and-package-checks }
+
+```bash
+python -m pip install -e ".[cuda,test]"
+python tools/gpu_gate.py
+python -m pip install build
+python -m build
+```
+
+上述命令沿用安装时的 `CMAKE_ARGS`。CUDA 检查需要受支持的 NVIDIA GPU、
+驱动、Triton 与已构建的编译工具，不是 CPU 入门的安装要求。
+
+`tools/gpu_gate.py` 检查 CUDA 前向、反向、缓存与诊断。
+skip、deselect 和 expected failure 均令 gate 失败。发布 workflow 还会在标记为
+`tiga-cuda` 的可信 self-hosted runner 上验证修复后的 wheel。
+打 tag 前配置 runner 与 `release-validation` environment；缺少配置时阻止发布。
+GPU job 只在发布 workflow 执行，不接收不可信 pull request。
+
+上传还要求 CPU/MLIR/docs workflow、同一 sdist 重建的 wheel，以及 tag/源码/产物
+元数据精确匹配。`pypi` environment 和 PyPI trusted publisher 需要单独配置；
+本地构建不会上传。首发范围为 Linux x86-64、CPython 3.11/3.12、glibc ≥ 2.38。
+
+Read the Docs 使用 `.readthedocs.yaml` 和 `docs/requirements.txt`，无需安装 Tiga 或 LLVM。
+GitHub 仓库公开后再导入 RTD；`READTHEDOCS_CANONICAL_URL` 提供文档根地址。
+本地预览使用 `mkdocs serve`。
+
+wheel 包含原生 Python 编译扩展、`gf-opt`、`gf-translate`、Tiga 运行时，
+使用共享 SDK 构建时还包含实际 `libMLIR`/`libLLVM` SONAME 文件；静态 SDK
+则将这些库链接进二进制。共享依赖使用相对 RPATH。
+
+发布流程仍需在 manylinux 环境复现构建，执行 `auditwheel show/repair`
+或对应平台工具，并检查无开发 SDK 路径的安装。先在无 Torch 的全新环境中
+安装修复后的 wheel 与声明依赖，再运行下方 smoke。该检查覆盖 Tensor、
+MessagePassing 前向与反向，并断言原生 CPU JIT。
+
+执行前清除开发用 `PYTHONPATH`、`LD_LIBRARY_PATH`、`TIGA_OPT`、
+`TIGA_TRANSLATE`、`MLIR_DIR` 与 `LLVM_DIR` 覆盖：
+
+```bash
+# Run outside the checkout, in a fresh environment without Torch or SDK paths.
+cd /tmp
+/path/to/clean/venv/bin/python -I /path/to/tiga-lang/tests/smoke/wheel_without_torch.py
+```
+
+## 贡献约定 { #contribution-policy }
+
+- 核心 `python/tiga/` 不加入工作负载专属的 `@triton.jit`；
+  手写性能对照仅放在 `benchmarks/kernels/`。
+- lowering 不匹配 Python 类名或字段名。每个 rewrite 明确合法条件，
+  保留 reducer 与 effect 信息。
+- 外部库 dispatch 必须在 `explain()` 中标记；参考求值不得宣称为生成的 TTIR。
+- Tensor/autograd 扩展属于通用 IR 或运行时设施，不加入优化器、数据集或模型专用实现。
+- 大子系统保持独立子包和小型 `__init__.py`，不恢复原来的平铺大文件。
+- 性能结论仅适用于登记的形状、dtype、图分布、缓存状态与硬件。
+  单 GPU NCCL 绑定证明集成，不证明跨设备链路性能。
+- 公开支持状态变化时，同步更新能力记录、测试、性能证据与 roadmap。
+
+## 文档维护 { #documentation }
+
+- Python 示例统一使用 `import tiga as tg` 与 `tg.*`；保留编译器 IR 名称及兼容锚点。
+- 首页和用户教程先回答如何使用；编译器概念与实现进入独立开发路径。
+- 每个入门页交代前置知识和下一步。IR 示例采用可复现的真实编译输出。
+- 英文与中文页面保持一致，使用中性表述，不写第二人称。
+- 固定技术术语保留英文；首次出现链接 Wikipedia，中文术语链接百度百科。
+- 公式使用独立的 `$$` 块；示例运行命令链接到对应源码。
+- 每张图只有一个重点；改图后检查实际截图。页面结构优先语义 HTML，
+  架构图优先原生 SVG。
+- 性能视图来自 `benchmarks/evidence_manifest.json` 与登记的 JSON，
+  不在新生成器中手抄测量数据。provider 颜色保持稳定，条件差异用线型或标记表示。
+- 图表提供有效 alt 文本、说明与完整尺寸或备用链接。交互确有价值时使用 HTML，
+  保留提交到仓库的 SVG 备用图。
+- 发布前运行 `mkdocs build --strict`，并检查桌面与窄屏排版。

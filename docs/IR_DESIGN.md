@@ -386,8 +386,8 @@ func.func @euler_rhs(%mesh, %q, %geometry) -> !gf.field_value<...>
 
 A Tiga-native `FieldValue` is lazy by default: a leaf call returns a deferred SSA handle;
 the first external observation, unsupported escape, mutation/barrier, memory-pressure flush, or
-explicit materialization triggers planning/JIT. `@gf.jit` is the single user entry point — loop
-capture plus automatic composition; `@gf.program` remains only as a compatibility
+explicit materialization triggers planning/JIT. `@tg.jit` is the single user entry point — loop
+capture plus automatic composition; `@tg.program` remains only as a compatibility
 capture/AOT/export/debug boundary.
 
 The auto-fusion pass derives candidates from SSA def-use chains and Effects; it does not use
@@ -524,19 +524,19 @@ be inferred: global entity IDs, a mapping between local shards and the global En
 partition manifest. Schematic:
 
 ```python
-mesh = gf.DeviceMesh("cuda", (2, 4), names=("rack", "gpu"))
-graph = gf.load("mesh.gfg").halo(
+mesh = tg.DeviceMesh("cuda", (2, 4), names=("rack", "gpu"))
+graph = tg.load("mesh.gfg").halo(
     mesh,
-    partition=gf.ByDestination(mesh_axis="gpu", balance="edges"),
+    partition=tg.ByDestination(mesh_axis="gpu", balance="edges"),
     depth="auto",
 )
-u = gf.Field.from_local(local_u, entities=graph.nodes)
+u = tg.Field.from_local(local_u, entities=graph.nodes)
 
 u_next = Diffusion()(graph=graph, src={"u": u}, dst={"u": u})
 ```
 
 `Graph.halo()` is a declarative logical transformation that still returns an ordinary
-`gf.Graph` and does not communicate immediately. The process group/device mesh can bind a
+`tg.Graph` and does not communicate immediately. The process group/device mesh can bind a
 deployment config, a Torch DeviceMesh, or a `torchrun`/MPI/vendor launcher. Partition
 algorithms, halo packing, transport, overlap, and kernels are planner/runtime decisions;
 ownership and global IDs cannot be inferred out of thin air.

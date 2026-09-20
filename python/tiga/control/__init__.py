@@ -242,7 +242,7 @@ class Repeat:
     ``gf_control.repeat`` op; ``body`` is traced exactly once either way.
 
     ```python
-    class Integrate(gf.control.Repeat):
+    class Integrate(tg.control.Repeat):
         def __init__(self, rate):
             self.rate = rate
 

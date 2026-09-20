@@ -9,7 +9,7 @@ import sys
 import unittest
 from unittest.mock import patch
 
-import tiga as gf
+import tiga as tg
 from tiga.compiler.toolchain import find_gf_translate
 
 
@@ -24,10 +24,10 @@ def _cuda_available() -> bool:
 class TensorRuntimeTest(unittest.TestCase):
     def test_scatter_rows_native_forward_vjp_and_lowering(self):
         with patch.dict(os.environ, {"TIGA_TENSOR_BACKEND": "native"}):
-            value = gf.tensor(
+            value = tg.tensor(
                 [[1.0, 2.0], [3.0, 4.0]], requires_grad=True)
-            destination = gf.tensor([1, 3], dtype=gf.int64)
-            inverse = gf.tensor([-1, 0, -1, 1], dtype=gf.int64)
+            destination = tg.tensor([1, 3], dtype=tg.int64)
+            inverse = tg.tensor([-1, 0, -1, 1], dtype=tg.int64)
             placed = value._scatter_rows(destination, inverse, 4)
 
             self.assertEqual(
@@ -40,11 +40,11 @@ class TensorRuntimeTest(unittest.TestCase):
             self.assertIn("scf.if", execution.get("artifacts", {}).get(
                 "cpu_loop", ""))
 
-            cotangent = gf.tensor([
+            cotangent = tg.tensor([
                 [10.0, 20.0], [1.0, 2.0],
                 [30.0, 40.0], [3.0, 4.0],
             ])
-            gradient = gf.autograd.grad(
+            gradient = tg.autograd.grad(
                 placed, value, grad_output=cotangent)
             self.assertEqual(gradient.tolist(), [[1.0, 2.0], [3.0, 4.0]])
             self.assertIn('"gf_tensor.gather"', gradient.mlir())
@@ -52,14 +52,14 @@ class TensorRuntimeTest(unittest.TestCase):
     @unittest.skipUnless(_cuda_available(), "CUDA is unavailable")
     def test_cuda_scatter_rows_forward_vjp_uses_generated_ttir(self):
         with patch.dict(os.environ, {"TIGA_TENSOR_BACKEND": "native"}):
-            value = gf.tensor(
+            value = tg.tensor(
                 [[1.0, 2.0], [3.0, 4.0]], device="cuda:0",
                 requires_grad=True,
             )
-            destination = gf.tensor(
-                [1, 3], dtype=gf.int64, device="cuda:0")
-            inverse = gf.tensor(
-                [-1, 0, -1, 1], dtype=gf.int64, device="cuda:0")
+            destination = tg.tensor(
+                [1, 3], dtype=tg.int64, device="cuda:0")
+            inverse = tg.tensor(
+                [-1, 0, -1, 1], dtype=tg.int64, device="cuda:0")
             placed = value._scatter_rows(destination, inverse, 4)
 
             self.assertEqual(
@@ -70,18 +70,18 @@ class TensorRuntimeTest(unittest.TestCase):
             self.assertIn("gf_tensor_pointwise", placed.generated_code("ttir"))
             self.assertIn("tt.load", placed.generated_code("ttir"))
 
-            cotangent = gf.tensor([
+            cotangent = tg.tensor([
                 [10.0, 20.0], [1.0, 2.0],
                 [30.0, 40.0], [3.0, 4.0],
             ], device="cuda:0")
-            gradient = gf.autograd.grad(
+            gradient = tg.autograd.grad(
                 placed, value, grad_output=cotangent)
             self.assertEqual(gradient.tolist(), [[1.0, 2.0], [3.0, 4.0]])
             self.assertEqual(gradient.execution["backend"], "cuda-ttir-triton")
 
     def test_native_execution_cuts_realized_operand_without_cutting_autograd(self):
         with patch.dict(os.environ, {"TIGA_TENSOR_BACKEND": "native"}):
-            value = gf.tensor([2.0] * 4096, requires_grad=True)
+            value = tg.tensor([2.0] * 4096, requires_grad=True)
             materialized = (value * value).realize()
             output = materialized + 1.0
             self.assertEqual(output.tolist()[:2], [5.0, 5.0])
@@ -92,7 +92,7 @@ class TensorRuntimeTest(unittest.TestCase):
             physical_ir = (output.execution or {}).get("ir", "")
             self.assertNotIn('"gf_tensor.mul"', physical_ir)
             self.assertIn('"gf_tensor.mul"', output.mlir())
-            gradient = gf.autograd.grad(output.sum(), value)
+            gradient = tg.autograd.grad(output.sum(), value)
             self.assertEqual(gradient.tolist()[:2], [4.0, 4.0])
 
     def test_cuda_driver_launcher_binds_provider_scratch_buffers(self):
@@ -117,16 +117,16 @@ class TensorRuntimeTest(unittest.TestCase):
         self.assertEqual(tuple(value.value for value in null_bound), (0, 0))
 
     def test_native_radius_message_passing_and_geometry_autograd(self):
-        class DistanceSum(gf.MessagePassing):
-            reducer = gf.sum()
+        class DistanceSum(tg.MessagePassing):
+            reducer = tg.sum()
 
             def edge(self, src, dst, edge):
                 return edge.distance * src.x
 
-        positions = gf.tensor(
+        positions = tg.tensor(
             [[0.0, 0.0], [0.3, 0.0], [0.8, 0.0]], requires_grad=True)
-        source = gf.tensor([2.0, 3.0, 5.0], requires_grad=True)
-        graph = gf.Graph.radius(positions, cutoff=0.6)
+        source = tg.tensor([2.0, 3.0, 5.0], requires_grad=True)
+        graph = tg.Graph.radius(positions, cutoff=0.6)
         kernel = DistanceSum()
         output = kernel(
             graph=graph, src={"x": source}, dst={"x": source})
@@ -134,9 +134,9 @@ class TensorRuntimeTest(unittest.TestCase):
         for actual, expected in zip(output.tolist(), [0.9, 3.1, 1.5]):
             self.assertAlmostEqual(actual, expected, places=5)
 
-        position_grad, source_grad = gf.autograd.grad(
+        position_grad, source_grad = tg.autograd.grad(
             output, (positions, source),
-            grad_output=gf.tensor([1.0, 2.0, 3.0]),
+            grad_output=tg.tensor([1.0, 2.0, 3.0]),
             checkpoint="recompute",
         )
         expected_position = [[-7.0, 0.0], [-12.0, 0.0], [19.0, 0.0]]
@@ -148,30 +148,30 @@ class TensorRuntimeTest(unittest.TestCase):
         for actual, expected in zip(source_grad.tolist(), [0.6, 1.8, 1.0]):
             self.assertAlmostEqual(actual, expected, places=5)
         self.assertIn('"gf_tensor.sqrt"', output.mlir(verify=True))
-        self.assertIn('"gf_tensor.div"', gf.autograd.grad_mlir(
-            output, positions, grad_output=gf.tensor([1.0, 2.0, 3.0])))
+        self.assertIn('"gf_tensor.div"', tg.autograd.grad_mlir(
+            output, positions, grad_output=tg.tensor([1.0, 2.0, 3.0])))
         self.assertEqual(
             kernel.last_variant.passes[0], "materialize-fixed-radius-snapshot")
 
     def test_native_periodic_radius_keeps_minimum_image_differentiable(self):
-        class DistanceSum(gf.MessagePassing):
-            reducer = gf.sum()
+        class DistanceSum(tg.MessagePassing):
+            reducer = tg.sum()
 
             def edge(self, src, dst, edge):
                 return edge.distance * src.x
 
-        positions = gf.tensor(
+        positions = tg.tensor(
             [[0.05, 0.05], [0.95, 0.05]], requires_grad=True)
-        source = gf.tensor([2.0, 3.0], requires_grad=True)
-        graph = gf.Graph.radius(
-            positions, cutoff=0.2, periodic=gf.tensor([1.0, 1.0]))
+        source = tg.tensor([2.0, 3.0], requires_grad=True)
+        graph = tg.Graph.radius(
+            positions, cutoff=0.2, periodic=tg.tensor([1.0, 1.0]))
         output = DistanceSum()(
             graph=graph, src={"x": source}, dst={"x": source})
         for actual, expected in zip(output.tolist(), [0.3, 0.2]):
             self.assertAlmostEqual(actual, expected, places=5)
-        position_grad, source_grad = gf.autograd.grad(
+        position_grad, source_grad = tg.autograd.grad(
             output, (positions, source),
-            grad_output=gf.tensor([1.0, 2.0]), checkpoint="recompute")
+            grad_output=tg.tensor([1.0, 2.0]), checkpoint="recompute")
         for actual_row, expected_row in zip(
             position_grad.tolist(), [[7.0, 0.0], [-7.0, 0.0]]
         ):
@@ -181,13 +181,13 @@ class TensorRuntimeTest(unittest.TestCase):
             self.assertAlmostEqual(actual, expected, places=5)
 
     def test_native_radius_metric_and_select_udfs_are_batched_tensor_programs(self):
-        class DistanceSum(gf.MessagePassing):
-            reducer = gf.sum()
+        class DistanceSum(tg.MessagePassing):
+            reducer = tg.sum()
 
             def edge(self, src, dst, edge):
                 return edge.distance * src.x
 
-        metric_scale = gf.tensor([2.0, 1.0])
+        metric_scale = tg.tensor([2.0, 1.0])
 
         def anisotropic_metric(src, dst, edge):
             del src, dst
@@ -198,13 +198,13 @@ class TensorRuntimeTest(unittest.TestCase):
             del edge
             return src.species != dst.species
 
-        positions = gf.tensor(
+        positions = tg.tensor(
             [[0.0, 0.0], [0.4, 0.0], [0.0, 0.6]], requires_grad=True)
-        source = gf.tensor([2.0, 3.0, 5.0], requires_grad=True)
-        graph = gf.Graph.radius(
+        source = tg.tensor([2.0, 3.0, 5.0], requires_grad=True)
+        graph = tg.Graph.radius(
             positions,
             cutoff=0.9,
-            fields={"species": gf.tensor([0, 1, 0], dtype=gf.int64)},
+            fields={"species": tg.tensor([0, 1, 0], dtype=tg.int64)},
             metric=anisotropic_metric,
             select=unlike_species,
         )
@@ -213,9 +213,9 @@ class TensorRuntimeTest(unittest.TestCase):
         self.assertEqual(graph.resolve_csr()[0].tolist(), [0, 1, 2, 2])
         for actual, expected in zip(output.tolist(), [2.4, 1.6, 0.0]):
             self.assertAlmostEqual(actual, expected, places=5)
-        position_grad, source_grad = gf.autograd.grad(
+        position_grad, source_grad = tg.autograd.grad(
             output, (positions, source),
-            grad_output=gf.tensor([1.0, 1.0, 1.0]),
+            grad_output=tg.tensor([1.0, 1.0, 1.0]),
             checkpoint="recompute",
         )
         expected_position = [[-10.0, 0.0], [10.0, 0.0], [0.0, 0.0]]
@@ -228,9 +228,9 @@ class TensorRuntimeTest(unittest.TestCase):
             self.assertAlmostEqual(actual, expected, places=5)
 
     def test_native_coo_import_stably_canonicalizes_without_torch(self):
-        source = gf.tensor([3, 1, 2, 0, 1], dtype=gf.int64)
-        destination = gf.tensor([2, 0, 2, 1, 0], dtype=gf.int64)
-        graph = gf.Graph.from_coo(
+        source = tg.tensor([3, 1, 2, 0, 1], dtype=tg.int64)
+        destination = tg.tensor([2, 0, 2, 1, 0], dtype=tg.int64)
+        graph = tg.Graph.from_coo(
             source, destination, num_src=4, num_dst=4)
         row_ptr, col_idx = graph.resolve_csr()
         self.assertEqual(row_ptr.tolist(), [0, 2, 3, 5, 5])
@@ -238,15 +238,15 @@ class TensorRuntimeTest(unittest.TestCase):
         self.assertEqual(col_idx.tolist(), [1, 1, 0, 3, 2])
         self.assertEqual(graph.schema.realization, "materialized_csr")
         with self.assertRaisesRegex(ValueError, "out-of-range source"):
-            gf.Graph.from_coo(
-                gf.tensor([-1], dtype=gf.int64),
-                gf.tensor([0], dtype=gf.int64),
+            tg.Graph.from_coo(
+                tg.tensor([-1], dtype=tg.int64),
+                tg.tensor([0], dtype=tg.int64),
                 num_src=1,
                 num_dst=1,
             )
 
     def test_runtime_owned_cuda_driver_allocator_stream_event_and_kernel(self):
-        runtime = gf.runtime
+        runtime = tg.runtime
         try:
             buffer = runtime.Buffer(1000 * 4, device="cuda")
         except RuntimeError as error:
@@ -311,9 +311,9 @@ DONE:
     def test_cuda_blocking_write_precedes_nonblocking_stream_copy(self):
         byte_count = (1 << 20) + 17
         payload = bytes(index % 251 for index in range(byte_count))
-        source = gf.runtime.Buffer(byte_count, device="cuda:0")
-        destination = gf.runtime.Buffer(byte_count, device="cuda:0")
-        stream = gf.runtime.Stream("cuda:0")
+        source = tg.runtime.Buffer(byte_count, device="cuda:0")
+        destination = tg.runtime.Buffer(byte_count, device="cuda:0")
+        stream = tg.runtime.Stream("cuda:0")
         completion = None
         try:
             source.write(payload)
@@ -330,7 +330,7 @@ DONE:
             destination.close()
 
     def test_compiler_bundle_plan_binds_without_torch_or_schedule_guessing(self):
-        runtime = gf.runtime
+        runtime = tg.runtime
         serialized = """{
           "schema": "tiga.executable-bundle-plan.v1",
           "resources": [{"name":"scratch","memory_space":"device",
@@ -405,7 +405,7 @@ DONE:
         )
 
     def test_compiler_bundle_plan_rejects_terminal_or_version_forgery(self):
-        runtime = gf.runtime
+        runtime = tg.runtime
         base = {
             "schema": "tiga.executable-bundle-plan.v1",
             "invocations": [{
@@ -438,7 +438,7 @@ DONE:
             output.extend(value + 1 for value in temporary)
             trace.append("consume")
 
-        runtime = gf.runtime
+        runtime = tg.runtime
         bundle = runtime.ExecutableBundle(
             (
                 runtime.KernelInvocation(
@@ -495,7 +495,7 @@ DONE:
             prepared_bundle.submit_resources(())
 
     def test_runtime_bundle_rejects_unordered_hazards_and_cycles(self):
-        runtime = gf.runtime
+        runtime = tg.runtime
         writer = lambda name, dependencies=(): runtime.KernelInvocation(
             name, lambda **kwargs: None,
             arguments=(runtime.ArgumentBinding("value", "shared"),),
@@ -514,7 +514,7 @@ DONE:
             )
 
     def test_runtime_bundle_allows_proven_disjoint_partition_writes(self):
-        runtime = gf.runtime
+        runtime = tg.runtime
         invocations = tuple(
             runtime.KernelInvocation(
                 f"bucket_{bucket}", lambda **kwargs: None,
@@ -533,7 +533,7 @@ DONE:
             "out:write[degree-buckets-v1/64]", bundle.explain())
 
     def test_runtime_bundle_rejects_binding_and_snapshot_mismatch(self):
-        runtime = gf.runtime
+        runtime = tg.runtime
         invocation = runtime.KernelInvocation(
             "kernel", lambda **kwargs: None,
             arguments=(runtime.ArgumentBinding("value", "x"),),
@@ -548,7 +548,7 @@ DONE:
             bundle.submit(runtime.SynchronousProvider(), {})
 
     def test_native_dense_graph_statistics_remain_implicit(self):
-        graph = gf.Graph.dense(1 << 20)
+        graph = tg.Graph.dense(1 << 20)
         self.assertEqual(
             graph.degree_statistics(),
             (1 << 20, 1 << 20, 1 << 40),
@@ -556,19 +556,19 @@ DONE:
         self.assertIn((1 << 20, 1 << 20, 1 << 40), graph.planning_key())
 
     def test_native_cpu_buffer_stream_and_event(self):
-        self.assertEqual(gf.runtime.version(), "0.1.0a1")
-        buffer = gf.runtime.Buffer(257, alignment=64)
+        self.assertEqual(tg.runtime.version(), "0.1.0a1")
+        buffer = tg.runtime.Buffer(257, alignment=64)
         self.assertEqual(buffer.nbytes, 257)
         self.assertNotEqual(buffer.address, 0)
 
-        stream = gf.runtime.Stream("cpu")
+        stream = tg.runtime.Stream("cpu")
         stream.synchronize()
-        event = gf.runtime.Event("cpu")
+        event = tg.runtime.Event("cpu")
         self.assertTrue(event.ready)
         event.wait()
 
     def test_hierarchy_runtime_capacity_version_and_nvme_spill(self):
-        runtime = gf.runtime.HierarchyRuntime(
+        runtime = tg.runtime.HierarchyRuntime(
             budgets={"ram": 32, "nvme": 64}
         )
         try:
@@ -589,7 +589,7 @@ DONE:
             runtime.transfer(spill, restored).wait()
             self.assertEqual(restored.buffer.read(), bytes(range(32)))
             self.assertEqual(runtime.latest("field", tier="ram").version, 3)
-            self.assertEqual(runtime.peak_live_bytes[gf.runtime.MemoryTier.RAM], 32)
+            self.assertEqual(runtime.peak_live_bytes[tg.runtime.MemoryTier.RAM], 32)
             wrong = runtime.allocate("field", 4, tier="nvme", capacity_bytes=32)
             with self.assertRaisesRegex(ValueError, "preserve"):
                 runtime.transfer(restored, wrong)
@@ -597,7 +597,7 @@ DONE:
             runtime.close()
 
     def test_bundle_transfer_consumes_hierarchy_instances(self):
-        plan = gf.runtime.ExecutableBundlePlan.parse(r'''{
+        plan = tg.runtime.ExecutableBundlePlan.parse(r'''{
           "schema":"tiga.executable-bundle-plan.v1",
           "resources":[],
           "invocations":[{
@@ -610,7 +610,7 @@ DONE:
                         {"binding":"device","mode":"write","snapshot_version":9}]
           }],"terminals":["prefetch"]
         }''')
-        hierarchy = gf.runtime.HierarchyRuntime()
+        hierarchy = tg.runtime.HierarchyRuntime()
         try:
             source = hierarchy.allocate(
                 "u", 9, tier="ram", capacity_bytes=128
@@ -621,7 +621,7 @@ DONE:
             source.buffer.write(bytes(range(128)))
             bundle = plan.bind(lambda _invocation: self.fail("resolver called"))
             bundle.submit(
-                gf.runtime.SynchronousProvider(),
+                tg.runtime.SynchronousProvider(),
                 {"ram": source, "device": destination},
             ).wait()
             self.assertEqual(destination.path.read_bytes(), bytes(range(128)))
@@ -630,7 +630,7 @@ DONE:
 
     @unittest.skipUnless(_cuda_available(), "CUDA is required")
     def test_hierarchy_runtime_pinned_cuda_async_roundtrip(self):
-        runtime = gf.runtime.HierarchyRuntime(
+        runtime = tg.runtime.HierarchyRuntime(
             budgets={"host-pinned": 4096, "device": 4096}
         )
         try:
@@ -654,13 +654,13 @@ DONE:
 
     def test_unimplemented_device_is_explicit(self):
         with self.assertRaisesRegex(RuntimeError, "unsupported"):
-            gf.runtime.Buffer(16, device="hip:0")
+            tg.runtime.Buffer(16, device="hip:0")
 
     def test_tensor_metadata_storage_and_reshape(self):
-        value = gf.tensor([[1.0, 2.0], [3.0, 4.0]], requires_grad=True)
+        value = tg.tensor([[1.0, 2.0], [3.0, 4.0]], requires_grad=True)
         self.assertEqual(value.shape, (2, 2))
         self.assertEqual(value.strides, (2, 1))
-        self.assertIs(value.dtype, gf.float32)
+        self.assertIs(value.dtype, tg.float32)
         self.assertEqual(value.tolist(), [[1.0, 2.0], [3.0, 4.0]])
         flattened = value.reshape(4)
         self.assertEqual(flattened.tolist(), [1.0, 2.0, 3.0, 4.0])
@@ -669,18 +669,18 @@ DONE:
 
     def test_native_cpu_real_and_complex_dtype_matrix(self):
         cases = (
-            (gf.float16, 34.0),
-            (gf.float32, 34.0),
-            (gf.float64, 34.0),
-            (gf.complex64, 34.0 + 0.0j),
-            (gf.complex128, 34.0 + 0.0j),
+            (tg.float16, 34.0),
+            (tg.float32, 34.0),
+            (tg.float64, 34.0),
+            (tg.complex64, 34.0 + 0.0j),
+            (tg.complex128, 34.0 + 0.0j),
         )
         with patch.dict(os.environ, {
             "TIGA_TENSOR_BACKEND": "native",
         }):
             for dtype, expected in cases:
                 with self.subTest(dtype=dtype):
-                    value = gf.tensor([1, 2, 3, 4], dtype=dtype)
+                    value = tg.tensor([1, 2, 3, 4], dtype=dtype)
                     output = (value * value + 1).sum()
                     self.assertEqual(output.tolist(), expected)
                     self.assertEqual(
@@ -692,9 +692,9 @@ DONE:
         import torch
 
         cases = (
-            (torch.float16, gf.float16),
-            (torch.float32, gf.float32),
-            (torch.float64, gf.float64),
+            (torch.float16, tg.float16),
+            (torch.float32, tg.float32),
+            (torch.float64, tg.float64),
         )
         environment = {
             "TIGA_TENSOR_BACKEND": "native",
@@ -709,7 +709,7 @@ DONE:
                     source = torch.linspace(
                         0, 1, 8192, device="cuda", dtype=torch_dtype
                     )
-                    value = gf.from_torch(source)
+                    value = tg.from_torch(source)
                     output = value * value + value
                     actual = output.to_torch()
                     torch.testing.assert_close(actual, source * source + source)
@@ -723,8 +723,8 @@ DONE:
         import torch
 
         cases = (
-            (torch.complex64, gf.complex64),
-            (torch.complex128, gf.complex128),
+            (torch.complex64, tg.complex64),
+            (torch.complex128, tg.complex128),
         )
         environment = {
             "TIGA_TENSOR_BACKEND": "native",
@@ -740,8 +740,8 @@ DONE:
                         [1 + 2j, 3 - 4j] * 4096,
                         device="cuda", dtype=torch_dtype,
                     )
-                    value = gf.from_torch(source)
-                    constant = gf.tensor(
+                    value = tg.from_torch(source)
+                    constant = tg.tensor(
                         2 + 1j, dtype=gf_dtype, device="cuda"
                     )
                     output = (
@@ -760,18 +760,18 @@ DONE:
                     self.assertIn("ptx", output._execution_info["artifacts"])
 
     def test_reshape_inference_and_view_vjp(self):
-        value = gf.tensor([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]], requires_grad=True)
+        value = tg.tensor([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]], requires_grad=True)
         view = value.reshape(3, -1)
         self.assertEqual(view.shape, (3, 2))
         self.assertEqual(view._buffer.address, value._buffer.address)
-        gradient = gf.autograd.grad((view * view).sum(), value)
+        gradient = tg.autograd.grad((view * view).sum(), value)
         self.assertEqual(
             gradient.tolist(),
             [[2.0, 4.0, 6.0], [8.0, 10.0, 12.0]],
         )
 
     def test_permute_is_zero_copy_and_has_inverse_vjp(self):
-        value = gf.tensor(
+        value = tg.tensor(
             [[[1.0, 2.0, 3.0]], [[4.0, 5.0, 6.0]]],
             requires_grad=True,
         )
@@ -783,32 +783,32 @@ DONE:
             view.tolist(),
             [[[1.0], [4.0]], [[2.0], [5.0]], [[3.0], [6.0]]],
         )
-        gradient = gf.autograd.grad((view * view).sum(), value)
+        gradient = tg.autograd.grad((view * view).sum(), value)
         self.assertEqual(
             gradient.tolist(),
             [[[2.0, 4.0, 6.0]], [[8.0, 10.0, 12.0]]],
         )
 
     def test_transpose_and_T(self):
-        value = gf.tensor([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]])
+        value = tg.tensor([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]])
         expected = [[1.0, 4.0], [2.0, 5.0], [3.0, 6.0]]
         self.assertEqual(value.transpose(0, 1).tolist(), expected)
         self.assertEqual(value.T.tolist(), expected)
 
     def test_noncontiguous_reshape_materializes_logical_order(self):
-        value = gf.tensor(
+        value = tg.tensor(
             [[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]], requires_grad=True
         )
         flattened = value.T.reshape(-1)
         self.assertIsNone(flattened._buffer)
         self.assertEqual(flattened.tolist(), [1.0, 4.0, 2.0, 5.0, 3.0, 6.0])
-        gradient = gf.autograd.grad((flattened * flattened).sum(), value)
+        gradient = tg.autograd.grad((flattened * flattened).sum(), value)
         self.assertEqual(
             gradient.tolist(), [[2.0, 4.0, 6.0], [8.0, 10.0, 12.0]]
         )
 
     def test_squeeze_unsqueeze_expand_and_swapaxes(self):
-        value = gf.tensor([[1.0, 2.0, 3.0]], requires_grad=True)
+        value = tg.tensor([[1.0, 2.0, 3.0]], requires_grad=True)
         expanded = value.squeeze(0).unsqueeze(-1).expand(3, 4)
         self.assertEqual(expanded.shape, (3, 4))
         self.assertEqual(
@@ -817,17 +817,17 @@ DONE:
              [2.0, 2.0, 2.0, 2.0],
              [3.0, 3.0, 3.0, 3.0]],
         )
-        gradient = gf.autograd.grad(expanded.sum(), value)
+        gradient = tg.autograd.grad(expanded.sum(), value)
         self.assertEqual(gradient.tolist(), [[4.0, 4.0, 4.0]])
         self.assertEqual(value.swapaxes(0, 1).shape, (3, 1))
 
     def test_numpy_style_broadcast_and_vjp(self):
-        lhs = gf.tensor([[[1.0, 2.0, 3.0]], [[4.0, 5.0, 6.0]]], requires_grad=True)
-        rhs = gf.tensor([[[10.0], [20.0], [30.0], [40.0]]], requires_grad=True)
+        lhs = tg.tensor([[[1.0, 2.0, 3.0]], [[4.0, 5.0, 6.0]]], requires_grad=True)
+        rhs = tg.tensor([[[10.0], [20.0], [30.0], [40.0]]], requires_grad=True)
         output = lhs * rhs
         self.assertEqual(output.shape, (2, 4, 3))
         loss = output.sum()
-        dlhs, drhs = gf.autograd.grad(loss, (lhs, rhs))
+        dlhs, drhs = tg.autograd.grad(loss, (lhs, rhs))
         self.assertEqual(
             dlhs.tolist(),
             [[[100.0, 100.0, 100.0]], [[100.0, 100.0, 100.0]]],
@@ -838,29 +838,29 @@ DONE:
         )
 
     def test_broadcast_view_is_zero_stride_and_reduces_vjp(self):
-        value = gf.tensor([[1.0], [2.0]], requires_grad=True)
+        value = tg.tensor([[1.0], [2.0]], requires_grad=True)
         view = value.broadcast_to((3, 2, 4))
         self.assertEqual(view.strides, (0, 1, 0))
         self.assertEqual(view._buffer.address, value._buffer.address)
-        gradient = gf.autograd.grad(view.sum(), value)
+        gradient = tg.autograd.grad(view.sum(), value)
         self.assertEqual(gradient.tolist(), [[12.0], [12.0]])
 
     def test_axis_sum_keepdims_and_vjp(self):
-        value = gf.tensor(
+        value = tg.tensor(
             [[[1.0, 2.0], [3.0, 4.0]], [[5.0, 6.0], [7.0, 8.0]]],
             requires_grad=True,
         )
         reduced = value.sum(axis=(0, -1), keepdims=True)
         self.assertEqual(reduced.shape, (1, 2, 1))
         self.assertEqual(reduced.tolist(), [[[14.0], [22.0]]])
-        gradient = gf.autograd.grad(reduced.sum(), value)
+        gradient = tg.autograd.grad(reduced.sum(), value)
         self.assertEqual(
             gradient.tolist(),
             [[[1.0, 1.0], [1.0, 1.0]], [[1.0, 1.0], [1.0, 1.0]]],
         )
 
     def test_cumsum_axis_reverse_native_cpu_and_vjp(self):
-        value = gf.tensor(
+        value = tg.tensor(
             [[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]], requires_grad=True
         )
         with patch.dict(os.environ, {"TIGA_TENSOR_BACKEND": "native"}):
@@ -868,8 +868,8 @@ DONE:
             suffix = value.cumsum(-1, reverse=True)
             self.assertEqual(prefix.tolist(), [[1.0, 3.0, 6.0], [4.0, 9.0, 15.0]])
             self.assertEqual(suffix.tolist(), [[6.0, 5.0, 3.0], [15.0, 11.0, 6.0]])
-            cotangent = gf.tensor([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]])
-            gradient = gf.autograd.grad(prefix, value, grad_output=cotangent)
+            cotangent = tg.tensor([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]])
+            gradient = tg.autograd.grad(prefix, value, grad_output=cotangent)
             self.assertEqual(
                 gradient.tolist(), [[6.0, 5.0, 3.0], [15.0, 11.0, 6.0]]
             )
@@ -883,12 +883,12 @@ DONE:
         torch.manual_seed(31)
         source_torch = torch.randn((7, 19, 5), device="cuda")
         cotangent_torch = torch.randn_like(source_torch)
-        source = gf.from_torch(source_torch, requires_grad=True)
+        source = tg.from_torch(source_torch, requires_grad=True)
         with patch.dict(os.environ, {"TIGA_TENSOR_BACKEND": "native"}):
             output = source.cumsum(1)
             actual = output.to_torch()
-            gradient = gf.autograd.grad(
-                output, source, grad_output=gf.from_torch(cotangent_torch)
+            gradient = tg.autograd.grad(
+                output, source, grad_output=tg.from_torch(cotangent_torch)
             )
             actual_gradient = gradient.to_torch()
         torch.testing.assert_close(actual, torch.cumsum(source_torch, dim=1))
@@ -910,7 +910,7 @@ DONE:
         q_torch = torch.randn((lanes, steps, key_width), device="cuda")
         k_torch = torch.randn_like(q_torch)
         v_torch = torch.randn((lanes, steps, value_width), device="cuda")
-        q, k, v = map(gf.from_torch, (q_torch, k_torch, v_torch))
+        q, k, v = map(tg.from_torch, (q_torch, k_torch, v_torch))
         state_shape = (lanes, steps, key_width, value_width)
         lifted = (
             k.unsqueeze(-1).broadcast_to(state_shape)
@@ -933,33 +933,33 @@ DONE:
         self.assertNotIn("attention", ttir.lower())
 
     def test_non_scalar_grad_output(self):
-        value = gf.tensor([[1.0], [2.0]], requires_grad=True)
+        value = tg.tensor([[1.0], [2.0]], requires_grad=True)
         output = value.broadcast_to((2, 3))
-        cotangent = gf.tensor([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]])
-        gradient = gf.autograd.grad(output, value, grad_output=cotangent)
+        cotangent = tg.tensor([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]])
+        gradient = tg.autograd.grad(output, value, grad_output=cotangent)
         self.assertEqual(gradient.tolist(), [[6.0], [15.0]])
 
     def test_checkpoint_is_explicit_identity_with_identity_vjp(self):
-        value = gf.tensor([1.0, 2.0, 3.0], requires_grad=True)
+        value = tg.tensor([1.0, 2.0, 3.0], requires_grad=True)
         saved = value.checkpoint()
-        gradient = gf.autograd.grad(saved.sum(), value)
+        gradient = tg.autograd.grad(saved.sum(), value)
         self.assertEqual(saved.tolist(), [1.0, 2.0, 3.0])
         self.assertEqual(gradient.tolist(), [1.0, 1.0, 1.0])
         self.assertIn("checkpoint", saved.expression())
         self.assertIn("gf_tensor.checkpoint", saved.mlir())
 
     def test_autograd_checkpoint_policy_validation(self):
-        value = gf.tensor([1.0], requires_grad=True)
+        value = tg.tensor([1.0], requires_grad=True)
         with self.assertRaisesRegex(ValueError, "checkpoint must be"):
-            gf.autograd.grad(value.sum(), value, checkpoint="unknown")
+            tg.autograd.grad(value.sum(), value, checkpoint="unknown")
 
     def test_native_checkpoint_planner_selects_save_or_recompute_by_budget(self):
         from tiga.compiler.native import checkpoint_plan, plan_checkpoints
 
-        value = gf.tensor([1.0, 2.0, 3.0, 4.0], requires_grad=True)
-        index = gf.tensor([3, 1, 0], dtype=gf.int64)
+        value = tg.tensor([1.0, 2.0, 3.0, 4.0], requires_grad=True)
+        index = tg.tensor([3, 1, 0], dtype=tg.int64)
         gathered = value.gather(index)
-        gradient = gf.autograd.grad(
+        gradient = tg.autograd.grad(
             (gathered * gathered).sum(), value, checkpoint="auto"
         )
         self.assertIn("checkpoint_candidate", gradient.expression())
@@ -1000,7 +1000,7 @@ DONE:
         self.assertNotIn("checkpoint_candidate", physical.expression())
 
     def test_shape_operation_validation(self):
-        value = gf.tensor([[1.0, 2.0], [3.0, 4.0]])
+        value = tg.tensor([[1.0, 2.0], [3.0, 4.0]])
         with self.assertRaisesRegex(ValueError, "at most one"):
             value.reshape(-1, -1)
         with self.assertRaisesRegex(ValueError, "permutation"):
@@ -1011,16 +1011,16 @@ DONE:
             value.broadcast_to((3, 2))
 
     def test_zero_extent_broadcast_and_reduction(self):
-        lhs = gf.empty((0, 3))
-        rhs = gf.tensor([[1.0, 2.0, 3.0]])
+        lhs = tg.empty((0, 3))
+        rhs = tg.tensor([[1.0, 2.0, 3.0]])
         output = lhs + rhs
         self.assertEqual(output.shape, (0, 3))
         self.assertEqual(output.tolist(), [])
         self.assertEqual(output.sum(axis=0).tolist(), [0.0, 0.0, 0.0])
 
     def test_native_codegen_fuses_shape_expression(self):
-        lhs = gf.tensor([[[1.0, 2.0, 3.0]], [[4.0, 5.0, 6.0]]])
-        rhs = gf.tensor([[[10.0], [20.0], [30.0], [40.0]]])
+        lhs = tg.tensor([[[1.0, 2.0, 3.0]], [[4.0, 5.0, 6.0]]])
+        rhs = tg.tensor([[[10.0], [20.0], [30.0], [40.0]]])
         with patch.dict(os.environ, {"TIGA_TENSOR_BACKEND": "native"}):
             output = (lhs * rhs + lhs).sum((0, 2), keepdims=True)
             self.assertEqual(
@@ -1040,8 +1040,8 @@ DONE:
         self.assertEqual(len(output.execution["semantic_hash"]), 64)
 
     def test_native_cpu_contiguous_pointwise_uses_vector_ir_and_scalar_tail(self):
-        lhs = gf.tensor([float(index) for index in range(33)])
-        rhs = gf.tensor([2.0] * 33)
+        lhs = tg.tensor([float(index) for index in range(33)])
+        rhs = tg.tensor([2.0] * 33)
         with patch.dict(os.environ, {"TIGA_TENSOR_BACKEND": "native"}):
             output = (lhs * rhs + lhs).sqrt()
             actual = output.tolist()
@@ -1059,15 +1059,15 @@ DONE:
         self.assertIn("memref.store", loops)
 
     def test_native_matmul_ir_cpu_codegen_and_vjp(self):
-        lhs = gf.tensor(
+        lhs = tg.tensor(
             [[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]], requires_grad=True)
-        rhs = gf.tensor(
+        rhs = tg.tensor(
             [[2.0, 1.0], [0.0, 3.0], [4.0, -1.0]], requires_grad=True)
         product = lhs @ rhs
         self.assertEqual(product.tolist(), [[14.0, 4.0], [32.0, 13.0]])
         self.assertIn('"gf_tensor.matmul"', product.mlir())
-        cotangent = gf.tensor([[1.0, 2.0], [-1.0, 0.5]])
-        dlhs, drhs = gf.autograd.grad(
+        cotangent = tg.tensor([[1.0, 2.0], [-1.0, 0.5]])
+        dlhs, drhs = tg.autograd.grad(
             product, (lhs, rhs), grad_output=cotangent)
         self.assertEqual(
             dlhs.tolist(),
@@ -1084,7 +1084,7 @@ DONE:
         self.assertIn("arith.mulf", compiled.generated_code("cpu_loop"))
         self.assertIn("scf.for", compiled.generated_code("cpu_loop"))
 
-        lowered = gf.autograd.grad_mlir(
+        lowered = tg.autograd.grad_mlir(
             product, lhs, grad_output=cotangent)
         self.assertNotIn('"gf_tensor.grad"', lowered)
         self.assertIn('"gf_tensor.matmul"', lowered)
@@ -1092,16 +1092,16 @@ DONE:
 
     def test_matmul_rejects_invalid_shapes_and_dtype(self):
         with self.assertRaisesRegex(ValueError, "rank-two"):
-            _ = gf.tensor([1.0, 2.0]) @ gf.tensor([1.0, 2.0])
+            _ = tg.tensor([1.0, 2.0]) @ tg.tensor([1.0, 2.0])
         with self.assertRaisesRegex(ValueError, "contraction"):
-            _ = gf.empty((2, 3)) @ gf.empty((4, 2))
+            _ = tg.empty((2, 3)) @ tg.empty((4, 2))
         with self.assertRaisesRegex(TypeError, "floating-point or complex"):
-            _ = gf.tensor([[1, 2]]) @ gf.tensor([[1], [2]])
+            _ = tg.tensor([[1, 2]]) @ tg.tensor([[1], [2]])
 
     def test_tensor_mlir_is_stable_and_native_verified(self):
         def capture():
-            lhs = gf.tensor([[1.0, 2.0], [3.0, 4.0]])
-            rhs = gf.tensor([2.0, 3.0])
+            lhs = tg.tensor([[1.0, 2.0], [3.0, 4.0]])
+            rhs = tg.tensor([2.0, 3.0])
             return (lhs * rhs + lhs).sum(axis=1)
 
         first = capture()
@@ -1111,18 +1111,18 @@ DONE:
         self.assertIn('"gf_tensor.mul"', verified)
         self.assertIn('"gf_tensor.reduce_sum"', verified)
 
-        transposed = gf.tensor([[1.0, 2.0], [3.0, 4.0]]).T
+        transposed = tg.tensor([[1.0, 2.0], [3.0, 4.0]]).T
         self.assertIn("axes = array<i64: 1, 0>", transposed.mlir())
 
     def test_native_mlir_vjp_pass_handles_broadcast_and_complex(self):
-        value = gf.tensor([1.0 + 2.0j, 3.0 - 4.0j], requires_grad=True)
+        value = tg.tensor([1.0 + 2.0j, 3.0 - 4.0j], requires_grad=True)
         output = value * value
-        cotangent = gf.tensor([1.0 + 0.0j, 1.0 + 0.0j])
-        raw = gf.autograd.grad_mlir(
+        cotangent = tg.tensor([1.0 + 0.0j, 1.0 + 0.0j])
+        raw = tg.autograd.grad_mlir(
             output, value, grad_output=cotangent, lower=False
         )
         self.assertIn('"gf_tensor.grad"', raw)
-        lowered = gf.autograd.grad_mlir(
+        lowered = tg.autograd.grad_mlir(
             output, value, grad_output=cotangent
         )
         self.assertNotIn('"gf_tensor.grad"', lowered)
@@ -1131,14 +1131,14 @@ DONE:
 
     def test_gradient_dtype_contract(self):
         with self.assertRaisesRegex(TypeError, "floating-point or complex"):
-            gf.tensor([1, 2, 3], requires_grad=True)
+            tg.tensor([1, 2, 3], requires_grad=True)
 
     def test_complex_storage_views_and_inference(self):
-        value = gf.tensor(
+        value = tg.tensor(
             [[1.0 + 2.0j, 3.0 - 4.0j], [-2.0 + 0.5j, 5.0 + 0.0j]],
             requires_grad=True,
         )
-        self.assertIs(value.dtype, gf.complex64)
+        self.assertIs(value.dtype, tg.complex64)
         self.assertEqual(value.nbytes, 32)
         self.assertEqual(
             value.T.tolist(),
@@ -1147,25 +1147,25 @@ DONE:
         self.assertEqual(value.conj().tolist()[0], [1.0 - 2.0j, 3.0 + 4.0j])
 
     def test_complex_conjugate_wirtinger_vjp(self):
-        value = gf.tensor([1.0 + 2.0j, 3.0 - 4.0j], requires_grad=True)
+        value = tg.tensor([1.0 + 2.0j, 3.0 - 4.0j], requires_grad=True)
         output = value * value
-        cotangent = gf.tensor([1.0 + 0.0j, 1.0 + 0.0j])
-        gradient = gf.autograd.grad(output, value, grad_output=cotangent)
+        cotangent = tg.tensor([1.0 + 0.0j, 1.0 + 0.0j])
+        gradient = tg.autograd.grad(output, value, grad_output=cotangent)
         self.assertEqual(gradient.tolist(), [2.0 - 4.0j, 6.0 + 8.0j])
 
         conjugated = value.conj()
-        conjugate_gradient = gf.autograd.grad(
+        conjugate_gradient = tg.autograd.grad(
             conjugated, value, grad_output=cotangent
         )
         self.assertEqual(conjugate_gradient.tolist(), [1.0 - 0.0j, 1.0 - 0.0j])
 
     def test_complex_output_requires_explicit_cotangent(self):
-        value = gf.tensor([1.0 + 2.0j], requires_grad=True)
+        value = tg.tensor([1.0 + 2.0j], requires_grad=True)
         with self.assertRaisesRegex(ValueError, "explicit grad_output"):
-            gf.autograd.grad(value.sum(), value)
+            tg.autograd.grad(value.sum(), value)
 
     def test_native_complex_codegen(self):
-        value = gf.tensor([1.0 + 2.0j, 3.0 - 4.0j])
+        value = tg.tensor([1.0 + 2.0j, 3.0 - 4.0j])
         with patch.dict(os.environ, {"TIGA_TENSOR_BACKEND": "native"}):
             output = (value * value.conj()).sum(
                 axis=0, keepdims=True
@@ -1175,9 +1175,9 @@ DONE:
         self.assertNotIn("unrealized_conversion_cast", output.generated_code())
 
     def test_reverse_mode_builds_and_evaluates_symbolic_vjp(self):
-        x = gf.tensor([1.0, 2.0, 3.0], requires_grad=True)
+        x = tg.tensor([1.0, 2.0, 3.0], requires_grad=True)
         loss = (x * x + 2.0).sum()
-        gradient = gf.autograd.grad(loss, x)
+        gradient = tg.autograd.grad(loss, x)
 
         self.assertEqual(loss.tolist(), 20.0)
         self.assertEqual(gradient.tolist(), [2.0, 4.0, 6.0])
@@ -1185,9 +1185,9 @@ DONE:
         self.assertIn("return", gradient.expression())
 
     def test_joint_forward_backward_task_dag_executes(self):
-        value = gf.tensor([2.0, 3.0], requires_grad=True)
+        value = tg.tensor([2.0, 3.0], requires_grad=True)
         output = (value * value).sum()
-        plan = gf.autograd.joint_plan(output, value, checkpoint="auto")
+        plan = tg.autograd.joint_plan(output, value, checkpoint="auto")
         actual, gradient = plan.run()
         self.assertEqual(actual.tolist(), 13.0)
         self.assertEqual(gradient.tolist(), [4.0, 6.0])
@@ -1197,30 +1197,30 @@ DONE:
         self.assertIn("autograd-backward", plan.explain())
 
     def test_scalar_broadcast_vjp_reduces_to_scalar(self):
-        x = gf.tensor([1.0, 2.0, 3.0], requires_grad=True)
-        bias = gf.tensor(2.0, requires_grad=True)
+        x = tg.tensor([1.0, 2.0, 3.0], requires_grad=True)
+        bias = tg.tensor(2.0, requires_grad=True)
         loss = (x * bias + bias).sum()
-        dx, dbias = gf.autograd.grad(loss, (x, bias))
+        dx, dbias = tg.autograd.grad(loss, (x, bias))
         self.assertEqual(dx.tolist(), [2.0, 2.0, 2.0])
         self.assertEqual(dbias.tolist(), 9.0)
 
     def test_value_and_grad_is_functional(self):
-        transformed = gf.autograd.value_and_grad(
+        transformed = tg.autograd.value_and_grad(
             lambda value: (value * value).sum())
-        x = gf.tensor([2.0, 4.0], requires_grad=True)
+        x = tg.tensor([2.0, 4.0], requires_grad=True)
         value, gradient = transformed(x)
         self.assertEqual(value.tolist(), 20.0)
         self.assertEqual(gradient.tolist(), [4.0, 8.0])
 
-    def test_tensor_runtime_imports_without_torch(self):
+    def test_native_tensor_message_passing_and_gradients_run_without_torch(self):
         # Exercise the package under test.  In an editable source run this is
         # ``<repo>/python``; in installed-wheel CI it is site-packages.  Pointing
         # unconditionally at the checkout would mix source Python with the
         # wheel-only native extension and would not test either installation.
-        package_parent = Path(gf.__file__).resolve().parent.parent
+        package_parent = Path(tg.__file__).resolve().parent.parent
         environment = {
             "PYTHONPATH": str(package_parent),
-            "TIGA_RUNTIME_LIBRARY": str(gf.runtime._library()._name),
+            "TIGA_RUNTIME_LIBRARY": str(tg.runtime._library()._name),
             "TIGA_TENSOR_BACKEND": "native",
         }
         completed = subprocess.run(
@@ -1228,9 +1228,42 @@ DONE:
                 sys.executable,
                 "-S",
                 "-c",
-                "import tiga as gf; "
-                "x=gf.tensor([2.,3.], requires_grad=True); "
-                "assert gf.autograd.grad((x*x).sum(), x).tolist()==[4.,6.]",
+                r'''
+import importlib.abc
+import sys
+
+class NoTorch(importlib.abc.MetaPathFinder):
+    def find_spec(self, fullname, path=None, target=None):
+        if fullname == "torch" or fullname.startswith("torch."):
+            raise ModuleNotFoundError("Torch must remain optional", name="torch")
+        return None
+
+sys.meta_path.insert(0, NoTorch())
+import tiga as tg
+
+x = tg.tensor([2., 3.], requires_grad=True)
+loss = (x * x).sum()
+dx = tg.autograd.grad(loss, x)
+assert loss.tolist() == 13.
+assert dx.tolist() == [4., 6.]
+
+class WeightedSum(tg.MessagePassing):
+    reducer = tg.sum()
+    def edge(self, src, dst, edge):
+        return src.x * edge.weight
+
+graph = tg.Graph.from_csr(tg.tensor([0, 2, 3, 3], dtype=tg.int64),
+                          tg.tensor([0, 1, 1], dtype=tg.int64), num_src=2)
+weight = tg.tensor([4., 5., 2.], requires_grad=True)
+out = WeightedSum()(graph=graph, src={"x": x}, dst={}, edge={"weight": weight})
+dx, dw = tg.autograd.grad(out.sum(), (x, weight))
+assert out.tolist() == [23., 6., 0.]
+assert dx.tolist() == [4., 7.]
+assert dw.tolist() == [2., 3., 3.]
+for value in (loss, out, dx, dw):
+    assert value.execution["backend"] == "cpu-llvm-jit", value.execution
+assert "torch" not in sys.modules
+''',
             ],
             env={**os.environ, **environment},
             text=True,
@@ -1251,18 +1284,18 @@ class NoTorch(importlib.abc.MetaPathFinder):
             raise ModuleNotFoundError("torch import forbidden", name="torch")
         return None
 sys.meta_path.insert(0, NoTorch())
-import tiga as gf
-view = gf.tensor([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]], device="cuda")
+import tiga as tg
+view = tg.tensor([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]], device="cuda")
 assert view.permute(1, 0).tolist() == [[1.0, 4.0], [2.0, 5.0], [3.0, 6.0]]
-x = gf.tensor([float(i % 17) for i in range(8192)], device="cuda")
+x = tg.tensor([float(i % 17) for i in range(8192)], device="cuda")
 y = x * x + x
 assert y.tolist() == [float((i % 17) ** 2 + i % 17) for i in range(8192)]
 assert y.execution["backend"] == "cuda-ttir-triton"
 assert "ptx" in y.execution["artifacts"]
-lhs = gf.tensor([[float(row + column) for column in range(64)]
-                 for row in range(64)], dtype=gf.float16, device="cuda")
-identity = gf.tensor([[1.0 if row == column else 0.0 for column in range(64)]
-                      for row in range(64)], dtype=gf.float16, device="cuda")
+lhs = tg.tensor([[float(row + column) for column in range(64)]
+                 for row in range(64)], dtype=tg.float16, device="cuda")
+identity = tg.tensor([[1.0 if row == column else 0.0 for column in range(64)]
+                      for row in range(64)], dtype=tg.float16, device="cuda")
 product = lhs @ identity
 assert product.tolist() == lhs.tolist()
 assert product.execution["backend"] == "cuda-cublas-library-dispatch"
@@ -1274,7 +1307,7 @@ assert "torch" not in sys.modules
             env={
                 **os.environ,
                 "PYTHONPATH": str(repository / "python"),
-                "TIGA_RUNTIME_LIBRARY": str(gf.runtime._library()._name),
+                "TIGA_RUNTIME_LIBRARY": str(tg.runtime._library()._name),
                 "TIGA_TENSOR_BACKEND": "native",
                 "TIGA_TRANSLATE": find_gf_translate() or "",
                 "TIGA_COMPILE_WORKER": "0",
@@ -1289,7 +1322,7 @@ assert "torch" not in sys.modules
         import tiga.compiler.tensor_mlir as tensor_mlir_module
 
         self.assertFalse(hasattr(tensor_mlir_module, "find_gf_opt"))
-        value = gf.tensor([1.0, 2.0]) + 1.0
+        value = tg.tensor([1.0, 2.0]) + 1.0
         self.assertIn('"gf_tensor.add"', tensor_mlir_module.tensor_mlir(value))
 
     def test_reducer_semantics_import_without_torch(self):
@@ -1299,14 +1332,14 @@ assert "torch" not in sys.modules
                 sys.executable,
                 "-S",
                 "-c",
-                "import tiga as gf; "
-                "assert gf.sum().specialization_key()==('sum',0,False); "
-                "assert gf.online_softmax().name=='online_softmax'",
+                "import tiga as tg; "
+                "assert tg.sum().specialization_key()==('sum',0,False); "
+                "assert tg.online_softmax().name=='online_softmax'",
             ],
             env={
                 **os.environ,
                 "PYTHONPATH": str(repository / "python"),
-                "TIGA_RUNTIME_LIBRARY": str(gf.runtime._library()._name),
+                "TIGA_RUNTIME_LIBRARY": str(tg.runtime._library()._name),
             },
             text=True,
             capture_output=True,
@@ -1317,7 +1350,7 @@ assert "torch" not in sys.modules
     def test_explicit_native_storage_copy_to_torch(self):
         import torch
 
-        value = gf.tensor([1.25, -2.5, 7.0], dtype=gf.float32)
+        value = tg.tensor([1.25, -2.5, 7.0], dtype=tg.float32)
         with self.assertRaisesRegex(RuntimeError, "zero-copy"):
             value.to_torch()
         copied = value.to_torch(copy=True)
@@ -1332,8 +1365,8 @@ assert "torch" not in sys.modules
         torch.manual_seed(11)
         torch_x = torch.randn((64, 128), device="cuda")
         torch_scale = torch.randn((128,), device="cuda")
-        x = gf.from_torch(torch_x)
-        scale = gf.from_torch(torch_scale)
+        x = tg.from_torch(torch_x)
+        scale = tg.from_torch(torch_scale)
         self.assertEqual(x.to_torch().data_ptr(), torch_x.data_ptr())
         with patch.dict(os.environ, {"TIGA_TENSOR_BACKEND": "native"}):
             output = (x * scale + x).sum(axis=1)
@@ -1352,8 +1385,8 @@ assert "torch" not in sys.modules
         torch.manual_seed(29)
         lhs_torch = torch.randn((65, 70), device="cuda", dtype=torch.float16)
         rhs_torch = torch.randn((70, 37), device="cuda", dtype=torch.float16)
-        lhs = gf.from_torch(lhs_torch, requires_grad=True)
-        rhs = gf.from_torch(rhs_torch, requires_grad=True)
+        lhs = tg.from_torch(lhs_torch, requires_grad=True)
+        rhs = tg.from_torch(rhs_torch, requires_grad=True)
         with patch.dict(os.environ, {
             "TIGA_TENSOR_BACKEND": "native",
             "TIGA_MATMUL_PROVIDER": "ttir",
@@ -1367,8 +1400,8 @@ assert "torch" not in sys.modules
         self.assertIn("tt.dot", output.generated_code("ttir"))
 
         cotangent_torch = torch.randn_like(actual)
-        dlhs, drhs = gf.autograd.grad(
-            output, (lhs, rhs), grad_output=gf.from_torch(cotangent_torch))
+        dlhs, drhs = tg.autograd.grad(
+            output, (lhs, rhs), grad_output=tg.from_torch(cotangent_torch))
         with patch.dict(os.environ, {
             "TIGA_TENSOR_BACKEND": "native",
             "TIGA_MATMUL_PROVIDER": "ttir",
@@ -1390,7 +1423,7 @@ assert "torch" not in sys.modules
 
         lhs_torch = torch.randn((129, 96), device="cuda", dtype=torch.float16)
         rhs_torch = torch.randn((96, 71), device="cuda", dtype=torch.float16)
-        output = gf.from_torch(lhs_torch) @ gf.from_torch(rhs_torch)
+        output = tg.from_torch(lhs_torch) @ tg.from_torch(rhs_torch)
         with patch.dict(os.environ, {
             "TIGA_TENSOR_BACKEND": "native",
             "TIGA_MATMUL_PROVIDER": "auto",
@@ -1407,8 +1440,8 @@ assert "torch" not in sys.modules
     def test_cuda_relation_edge_vjp_auto_checkpoint_codegen(self):
         import torch
 
-        class Weighted(gf.MessagePassing):
-            reducer = gf.sum()
+        class Weighted(tg.MessagePassing):
+            reducer = tg.sum()
 
             def edge(self, src, dst, edge):
                 del dst
@@ -1424,14 +1457,14 @@ assert "torch" not in sys.modules
         torch_x = torch.randn(nodes, device="cuda")
         torch_weight = torch.randn(edges, device="cuda")
         torch_dy = torch.randn(nodes, device="cuda")
-        graph = gf.Graph.from_csr(
-            gf.from_torch(row_ptr), gf.from_torch(col_idx), num_src=nodes)
-        x = gf.from_torch(torch_x, requires_grad=True)
-        weight = gf.from_torch(torch_weight, requires_grad=True)
+        graph = tg.Graph.from_csr(
+            tg.from_torch(row_ptr), tg.from_torch(col_idx), num_src=nodes)
+        x = tg.from_torch(torch_x, requires_grad=True)
+        weight = tg.from_torch(torch_weight, requires_grad=True)
         output = Weighted()(
             graph=graph, src={"x": x}, dst={}, edge={"weight": weight})
-        gradient = gf.autograd.grad(
-            output, weight, grad_output=gf.from_torch(torch_dy),
+        gradient = tg.autograd.grad(
+            output, weight, grad_output=tg.from_torch(torch_dy),
             checkpoint="auto")
 
         self.assertIn("checkpoint_candidate", gradient.expression())
@@ -1451,8 +1484,8 @@ assert "torch" not in sys.modules
     def test_cuda_checkpoint_host_spill_plan_is_physically_consumed(self):
         import torch
 
-        class Weighted(gf.MessagePassing):
-            reducer = gf.sum()
+        class Weighted(tg.MessagePassing):
+            reducer = tg.sum()
 
             def edge(self, src, dst, edge):
                 del dst
@@ -1467,21 +1500,21 @@ assert "torch" not in sys.modules
         )
         weight = torch.randn(edges, device="cuda")
         cotangent = torch.randn(nodes, device="cuda")
-        graph = gf.Graph.from_csr(
-            gf.from_torch(row_ptr), gf.from_torch(index), num_src=nodes
+        graph = tg.Graph.from_csr(
+            tg.from_torch(row_ptr), tg.from_torch(index), num_src=nodes
         )
-        source = gf.from_torch(values, requires_grad=True)
-        edge_weight = gf.from_torch(weight, requires_grad=True)
+        source = tg.from_torch(values, requires_grad=True)
+        edge_weight = tg.from_torch(weight, requires_grad=True)
         output = Weighted()(
             graph=graph,
             src={"x": source},
             dst={},
             edge={"weight": edge_weight},
         )
-        gradient = gf.autograd.grad(
+        gradient = tg.autograd.grad(
             output,
             edge_weight,
-            grad_output=gf.from_torch(cotangent),
+            grad_output=tg.from_torch(cotangent),
             checkpoint="auto",
         )
         environment = {
@@ -1506,8 +1539,8 @@ assert "torch" not in sys.modules
     def test_cuda_vector_relation_edge_vjp_fuses_gather_dot(self):
         import torch
 
-        class WeightedFeatures(gf.MessagePassing):
-            reducer = gf.sum()
+        class WeightedFeatures(tg.MessagePassing):
+            reducer = tg.sum()
 
             def edge(self, src, dst, edge):
                 del dst
@@ -1525,14 +1558,14 @@ assert "torch" not in sys.modules
         torch_x = torch.randn(nodes, features, device="cuda")
         torch_weight = torch.randn(edges, 1, device="cuda")
         torch_dy = torch.randn(nodes, features, device="cuda")
-        graph = gf.Graph.from_csr(
-            gf.from_torch(row_ptr), gf.from_torch(col_idx), num_src=nodes)
-        x = gf.from_torch(torch_x, requires_grad=True)
-        weight = gf.from_torch(torch_weight, requires_grad=True)
+        graph = tg.Graph.from_csr(
+            tg.from_torch(row_ptr), tg.from_torch(col_idx), num_src=nodes)
+        x = tg.from_torch(torch_x, requires_grad=True)
+        weight = tg.from_torch(torch_weight, requires_grad=True)
         output = WeightedFeatures()(
             graph=graph, src={"x": x}, dst={}, edge={"weight": weight})
-        gradient = gf.autograd.grad(
-            output, weight, grad_output=gf.from_torch(torch_dy),
+        gradient = tg.autograd.grad(
+            output, weight, grad_output=tg.from_torch(torch_dy),
             checkpoint="auto")
 
         self.assertEqual(gradient.shape, (edges, 1))

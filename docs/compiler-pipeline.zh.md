@@ -1,90 +1,83 @@
-# 编译器流水线 { #compiler-pipeline }
+# 编译器入门 { #compiler-pipeline }
 
-Tiga 把同一个 Python 程序编译成不同的物理算法，选择依据是关系本身的结构，
-而不是工作负载的名字。为了让这些选择既正确又可检查，lowering 依次经过四级 IR ——
-Domain、Iter、Kernel、Task IR —— 每一级只固定一类决策，最后程序经由一条稳定的
-provider 边界离开编译器。
+本页面向编译器开发者，前置内容是 [Python 编程模型](programming-model.md)。
+运行程序或定位执行问题时，先阅读[执行与排错](execution.md)。
 
-<figure class="gf-figure gf-figure--architecture">
-  <object type="image/svg+xml" data="/assets/compiler-pipeline-overview.svg" aria-label="Tiga 编译器流水线：Domain、Iter、Kernel、Task IR，随后是 provider 交接">
-    <img src="/assets/compiler-pipeline-overview.svg" alt="Tiga 编译器流水线：Domain、Iter、Kernel、Task IR，随后是 provider 交接">
-  </object>
-  <figcaption><a href="/assets/compiler-pipeline-overview.svg">打开完整尺寸的 SVG</a>。每一级只固定一类决策；provider 交接是唯一与厂商相关的步骤。</figcaption>
-</figure>
+## 为什么需要内部表示 { #the-pipeline-at-a-glance }
 
-## 流水线总览 { #the-pipeline-at-a-glance }
+Python 程序描述结果；编译器还需要决定如何访问边、划分工作和搬运数据。
+[中间表示（IR）](https://baike.baidu.com/item/中间表示)把这些决策记录为可供后续变换
+检查的结构。IR 是编译器的内部数据，不是额外的用户 API。
 
-| 阶段 | 固定的决策 | 消费方 |
+以邻居加权求和为例：乘法与求和定义了计算含义；按 CSR 行遍历，或将工作
+分配给 GPU block，则是在决定执行方式。不同 IR 层把这些问题分开表达。
+
+| 层次 | 真实操作名举例 | 回答的问题 |
 |---|---|---|
-| Domain IR — `gf.domain` | 程序的含义：关系、field 角色、UDF region、reducer | 语义优化：canonicalization、fusion 合法性、自动 [VJP](https://en.wikipedia.org/wiki/Automatic_differentiation) |
-| Iter IR — `gf.iter` | 如何遍历：坐标层级；dense、sparse、ragged 或 generated 顺序 | 迭代 lowering：builder–consumer fusion、行界与 tile 边界 |
-| Kernel IR — `gf.kernel` | 如何启动：launch geometry、tile、mask、局部工作集 | provider 翻译：GPU 上的序列化 TTIR，CPU 上的 [MLIR](https://en.wikipedia.org/wiki/MLIR_%28software%29) → [LLVM](https://en.wikipedia.org/wiki/LLVM) |
-| Task IR — `gf.task` + `gf.storage` | 数据放在哪里、何时移动：物理实例、owned/ghost/halo 集合、事件 DAG | 运行时规划：异步传输、halo 交换、通信重叠 |
+| Domain IR | `gf.relation`、`gf.apply`、`gf.reducer` | 程序描述哪张图、什么计算？ |
+| Iter IR | `gf_iter.traverse` | 按什么顺序访问关系？ |
+| Kernel IR | `gf_kernel.launch` | 如何安排计算与局部资源？ |
+| Task / Storage IR | `gf_task.launch`、`gf_storage.transfer` | 任务依赖哪些数据或事件？ |
+| Tensor IR | `gf_tensor.mul`、`gf_tensor.reduce_sum` | 需要求值哪些 Tensor 表达式与梯度？ |
 
-GPU 一侧交接的是序列化 TTIR；CPU 路径则是与之平行的上游 MLIR 到 LLVM lowering。
-两条边界都不会把厂商特定的布局编码泄回稳定的 IR。
+旧架构材料中的 `gf.domain`、`gf.iter`、`gf.kernel` 是层次标签，
+不是实际操作名。[dialect](https://en.wikipedia.org/wiki/MLIR_(software))
+把一组相关操作组织在一起；`gf_iter.traverse` 是其中一条具体指令。
+某些检查接口还接受 `"gf.iter"` 这样的阶段别名；它是 API 参数，不是 MLIR 语法。
 
-storage 与 task 信息并不是 Python 侧的调度提示：cost 与依赖事实会在本地 task
-生成之前回馈到迭代与 kernel 决策中。
+**下一步阅读[用实例读懂 IR](ir-walkthrough.md)**，对照真实输入、输出、符号含义
+和逐步复现命令。
+
+## 不是每个程序都经过同一条路线 { #execution-paths }
+
+- **原生 Tensor 程序**（包括原生 CSR message passing）捕获 Tensor 表达式。
+  受支持的 CPU 编译路径将 `gf_tensor` 操作逐步转换到 LLVM，梯度也有对应表达。
+- **关系编译路径**保留 `gf.apply`，再
+  [lowering](https://en.wikipedia.org/wiki/Compiler#Back_end) 到 `gf_iter`
+  和 `gf_kernel`。实例教程从编译器测试输入直接验证这条路线。
+- **Task 与 storage 规划**在选定路径需要时增加依赖。
+  Task IR 不是每次调用都必须经过的“第四步”。
+- **参考求值**可能在 `auto` 下被用于小规模原生表达式；它不证明任何编译
+  路线实际执行过。
+
+[支持矩阵](roadmap.md)记录具体入口的覆盖范围。架构能力图不能当作一次调用的执行轨迹。
+
+## provider 是什么？ { #what-is-a-provider }
+
+[backend](https://en.wikipedia.org/wiki/Compiler#Back_end)面向具体执行环境。
+在 Tiga 中，provider 是目标工具链与运行时的适配层，不是云服务商。
+
+当前 NVIDIA 路径把序列化的 Triton IR（TTIR）交给 Triton，继续生成设备代码；
+CPU 路径使用 [LLVM](https://en.wikipedia.org/wiki/LLVM)。
+序列化用于隔离 Tiga 和 provider 可能不兼容的 MLIR 构建。
+此前的调度也会使用目标硬件能力，并非所有目标决策都从 provider 边界才开始。
 
 ## 查看编译产物 { #inspecting-a-compiled-program }
 
-每个编译后的 kernel 或 program 同时就是一个检查句柄：
+先检查结果实际如何执行，不要预设它经过了全部阶段：
 
-```python
-program(...)
-program.explain()        # backend、provider、lowering、pass 序列、缓存状态
+| 问题 | 检查方式 |
+|---|---|
+| 这个原生结果是否通过 JIT 执行？ | 先物化，再检查 `output.execution` |
+| 原生 Tensor 生成了什么代码？ | `output.generated_code()`；`output.mlir(verify=True)` 查看并验证 Tensor IR |
+| MessagePassing 选了什么计划？ | `kernel.explain()` |
+| 当前变体是否包含 Iter / Kernel IR？ | 仅在产物存在时调用 `kernel.ir("iter")` / `kernel.ir("kernel")` |
 
-for stage in ("domain", "iter", "kernel", "task", "gf.kernel.ttir"):
-    program.ir(stage)    # 各流水线阶段的 IR 文本
+`kernel.ir("domain")` 返回变体的语义计划，不一定是可以解析的 MLIR。
+`"gf.kernel.ttir"` 是可用的检查接口参数，不是实际操作名。
+不存在的产物会报错；循环索取全部阶段并不是通用的检查方法。
 
-program.code("ttgir")    # 生成的代码；还支持 "llir" 与 "ptx"
-```
+原生梯度通过反向模式自动微分推导
+[VJP](https://en.wikipedia.org/wiki/Automatic_differentiation)，
+其表示方法见[运行时与 autograd](runtime-and-autograd.md)。
 
-`explain()` 报告 backend、provider 身份、所选 lowering、pass 序列、缓存状态以及优化
-备注。某个阶段若没有产生 artifact，会抛出明确的错误 —— 语义路径或外部库路径绝不会
-假装自己生成过 PTX。
+## 继续深入 { #details }
 
-带真实 `explain()` 输出的完整示例见
-[检查编译结果](message-passing.md#inspecting-the-compilation)。
-
-## 细节展开 { #details }
-
-??? info "各 dialect 携带的信息"
-
-    - `gf.domain` 保留数学含义：Entity/Field/Relation schema、`edge()`/`node()`
-      UDF region、带类型的 reducer region 以及 effect。`gf.tensor` 则让 shape、
-      dtype 与广播语义保持显式，并携带 map/reduce/scan/contract 与 VJP 请求。
-    - `gf.iter` 把 sparse、ragged、dense 与 generated 迭代显式化 —— 坐标层级与
-      遍历顺序 —— 而不绑定任何一家 GPU 厂商。
-    - `gf.kernel` 固定 launch geometry、tile、mask 与局部工作集，同时把厂商特定的
-      布局编码挡在稳定的编译器边界之外。
-    - `gf.storage` 保留逻辑 Region、PhysicalInstance、内存空间、快照版本、异步传输
-      与生命周期事件，覆盖 register、shared、HBM、RAM、NVMe 与分布式层级。
-    - `gf.task` 保留分区、owned/ghost/halo 语义以及事件 DAG。每个本地计算 task 都
-      经由同一条 `gf.iter → gf.kernel` 路径 lowering，因此通信留在 Python kernel
-      之下，而不会被错误地塞进单个设备 kernel 内部。
-
-??? info "各阶段的 pass 清单"
-
-    | 阶段 | 引入的信息 | 代表性变换 | 检查方式 |
-    |---|---|---|---|
-    | 捕获 | field 角色、关系来源、UDF region、shape/dtype 守卫 | region 验证、effect 发现、语义哈希 | `ir("domain")`、`Tensor.mlir()` |
-    | 语义优化 | reducer 代数、Tensor DAG 与 VJP 请求 | canonicalization、fusion 合法性、自动 VJP、checkpoint 候选 | `ir("domain")`、VJP IR |
-    | 迭代 lowering | 坐标层级、遍历顺序、generated/materialized 选择 | builder–consumer fusion、行界、dense/三角 tile 边界 | `ir("iter")` |
-    | Kernel 调度 | launch geometry、tile、mask、局部工作集与归约 | degree 分桶、行切分、特征 tiling、流水线合法性 | `ir("kernel")`、`schedules` |
-    | 存储/任务规划 | 物理实例、容量、版本、owned/ghost 集合与事件 | spill/重计算、异步传输、halo task、通信重叠 | `ir("task")`、`explain()` |
-    | Provider 翻译 | provider ABI 与合法目标操作 | Tiga kernel IR → 序列化 TTIR，或 CPU MLIR → LLVM | `ir("gf.kernel.ttir")`、`code(...)` |
-
-    原生 pass 位于 `lib/Transforms/` 下 —— 例如 `LowerDomainToIter`、
-    `LowerIterToKernel`、`PlanDegreeBuckets`、`PlanSplitRows`、
-    `SelectKernelSchedule`、`FusionPasses`、`TensorVJP`、
-    `PlanTensorCheckpoints` 与 `PlanDistributedTasks`。
-
-??? info "为什么 GPU 边界是序列化 TTIR"
-
-    Tiga 与厂商的 Triton fork 各自携带自己的 MLIR 版本。在边界处序列化 TTIR
-    可以避免两个版本被链接进同一个进程，同时让交接保持可检查、可缓存。provider 可以
-    是 NVIDIA、ROCm 或某个厂商 Triton fork；Tiga 不会把厂商 MLIR 链接进
-    核心。边界下游，厂商 Triton 继续经由 TTGIR 与 LLVM IR 生成 PTX、cubin 或厂商
-    ISA，而运行时负责启动编译好的 task 并遵守事件 DAG 的依赖关系。
+| 开发问题 | 下一章 |
+|---|---|
+| 真实操作经过 pass 后怎样改变？ | [用实例读懂 IR](ir-walkthrough.md) |
+| 源码在哪里，修改后如何测试？ | [构建与贡献](development.md) |
+| 动态邻居和不规则度数如何处理？ | [动态关系](dynamic-graphs.md) |
+| 梯度与延迟 Tensor 如何实现？ | [Tensor 运行时与 autograd](runtime-and-autograd.md) |
+| 传输和通信如何表示？ | [内存与分布式执行](memory-and-distributed.md) |
+| 求解器循环与隐式梯度如何工作？ | [线性求解器](linear-solvers.md) |

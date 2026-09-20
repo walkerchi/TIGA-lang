@@ -634,123 +634,57 @@ def plot_radius_build_operational_roofline(payload: dict, output: Path):
     _save(fig, output / "roofline")
 
 
-def plot_latency(
-    payload: dict,
-    output: Path,
-    *,
-    stem: str = "provider_latency",
-):
-    """Render a vendor-style small-multiple provider leaderboard.
+def _latency_panels(results):
+    """Never normalize different shapes, phases or topology/cache conditions."""
+    keys = ("cache", "features", "nodes", "edges", "phase", "topology", "locality",
+            "index_dtype", "batch", "heads", "sequence", "head_dim", "tokens")
+    grouped = {}
+    for item in results:
+        condition = tuple((key, item[key]) for key in keys if key in item)
+        grouped.setdefault(condition, []).append(item)
+    for condition, selected in grouped.items():
+        providers = [item["provider"] for item in selected]
+        if len(providers) != len(set(providers)):
+            raise ValueError(f"ambiguous latency bucket {condition}; add its varying dimension")
+        if any(float(item["milliseconds"]) <= 0 for item in selected):
+            raise ValueError("latency must be positive")
+    return list(grouped.items())
 
-    Each cache/feature bucket is one kernel panel. Provider identity is the
-    hue and is stable across the whole benchmark corpus. Bars report matched
-    throughput speedup over torch.sparse.mm when available, otherwise over the
-    fastest measured non-Tiga provider. Absolute latency remains on each
-    bar so the normalized view cannot hide the timing scale.
-    """
-    results = payload["results"]
-    colors = _colors(results)
-    caches = sorted({item["cache"] for item in results},
-                    key=lambda name: (name != "hot", name))
-    features = sorted({int(item.get("features", 1)) for item in results})
-    panels = [
-        (cache, feature, [
-            item for item in results
-            if item["cache"] == cache and int(item.get("features", 1)) == feature
-        ])
-        for cache in caches for feature in features
-    ]
-    panels = [panel for panel in panels if panel[2]]
-    columns = 2 if len(panels) == 4 else min(3, len(panels))
-    rows = math.ceil(len(panels) / columns)
-    fig, axes = plt.subplots(
-        rows, columns, figsize=(4.2 * columns, 3.8 * rows),
-        squeeze=False, constrained_layout=True, sharey=True)
-    speedups_by_panel = []
-    for _cache, _feature, selected in panels:
-        baseline = next(
-            (item for item in selected
-             if item["provider"] == "torch.sparse.mm"),
-            None,
-        )
+
+def plot_latency(payload: dict, output: Path, *, stem: str = "provider_latency"):
+    """Matched workload panels with direct names, absolute times and a baseline."""
+    panels = _latency_panels(payload["results"])
+    if not panels:
+        raise ValueError("no latency records")
+    heights = [max(2.3, 0.34 * len(items) + 1.2) for _, items in panels]
+    fig, axes = plt.subplots(len(panels), 1, figsize=(9, sum(heights)),
+                             squeeze=False, constrained_layout=True,
+                             gridspec_kw={"height_ratios": heights})
+    for ax, (condition, selected) in zip(axes.flat, panels):
+        baseline = next((item for item in selected if item["provider"] == "torch.sparse.mm"), None)
         if baseline is None:
-            peers = [
-                item for item in selected
-                if not item["provider"].startswith("tiga.")
-            ]
-            baseline = min(
-                peers or selected,
-                key=lambda item: item["milliseconds"],
-            )
-        baseline_ms = float(baseline["milliseconds"])
-        ordered = sorted(
-            selected,
-            key=lambda item: (
-                not item["provider"].startswith("tiga."),
-                item["provider"],
-            ),
-        )
-        speedups_by_panel.append((baseline["provider"], ordered, [
-            baseline_ms / float(item["milliseconds"]) for item in ordered
-        ]))
-    ymax = max(max(speedups) for _baseline, _items, speedups in speedups_by_panel)
-
-    for panel_index, ((cache, feature, _selected), comparison) in enumerate(
-            zip(panels, speedups_by_panel)):
-        ax = axes.flat[panel_index]
-        baseline_name, ordered, speedups = comparison
-        positions = np.arange(len(ordered))
-        bars = ax.bar(
-            positions,
-            speedups,
-            color=[colors[item["provider"]] for item in ordered],
-            edgecolor="white",
-            linewidth=0.9,
-        )
-        ax.axhline(1.0, color="#475569", linestyle="--", linewidth=1.1)
-        ax.set_xticks(positions, [str(index + 1) for index in positions])
-        ax.set_ylim(0, ymax * 1.22)
-        ax.grid(True, axis="y")
-        ax.set_title(f"F={feature} · {cache}")
-        ax.set_xlabel("method ID")
-        if panel_index % columns == 0:
-            ax.set_ylabel(f"Speedup vs {baseline_name}\n(higher is better)")
-        for bar, speedup, item in zip(bars, speedups, ordered):
-            ax.text(
-                bar.get_x() + bar.get_width() / 2,
-                bar.get_height() + ymax * 0.025,
-                f"{speedup:.2f}×\n{float(item['milliseconds']):.3f} ms",
-                ha="center", va="bottom", fontsize=7,
-            )
-    for ax in axes.flat[len(panels):]:
-        ax.set_visible(False)
-
-    providers = sorted(colors)
-    handles = [
-        Line2D(
-            [0], [0], marker="s", linestyle="", markersize=8,
-            markerfacecolor=colors[provider], markeredgecolor="white",
-            label=f"{index + 1} = {provider}",
-        )
-        for index, provider in enumerate(providers)
-    ]
-    # Panel-local method IDs follow the global provider order after filtering.
-    # Re-label ticks so their numeric IDs remain stable even when an optional
-    # provider is absent from one panel.
-    provider_ids = {
-        provider: index + 1 for index, provider in enumerate(providers)
-    }
-    for panel_index, (_baseline, ordered, _speedups) in enumerate(speedups_by_panel):
-        axes.flat[panel_index].set_xticklabels([
-            str(provider_ids[item["provider"]]) for item in ordered
-        ])
-    workload = payload.get("workload", "weighted aggregation").replace("_", " ")
-    fig.suptitle(
-        f"{workload} · provider leaderboard",
-        fontsize=14, fontweight="bold")
-    fig.legend(
-        handles=handles, loc="outside lower center", ncol=min(3, len(handles)),
-        fontsize=8, framealpha=0.92, title="method hue is stable across panels")
+            peers = [item for item in selected if not item["provider"].startswith(("tiga.", "tiga-"))]
+            baseline = min(peers or selected, key=lambda item: item["milliseconds"])
+        ordered = sorted(selected, key=lambda item: item["milliseconds"])
+        ratios = [float(baseline["milliseconds"]) / float(item["milliseconds"]) for item in ordered]
+        ax.barh(range(len(ordered)), ratios,
+                color=[provider_color(item["provider"]) for item in ordered])
+        ax.set_yticks(range(len(ordered)), [item["provider"] for item in ordered], fontsize=9)
+        ax.invert_yaxis()
+        ax.axvline(1, color="#475569", linestyle="--", linewidth=1)
+        ax.set_xlim(0, max(ratios) * 1.40)
+        ax.grid(False, axis="y")
+        ax.set_axisbelow(True)
+        for i, (ratio, item) in enumerate(zip(ratios, ordered)):
+            ax.text(ratio + max(ratios) * .02, i,
+                    f"{ratio:.2f}× · {float(item['milliseconds']):.4g} ms",
+                    va="center", fontsize=9)
+        label = " · ".join(f"{key}={value}" for key, value in condition)
+        import textwrap
+        ax.set_title(textwrap.fill(label or "single workload", 95), fontsize=10, loc="left")
+        ax.set_xlabel(f"Speedup vs {baseline['provider']} · higher is better", fontsize=9)
+    workload = payload.get("workload", "provider latency").replace("_", " ")
+    fig.suptitle(workload, fontsize=12, fontweight="bold")
     _save(fig, output / stem)
 
 

@@ -14,7 +14,7 @@ _TAN_HALF_DEFAULT_FOV = math.tan(math.radians(45.0) / 2.0)
 
 
 def _positions_to_xyz(positions) -> "tuple[object, bool]":
-    """Normalize gf.Tensor / torch.Tensor / NumPy input to an (N, 3) array."""
+    """Normalize tg.Tensor / torch.Tensor / NumPy input to an (N, 3) array."""
     import numpy as np
 
     from ..tensor import Tensor
