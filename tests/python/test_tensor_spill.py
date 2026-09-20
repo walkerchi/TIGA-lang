@@ -60,7 +60,9 @@ def test_named_spill_crosses_processes(tmp_path):
         "assert t.tolist() == [9.0, 8.0], t.tolist()"
     )
     env = dict(os.environ)
-    env["PYTHONPATH"] = str(Path(__file__).parents[2] / "python")
+    # Exercise the same installation in both processes. A source checkout has
+    # no native libraries when this suite is validating an installed wheel.
+    env["PYTHONPATH"] = str(Path(tg.__file__).resolve().parent.parent)
     env["TIGA_SPILL_DIR"] = str(tmp_path)
     subprocess.run([sys.executable, "-c", writer], env=env, check=True)
     subprocess.run([sys.executable, "-c", reader], env=env, check=True)
