@@ -48,6 +48,21 @@ def test_release_workflow_requires_all_gates():
     assert "expected not in name" not in source
 
 
+def test_pypi_publication_requires_explicit_dispatch_not_a_tag_push():
+    root = Path(__file__).resolve().parents[2]
+    source = (root / '.github/workflows/release.yml').read_text()
+    assert "default: false" in source
+    assert "if: github.event_name == 'workflow_dispatch' && inputs.publish_pypi && startsWith(github.ref, 'refs/tags/v')" in source
+
+
+def test_native_ci_provisions_plotting_dependencies_and_disk_space():
+    root = Path(__file__).resolve().parents[2]
+    source = (root / '.github/workflows/compiler-ci.yml').read_text()
+    assert 'pytest numpy pillow matplotlib packaging' in source
+    assert source.index('Reserve disk space for LLVM') < source.index('Fetch and verify pinned LLVM SDK')
+    assert 'rm -- "$archive"' in source
+
+
 def test_readthedocs_build_does_not_require_native_install():
     root = Path(__file__).resolve().parents[2]
     source = (root / ".readthedocs.yaml").read_text()

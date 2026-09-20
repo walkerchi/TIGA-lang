@@ -4,6 +4,11 @@ on:
   push:
     tags: ["v*"]
   workflow_dispatch:
+    inputs:
+      publish_pypi:
+        description: "Publish to PyPI (run on a version tag after explicit approval)"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -36,6 +41,11 @@ jobs:
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
+      - name: Reserve disk space for LLVM
+        run: |
+          df -h /
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
+          df -h /
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python }}
@@ -58,6 +68,7 @@ jobs:
           fi
           mkdir -p "$RUNNER_TEMP/llvm"
           tar -xJf "$archive" --strip-components=1 -C "$RUNNER_TEMP/llvm"
+          rm -- "$archive"
 
       - name: Build native wheel
         shell: bash
@@ -149,7 +160,7 @@ jobs:
           "$py" -m tools.gpu_gate
 
   publish:
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: github.event_name == 'workflow_dispatch' && inputs.publish_pypi && startsWith(github.ref, 'refs/tags/v')
     needs: [quality, build-wheel, build-sdist, gpu-validation]
     runs-on: ubuntu-22.04
     environment: pypi

@@ -22,6 +22,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Reserve disk space for LLVM
+        # These are unused preinstalled SDKs on an ephemeral GitHub-hosted VM.
+        run: |
+          df -h /
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
+          df -h /
+
       - name: Install build tools
         run: |
           sudo apt-get update
@@ -46,6 +53,7 @@ jobs:
           mkdir -p "${RUNNER_TOOL_CACHE}/tiga-llvm-${LLVM_VERSION}"
           tar -xJf "$archive" --strip-components=1 \
             -C "${RUNNER_TOOL_CACHE}/tiga-llvm-${LLVM_VERSION}"
+          rm -- "$archive"
 
       - name: Configure clean compiler build
         shell: bash
@@ -109,7 +117,7 @@ jobs:
           set -euxo pipefail
           python3 -m venv "$RUNNER_TEMP/test-venv"
           "$RUNNER_TEMP/test-venv/bin/pip" install \
-            pytest numpy pillow
+            pytest numpy pillow matplotlib packaging
           "$RUNNER_TEMP/test-venv/bin/pip" install --no-deps wheelhouse/*.whl
           cd "$GITHUB_WORKSPACE"
           "$RUNNER_TEMP/test-venv/bin/python" -m pytest -q \
