@@ -65,3 +65,34 @@ def test_first_release_matrix_and_notices_are_explicit():
     assert "graphforge-docs.app" not in project["urls"]["Documentation"]
     for name in ("llvm-22.1.8.txt", "zstd-1.5.5.txt"):
         assert (root / "third_party/licenses" / name).stat().st_size > 1000
+
+
+def test_pypi_readme_resolves_images_without_changing_repository_readme():
+    import tomllib
+    from tools.pypi_readme import dynamic_metadata
+
+    root = Path(__file__).resolve().parents[2]
+    config = tomllib.loads((root/'pyproject.toml').read_text())
+    assert 'readme' in config['project']['dynamic']
+    assert config['tool']['dynamic-metadata'] == [
+        {'provider': {'path': 'tools', 'module': 'pypi_readme'}},
+    ]
+    original = (root/'README.md').read_text()
+    readme = dynamic_metadata({}, config['project'])['readme']
+    assert readme['content-type'] == 'text/markdown'
+    base = 'https://github.com/walkerchi/TIGA-lang/raw/refs/heads/main/'
+    expected = original
+    for image in ('assets/tiga-logo.png', 'docs/assets/compiler-performance-overview.svg'):
+        expected = expected.replace(f'src="{image}"', f'src="{base}{image}"')
+    assert readme['text'] == expected
+    assert (root/'README.md').read_text() == original
+
+
+def test_pypi_readme_preserves_remote_images_and_nonimage_links():
+    from tools.pypi_readme import package_readme
+
+    unchanged = '<img src="https://example.org/logo.png"><a href="README.zh.md">中文</a>'
+    assert package_readme(unchanged, 'https://github.com/example/project.git') == unchanged
+    assert package_readme("<img src='./assets/logo.png'>", 'https://github.com/example/project.git') == (
+        "<img src='https://github.com/example/project/raw/refs/heads/main/assets/logo.png'>"
+    )

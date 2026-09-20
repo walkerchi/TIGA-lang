@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="https://raw.githubusercontent.com/walkerchi/TIGA-lang/main/assets/tiga-logo.png" alt="Tiga — TG emblem" width="380">
+  <img src="assets/tiga-logo.png" alt="Tiga — TG emblem" width="380">
   <p>English · <a href="https://github.com/walkerchi/TIGA-lang/blob/main/README.zh.md">简体中文</a></p>
   <p><strong>A differentiable JIT compiler for graph message-passing programs.</strong></p>
   <p><a href="https://github.com/walkerchi/TIGA-lang/blob/main/LICENSE">Apache-2.0</a> · Alpha · Package: <code>tiga-lang</code> · Import: <code>tiga</code></p>
@@ -141,7 +141,7 @@ Distributed execution completes halo communication before computing local output
 See [performance and scalability](https://github.com/walkerchi/TIGA-lang/blob/main/docs/experiments.md)
 for runtime and memory comparisons, single-GPU billion-edge capacity, and distributed overhead.
 
-<img src="https://raw.githubusercontent.com/walkerchi/TIGA-lang/main/docs/assets/compiler-performance-overview.svg"
+<img src="docs/assets/compiler-performance-overview.svg"
      alt="Six registered workloads compared with their matched baselines"
      width="1100">
 

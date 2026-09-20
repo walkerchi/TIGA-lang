@@ -6,7 +6,7 @@ build-backend = "scikit_build_core.build"
 name = "tiga-lang"
 version = "0.1.0"
 description = "A differentiable JIT compiler for graph message-passing programs"
-readme = "README.md"
+dynamic = ["readme"]
 license = "Apache-2.0"
 authors = [{ name = "walkerchi", email = "walker.chi.000@gmail.com" }]
 maintainers = [{ name = "walkerchi", email = "walker.chi.000@gmail.com" }]
@@ -54,6 +54,10 @@ dev = [
   "triton>=3.6,<3.7",
   "twine>=5.1",
 ]
+
+# Repository images stay relative on GitHub; package metadata needs public URLs.
+[[tool.dynamic-metadata]]
+provider = {path = "tools", module = "pypi_readme"}
 
 [tool.scikit-build]
 minimum-version = "build-system.requires"

@@ -26,6 +26,7 @@
 *.dll
 
 # Python environments, bytecode and test/tool caches
+/uv.lock
 /.venv/
 /venv/
 /env/

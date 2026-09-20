@@ -109,3 +109,18 @@ def test_readme_local_file_links_exist():
 
     project = (ROOT/'pyproject.toml').read_text()
     assert '"README.zh.md"' in project and '"assets/**"' in project
+
+
+def test_readme_images_use_matching_repository_relative_paths():
+    expected = ['assets/tiga-logo.png', 'docs/assets/compiler-performance-overview.svg']
+    for name in ('README.md', 'README.zh.md'):
+        images = re.findall(r'<img\b[^>]*\bsrc="([^"]+)"', (ROOT/name).read_text())
+        assert images == expected
+        assert all((ROOT/path).is_file() for path in images)
+
+
+def test_uv_lock_is_local_only_and_not_required_by_ci():
+    assert '/uv.lock' in (ROOT/'.gitignore').read_text().splitlines()
+    for path in (ROOT/'.github/workflows').glob('*.yml'):
+        text = path.read_text()
+        assert 'uv.lock' not in text and 'uv sync --frozen' not in text
