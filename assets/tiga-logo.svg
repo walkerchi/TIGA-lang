@@ -3,7 +3,7 @@
 <desc id="desc">Tiga: graph message-passing JIT. Two angular wings and a long lower chevron surround a geometric G.</desc>
 <ns0:g xmlns:ns0="http://www.w3.org/2000/svg" fill="none" stroke="#746194" stroke-linecap="butt" stroke-linejoin="miter">
     <ns0:path d="M44 20 H24 L12 32 L36 51 M84 20 H104 L116 32 L92 51" stroke-width="7" />
-    <ns0:path d="M42 61 L64 112 L86 61" stroke-width="7" />
+    <ns0:path d="M42 61 L64 112 L86 61" stroke="#C84B52" stroke-width="7" />
     <ns0:path d="M72.5 42.5 A12 12 0 1 0 76 51 H64" stroke-width="6" />
   </ns0:g>
 

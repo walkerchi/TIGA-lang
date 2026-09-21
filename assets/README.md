@@ -1,10 +1,13 @@
 # Tiga identity assets
 
 The canonical vector source is [tiga-mark.svg](tiga-mark.svg). The flat,
-single-color TG emblem places a geometric G between two short angular wings
+two-color TG emblem places a geometric G between two short angular wings
 and a long lower chevron, forming an open triangle. The emblem uses vector paths;
 the G does not depend on an installed font. There are no gradients, shadows
 or decorative layers.
+
+The wings, G and wordmark use muted purple (`#746194`); the lower chevron
+uses red (`#C84B52`). Geometry and stroke widths are identical across variants.
 
 - [tiga-logo.svg](tiga-logo.svg) / [tiga-logo.png](tiga-logo.png): emblem and `Tiga` wordmark.
 - [tiga-mark.svg](tiga-mark.svg) / [tiga-mark.png](tiga-mark.png): standalone emblem.

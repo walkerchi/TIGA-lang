@@ -27,6 +27,8 @@ def test_mark_is_a_flat_triangular_emblem_with_geometric_g():
     assert len(paths) == 3
     assert paths[0].attrib['d'] == 'M44 20 H24 L12 32 L36 51 M84 20 H104 L116 32 L92 51'
     assert paths[1].attrib['d'] == 'M42 61 L64 112 L86 61'
+    assert paths[1].attrib['stroke'] == '#C84B52'
+    assert all('stroke' not in paths[index].attrib for index in (0, 2))
     assert all('Z' not in p.attrib['d'] for p in paths)
     assert 'A12 12' in paths[2].attrib['d'] and paths[2].attrib['d'].endswith('H64')
     for tag in ('circle', 'text', 'linearGradient', 'radialGradient', 'filter', 'image'):
