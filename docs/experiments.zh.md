@@ -1,3 +1,8 @@
+---
+title: 稀疏图性能、GPU 显存与分布式基准测试
+description: 对比 Tiga 与 Torch sparse、PyG 的 CSR、radius 和 kNN 工作负载，查看 GPU 显存、十亿边 offload 容量与分布式执行测量。
+---
+
 # 性能、容量与分布式执行
 
 对比执行时间与内存开销，评估单 GPU 的十亿边容量，并分析分布式通信开销。

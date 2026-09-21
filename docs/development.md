@@ -227,6 +227,30 @@ LLVM. Read the Docs can also use `.readthedocs.yaml`;
 `READTHEDOCS_CANONICAL_URL` overrides the default GitHub Pages base URL.
 Local documentation can be viewed with `mkdocs serve`.
 
+### Search engine indexing
+
+Page titles and descriptions live in Markdown front matter. Pages without an
+explicit description use a short excerpt from their first substantive paragraph.
+The build checks canonical URLs, reciprocal English/Chinese language links,
+social images and sitemap coverage with `python tools/check_docs_seo.py site`.
+Benchmark include files are embedded in the report, not published as separate pages.
+
+For Google Search Console, add a **URL-prefix property** for the exact public
+documentation root, including `/TIGA-lang/`. Select HTML-tag verification and
+set the GitHub Actions repository variable `GOOGLE_SITE_VERIFICATION` to the
+provided `content` value. Re-run `docs-pages` on `main`, then complete verification
+in Search Console. This value is public verification metadata, not a login credential.
+Submit `sitemap.xml` and use URL Inspection to request indexing of the homepage
+and important guides. Verification and submission require access to the owner's
+Google account; deploying the site alone does not perform these steps.
+
+GitHub project Pages cannot control the host-root `robots.txt`; a file at
+`/TIGA-lang/robots.txt` would not govern this site. Submit the sitemap directly.
+Keep one preferred public documentation host; if a Read the Docs mirror is also
+published, configure its indexing/canonical policy before promoting both URLs.
+No search ranking or indexing deadline is guaranteed. See the
+[Google SEO guide](https://developers.google.com/search/docs/fundamentals/seo-starter-guide).
+
 The wheel's CMake install component bundles the native Python compiler
 extension, `gf-opt` and `gf-translate`, the Tiga runtime, and the real
 `libMLIR`/`libLLVM` SONAME files when using a shared SDK. Static-SDK builds link

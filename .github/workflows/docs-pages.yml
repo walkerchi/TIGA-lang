@@ -30,12 +30,15 @@ jobs:
         run: python -m pip install -r docs/requirements.txt pytest
       - name: Check Pages configuration and API freshness
         run: |
-          python -m pytest -q tests/python/test_docs_deployment.py
+          python -m pytest -q tests/python/test_docs_deployment.py tests/python/test_docs_search_metadata.py
           python tools/render_api_reference.py --check
       - name: Build and check all pages
+        env:
+          GOOGLE_SITE_VERIFICATION: ${{ vars.GOOGLE_SITE_VERIFICATION }}
         run: |
           python -m mkdocs build --strict
           python tools/check_docs_links.py site
+          python tools/check_docs_seo.py site
       - uses: actions/upload-pages-artifact@v4
         if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
         with:

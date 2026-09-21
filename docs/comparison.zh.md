@@ -1,3 +1,8 @@
+---
+title: Tiga 与 PyTorch Sparse、PyG 及图编译器对比
+description: 对比 Tiga、torch.sparse.mm、PyTorch Geometric、DGL 与图编译器的定位，解释稀疏聚合性能数据、计时范围和适用边界。
+---
+
 # Tiga 与同类对比 { #how-tiga-compares }
 
 Tiga 是面向 message passing 与图计算的**编译器**——不是 framework，也不

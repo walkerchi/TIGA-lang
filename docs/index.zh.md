@@ -1,5 +1,7 @@
 ---
-title: Tiga
+title: Tiga — 支持 PyTorch 的 Graph Message Passing JIT 编译器
+homepage: true
+description: 使用 PyTorch Tensor 编写可微图程序。Tiga 编译 graph message passing，支持稀疏聚合、图神经网络算子与 GPU 图计算，提供示例、梯度接口和性能对比。
 hide:
   - navigation
   - toc
@@ -103,6 +105,15 @@ print(dw.tolist())   # [1.0, 3.0, 2.0, 1.0, 2.0]
 常规计算直接使用 `torch.Tensor`；分层存储与分布式等高级运行时功能
 使用原生 `tg.Tensor`，见[内存与分布式](memory-and-distributed.md)。
 具体操作、数据类型与执行路径的覆盖范围见[支持矩阵](roadmap.md)。
+
+## 稀疏图与图神经网络算子
+
+邻居加权聚合是一种[稀疏矩阵](https://baike.baidu.com/item/稀疏矩阵)运算，
+自定义边函数则把它扩展到更一般的图程序。
+[PyTorch sparse 与 message passing 指南](pytorch-sparse-message-passing.md)
+用一个可核对结果的例子串起 `torch.sparse.mm`、CSR 图与
+[图神经网络](https://baike.baidu.com/item/图神经网络)（graph neural network，GNN）聚合。
+Tiga 编译其中的算子，不替代完整的模型库与训练框架。
 
 ## 深入理解实现 { #from-semantics-to-provider-code }
 

@@ -1,3 +1,8 @@
+---
+title: Graph Message Passing with PyTorch Tensors and Autograd
+description: Define Tiga edge functions, reducers and node updates with torch.Tensor inputs. Learn the MessagePassing interface, graph contracts and automatic gradients.
+---
+
 # Message passing
 
 Prerequisite: [Programming model](programming-model.md). This is the public

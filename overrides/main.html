@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+
+{% block htmltitle %}
+  {% if page and page.meta.homepage and page.meta.title %}
+    <title>{{ page.meta.title }}</title>
+  {% else %}
+    {{ super() }}
+  {% endif %}
+{% endblock %}
+
+{% block extrahead %}
+  {{ super() }}
+  {% if config.extra.google_site_verification %}
+    <meta name="google-site-verification" content="{{ config.extra.google_site_verification }}">
+  {% endif %}
+  {% if page and page.canonical_url %}
+    {% set title = page.meta.get("title", page.title) %}
+    {% set description = page.meta.get("description", config.site_description) %}
+    {% set image = ('assets/tiga-mark.png' | url) | absolute_url(page.canonical_url) %}
+    <meta property="og:type" content="website">
+    <meta property="og:title" content="{{ title }}">
+    <meta property="og:description" content="{{ description }}">
+    <meta property="og:url" content="{{ page.canonical_url }}">
+    <meta property="og:site_name" content="Tiga">
+    <meta property="og:image" content="{{ image }}">
+    <meta property="og:image:alt" content="Tiga logo">
+    <meta name="twitter:card" content="summary">
+    <meta name="twitter:title" content="{{ title }}">
+    <meta name="twitter:description" content="{{ description }}">
+    <meta name="twitter:image" content="{{ image }}">
+    {% if page.meta.homepage %}
+      <script type="application/ld+json">{{ {
+        "@context": "https://schema.org",
+        "@type": "SoftwareSourceCode",
+        "name": "Tiga",
+        "alternateName": "tiga-lang",
+        "description": description,
+        "url": page.canonical_url,
+        "codeRepository": config.repo_url,
+        "programmingLanguage": ["Python", "C++"],
+        "license": "https://www.apache.org/licenses/LICENSE-2.0",
+        "author": {"@type": "Person", "name": "walkerchi"}
+      } | tojson }}</script>
+    {% endif %}
+  {% else %}
+    <meta name="robots" content="noindex">
+  {% endif %}
+{% endblock %}

@@ -1,5 +1,7 @@
 ---
-title: Tiga
+title: Tiga — Graph Message Passing JIT Compiler for PyTorch
+homepage: true
+description: Write differentiable graph programs with PyTorch tensors. Tiga compiles message passing for sparse aggregation, graph neural network operators and GPU graph workloads.
 hide:
   - navigation
   - toc
@@ -108,6 +110,16 @@ execution for large graphs. Standard computations accept `torch.Tensor` directly
 advanced runtime features such as hierarchical storage and distributed execution
 use native `tg.Tensor`, as described in [memory and distributed execution](memory-and-distributed.md).
 See the [support matrix](roadmap.md) for operation, dtype and execution-path coverage.
+
+## Sparse graphs and neural network operators
+
+Weighted neighbor aggregation is a [sparse matrix](https://en.wikipedia.org/wiki/Sparse_matrix)
+operation; custom edge functions extend it to more general graph programs.
+The [PyTorch sparse and message passing guide](pytorch-sparse-message-passing.md)
+connects `torch.sparse.mm`, CSR graphs and
+[graph neural network](https://en.wikipedia.org/wiki/Graph_neural_network) (GNN)
+aggregation with one checked example. Tiga compiles these operators; it is not
+a replacement for a complete model and training framework.
 
 ## Understand the implementation { #from-semantics-to-provider-code }
 

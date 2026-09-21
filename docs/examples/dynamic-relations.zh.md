@@ -1,3 +1,8 @@
+---
+title: 使用 PyTorch 构建 Radius Graph、kNN Graph 与 Stencil
+description: 使用 Torch Tensor 构建 Tiga 半径图与 k 近邻图，选择距离度量，并通过 stencil 定义规则网格邻域和边界条件。
+---
+
 # 动态与生成式关系 { #dynamic-and-generated-relations }
 
 关系既可以由坐标计算，也可以由规则生成；“生成式”不等于“每次调用都改变拓扑”。

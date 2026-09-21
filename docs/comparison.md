@@ -1,3 +1,8 @@
+---
+title: Tiga vs PyTorch Sparse, PyG and Graph Compilers
+description: Compare Tiga graph message passing with torch.sparse.mm, PyTorch Geometric, DGL and graph compilers, with measured aggregation timings and explicit comparison limits.
+---
+
 # How Tiga compares
 
 Tiga is a **compiler** for message passing and graph computation — not a
