@@ -4,6 +4,23 @@ All notable changes to Tiga are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project
 adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.1.1] - 2026-09-21
+
+First PyPI distribution of the alpha compiler, with Linux x86-64 wheels for
+CPython 3.11 and 3.12. Torch remains an optional, separately installed dependency.
+
+### Added
+
+- Public bilingual GitHub Pages documentation, a checked PyTorch sparse/message
+  passing guide, and search metadata validation.
+- Cached release builds and an explicit Trusted Publishing workflow that reuses
+  the exact artifacts from a successful tagged build and local GPU validation.
+
+### Fixed
+
+- Package, source fallback, citation and native runtime versions agree.
+- Release metadata regression tests no longer depend on the current package version.
+
 ## [0.1.0] - 2026-09-20
 
 Initial alpha release. Listed capabilities have

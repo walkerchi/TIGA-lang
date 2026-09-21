@@ -7,8 +7,8 @@ dtype, layout, gradient, device and provider. Consult the [support matrix](roadm
 ## Installation { #installation }
 
 Official release targets: [GitHub](https://github.com/walkerchi/TIGA-lang) for
-code/issues, PyPI for `tiga-lang`, and a future arXiv technical report. The first
-PyPI release and arXiv identifier are pending. Public documentation is available
+code/issues, [PyPI](https://pypi.org/project/tiga-lang/) for `tiga-lang`, and a future
+arXiv technical report. The arXiv identifier is pending. Public documentation is available
 on [GitHub Pages](https://walkerchi.github.io/TIGA-lang/).
 
 Matching wheels need no separate LLVM SDK. Local validation covers Linux x86-64,

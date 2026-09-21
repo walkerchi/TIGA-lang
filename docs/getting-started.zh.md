@@ -6,12 +6,12 @@
 
 ## 安装 { #install }
 
-当前 alpha 正在准备首次发布，先使用源码或本地构建的 wheel。
+Tiga 当前为 alpha 软件。
 发行名是 `tiga-lang`，import 名是 `tiga`。
 
-### 从 PyPI 安装（首次发布后） { #pypi-install }
+### 从 PyPI 安装 { #pypi-install }
 
-以下命令用于即将发布的版本，不表示当前已有正式发布包。在虚拟环境中，
+在 Python 3.11 或 3.12 的虚拟环境中，
 先安装下文示例所需的 Torch；已有 Torch 或仅使用原生执行时跳过第一条命令：
 
 ```bash
@@ -35,10 +35,10 @@ Torch adapter 面向 Torch 2.11.x，CUDA provider 面向 Triton 3.6.x；Torch �
 没有匹配的 wheel 时，按[源码安装](#source-build)准备依赖；
 源码分发包不等于预编译 wheel。
 
-发布前可直接安装本地构建的 wheel，使用实际文件路径：
+安装下载或本地构建的 wheel 时，使用实际文件路径：
 
 ```bash
-python -m pip install "/path/to/tiga_lang-0.1.0-<python>-<abi>-<platform>.whl"
+python -m pip install "/path/to/tiga_lang-0.1.1-<python>-<abi>-<platform>.whl"
 python -m tiga
 ```
 

@@ -70,7 +70,7 @@ const char *gfrt_status_string(GFRTStatus status) {
   return "unknown status";
 }
 
-const char *gfrt_runtime_version(void) { return "0.1.0a1"; }
+const char *gfrt_runtime_version(void) { return "0.1.1"; }
 
 GFRTStatus gfrt_buffer_allocate(GFRTDevice device, size_t bytes,
                                 size_t alignment, GFRTBuffer **outBuffer) {
