@@ -4,10 +4,10 @@
   <p><strong>面向 graph message-passing 程序的可微 JIT 编译器。</strong></p>
   <p><a href="LICENSE">Apache-2.0</a> · Alpha · 安装包：<code>tiga-lang</code> · Python import：<code>tiga</code></p>
   <p>
-    <a href="docs/getting-started.zh.md">快速开始</a> ·
-    <a href="docs/api.zh.md">Python API</a> ·
-    <a href="docs/examples.zh.md">示例</a> ·
-    <a href="docs/roadmap.zh.md">支持范围与路线图</a> ·
+    <a href="https://walkerchi.github.io/TIGA-lang/zh/getting-started/">快速开始</a> ·
+    <a href="https://walkerchi.github.io/TIGA-lang/zh/api/">Python API</a> ·
+    <a href="https://walkerchi.github.io/TIGA-lang/zh/examples/">示例</a> ·
+    <a href="https://walkerchi.github.io/TIGA-lang/zh/roadmap/">支持范围与路线图</a> ·
     <a href="https://github.com/walkerchi/tiga-lang-paper">技术报告</a>
   </p>
 </div>
@@ -36,13 +36,13 @@ python -m tiga
 安装包名为 `tiga-lang`，Python import 名为 `tiga`。
 **Torch 不是默认安装依赖**：GPU 使用场景先自行安装匹配硬件的 Torch。
 安装 Tiga 不会默认安装或升级 Torch；没有 Torch 时可使用
-[原生 Tensor、CPU MessagePassing 与 autograd](docs/execution.zh.md#native-execution)。
+[原生 Tensor、CPU MessagePassing 与 autograd](https://walkerchi.github.io/TIGA-lang/zh/execution/#native-execution)。
 
 可选 Triton provider 使用 `python -m pip install "tiga-lang[cuda]"`，
 该 extra 不安装 Torch 或 GPU 驱动。兼容的预编译 wheel 包含 Tiga 编译器工具和
 原生库，无需另装 LLVM/MLIR SDK。wheel 面向 Linux x86-64、CPython 3.11/3.12
 和 glibc ≥ 2.38，见
-[安装说明](docs/getting-started.zh.md#pypi-install)。
+[安装说明](https://walkerchi.github.io/TIGA-lang/zh/getting-started/#pypi-install)。
 
 ### 从源码安装
 
@@ -65,7 +65,7 @@ python -m tiga
 
 将 SDK 路径替换为实际位置。
 
-安装失败、输入误用和 bug 报告见[排错与反馈](docs/support.zh.md)。
+安装失败、输入误用和 bug 报告见[排错与反馈](https://walkerchi.github.io/TIGA-lang/zh/support/)。
 唯一维护者为 **walkerchi**，Independent Developer，联系邮箱为
 [walker.chi.000@gmail.com](mailto:walker.chi.000@gmail.com)。
 安全漏洞按 [SECURITY.md](SECURITY.md) 私下报告，不公开提交利用细节。
@@ -114,7 +114,7 @@ print(dw.tolist())               # [1.0, 3.0, 2.0, 1.0, 2.0]
 通过 `kernel.explain()` 查看所选执行计划，
 通过 `kernel.cache_info` 查看 capture variant 缓存统计。
 node 更新、自定义 reducer、动态关系和 Torch interop 见
-[编程模型](docs/programming-model.zh.md)与[示例](docs/examples.zh.md)。
+[编程模型](https://walkerchi.github.io/TIGA-lang/zh/programming-model/)与[示例](https://walkerchi.github.io/TIGA-lang/zh/examples/)。
 
 ## 当前支持范围
 
@@ -125,24 +125,24 @@ node 更新、自定义 reducer、动态关系和 Torch interop 见
 | CPU / NVIDIA GPU | LLVM CPU JIT 与 serialized TTIR → Triton → PTX | 尚未验证 AMD 或 Intel GPU 执行 |
 | 内存 / 分布式 | 原生 Tensor 预算、可选 LRU 换出/恢复、paged graph、MPI 与 CUDA TCP/NCCL halo/VJP | CUDA 分页仅支持前向，输出驻留设备；图分区使用固定 ownership |
 
-[支持矩阵](docs/roadmap.zh.md)区分原生与 adapter 覆盖；能构建某种图，
+[支持矩阵](https://walkerchi.github.io/TIGA-lang/zh/roadmap/)区分原生与 adapter 覆盖；能构建某种图，
 不代表每种 reducer 或梯度都能在其上执行。
 
 内存策略入口为 `tg.execution(...)`；`.spill()` 改变驻留位置，`.to(device)`
-复制数据，`tg.save/load` 持久化数值快照。见[完整内存示例与限制](docs/memory.zh.md)。
+复制数据，`tg.save/load` 持久化数值快照。见[完整内存示例与限制](https://walkerchi.github.io/TIGA-lang/zh/memory/)。
 分布式执行先完成 halo 通信，再计算本地输出。
 
 ## 性能证据
 
-[性能与扩展性](docs/experiments.zh.md)提供速度/内存对比、1B 单卡容量与
+[性能与扩展性](https://walkerchi.github.io/TIGA-lang/zh/experiments/)提供速度/内存对比、1B 单卡容量与
 分布式开销。
 
 <img src="docs/assets/compiler-performance-overview.svg"
      alt="六个已登记工作负载与各自匹配基线的历史测量" width="1100">
 
 上图汇总指定工作负载与硬件上的存档测量。
-[基准报告](docs/benchmark-results.zh.md)说明各项基线、计时范围和不确定性；
-原始数据和绘图命令见[复现指南](docs/benchmark-reproducibility.zh.md)。
+[基准报告](https://walkerchi.github.io/TIGA-lang/zh/benchmark-results/)说明各项基线、计时范围和不确定性；
+原始数据和绘图命令见[复现指南](https://walkerchi.github.io/TIGA-lang/zh/benchmark-reproducibility/)。
 
 ## 编译器与开发
 
@@ -153,12 +153,12 @@ node 更新、自定义 reducer、动态关系和 Torch interop 见
 编译器选择实际遍历、内存放置与目标
 [lowering](https://en.wikipedia.org/wiki/Compiler#Back_end)，
 梯度由自动 [VJP](https://en.wikipedia.org/wiki/Automatic_differentiation) 表达。
-[编译流程](docs/compiler-pipeline.zh.md)解释各层职责；
-[用实例读懂 IR](docs/ir-walkthrough.zh.md)展示真实输入与编译输出，并提供复现命令。
+[编译流程](https://walkerchi.github.io/TIGA-lang/zh/compiler-pipeline/)解释各层职责；
+[用实例读懂 IR](https://walkerchi.github.io/TIGA-lang/zh/ir-walkthrough/)展示真实输入与编译输出，并提供复现命令。
 Python 包和 C++ 源码命名空间统一为 `tiga`。已有 `gf.*` IR 语法与
 `gf-*` 工具名保持稳定。
 
-[开发指南](docs/development.zh.md)包含 Python、MLIR、文档和 GPU 测试环境，
+[开发指南](https://walkerchi.github.io/TIGA-lang/zh/development/)包含 Python、MLIR、文档和 GPU 测试环境，
 以及部分 LLVM SDK 缺少的测试工具。贡献流程见 [CONTRIBUTING.md](CONTRIBUTING.md)，
 变更记录见 [CHANGELOG.md](CHANGELOG.md)。
 

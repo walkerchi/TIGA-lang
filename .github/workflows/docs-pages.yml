@@ -1,0 +1,59 @@
+name: docs-pages
+
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docs-pages-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  build:
+    name: Build bilingual documentation
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: docs/requirements.txt
+      - name: Install documentation tools only
+        run: python -m pip install -r docs/requirements.txt pytest
+      - name: Check Pages configuration and API freshness
+        run: |
+          python -m pytest -q tests/python/test_docs_deployment.py
+          python tools/render_api_reference.py --check
+      - name: Build and check all pages
+        run: |
+          python -m mkdocs build --strict
+          python tools/check_docs_links.py site
+      - uses: actions/upload-pages-artifact@v4
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        with:
+          path: site
+
+  deploy:
+    name: Deploy public documentation
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/configure-pages@v5
+      - uses: actions/deploy-pages@v4
+        id: deployment

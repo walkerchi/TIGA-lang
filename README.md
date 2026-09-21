@@ -4,10 +4,10 @@
   <p><strong>A differentiable JIT compiler for graph message-passing programs.</strong></p>
   <p><a href="https://github.com/walkerchi/TIGA-lang/blob/main/LICENSE">Apache-2.0</a> · Alpha · Package: <code>tiga-lang</code> · Import: <code>tiga</code></p>
   <p>
-    <a href="https://github.com/walkerchi/TIGA-lang/blob/main/docs/getting-started.md">Getting started</a> ·
-    <a href="https://github.com/walkerchi/TIGA-lang/blob/main/docs/getting-started.zh.md">中文指南</a> ·
-    <a href="https://github.com/walkerchi/TIGA-lang/blob/main/docs/api.md">Python API</a> ·
-    <a href="https://github.com/walkerchi/TIGA-lang/blob/main/docs/roadmap.md">Status and limitations</a> ·
+    <a href="https://walkerchi.github.io/TIGA-lang/getting-started/">Getting started</a> ·
+    <a href="https://walkerchi.github.io/TIGA-lang/zh/getting-started/">中文指南</a> ·
+    <a href="https://walkerchi.github.io/TIGA-lang/api/">Python API</a> ·
+    <a href="https://walkerchi.github.io/TIGA-lang/roadmap/">Status and limitations</a> ·
     <a href="https://github.com/walkerchi/tiga-lang-paper">Technical report</a>
   </p>
 </div>
@@ -37,13 +37,13 @@ python -m tiga
 The distribution name is `tiga-lang`; the Python import is `tiga`.
 Torch is **not** a default dependency. For GPU use, install a hardware-compatible
 Torch build first. Tiga's default installation does not install or upgrade Torch.
-Without Torch, use [native Tensor, CPU MessagePassing and autograd](https://github.com/walkerchi/TIGA-lang/blob/main/docs/execution.md#native-execution).
+Without Torch, use [native Tensor, CPU MessagePassing and autograd](https://walkerchi.github.io/TIGA-lang/execution/#native-execution).
 
 For the optional Triton provider, replace the Tiga install command with
 `python -m pip install "tiga-lang[cuda]"`; this installs neither Torch nor a GPU driver.
 A compatible prebuilt wheel bundles Tiga's compiler tools and native libraries,
 so a separate LLVM/MLIR SDK is not required. Wheels target Linux x86-64,
-CPython 3.11/3.12 and glibc ≥ 2.38; see [installation details](https://github.com/walkerchi/TIGA-lang/blob/main/docs/getting-started.md#pypi-install).
+CPython 3.11/3.12 and glibc ≥ 2.38; see [installation details](https://walkerchi.github.io/TIGA-lang/getting-started/#pypi-install).
 
 ### Install from source
 
@@ -67,7 +67,7 @@ python -m tiga
 Replace the SDK path before installing.
 
 For installation failures, input pitfalls and bug reports, see the bilingual
-[support guide](https://github.com/walkerchi/TIGA-lang/blob/main/docs/support.md) / [排错与反馈](https://github.com/walkerchi/TIGA-lang/blob/main/docs/support.zh.md).
+[support guide](https://walkerchi.github.io/TIGA-lang/support/) / [排错与反馈](https://walkerchi.github.io/TIGA-lang/zh/support/).
 Maintainer: **walkerchi**, Independent Developer —
 [walker.chi.000@gmail.com](mailto:walker.chi.000@gmail.com).
 Private vulnerabilities follow [SECURITY.md](https://github.com/walkerchi/TIGA-lang/blob/main/SECURITY.md), not public issues.
@@ -115,8 +115,8 @@ No explicit compile call, tensor conversion or handwritten backward is needed.
 `out` is a `torch.Tensor` and works with ordinary Torch operations and autograd.
 Use `kernel.explain()` to inspect the selected execution plan and
 `kernel.cache_info` to inspect capture-variant cache statistics.
-See the [programming model](https://github.com/walkerchi/TIGA-lang/blob/main/docs/programming-model.md) and
-[runnable examples](https://github.com/walkerchi/TIGA-lang/blob/main/docs/examples.md) for node updates, custom reducers,
+See the [programming model](https://walkerchi.github.io/TIGA-lang/programming-model/) and
+[runnable examples](https://walkerchi.github.io/TIGA-lang/examples/) for node updates, custom reducers,
 dynamic relations, and PyTorch interop.
 
 ## Current scope
@@ -128,18 +128,18 @@ dynamic relations, and PyTorch interop.
 | CPU / NVIDIA GPU | LLVM CPU JIT and serialized TTIR → Triton → PTX paths | No validated AMD or Intel GPU execution |
 | Memory / distributed | Native-Tensor budgets, opt-in LRU spill/reload, paged graphs, MPI and CUDA TCP/NCCL halo/VJP | Paged CUDA is forward-only with resident output; partitioning uses fixed ownership |
 
-The [support matrix](https://github.com/walkerchi/TIGA-lang/blob/main/docs/roadmap.md) distinguishes native and adapter
+The [support matrix](https://walkerchi.github.io/TIGA-lang/roadmap/) distinguishes native and adapter
 coverage. Graph construction support alone does not imply that every reducer
 or gradient can execute on that graph.
 
 Memory policy starts with `tg.execution(...)`; `.spill()` changes residency,
 `.to(device)` copies, and `tg.save/load` persist value snapshots. See the
-[complete memory example and limits](https://github.com/walkerchi/TIGA-lang/blob/main/docs/memory.md).
+[complete memory example and limits](https://walkerchi.github.io/TIGA-lang/memory/).
 Distributed execution completes halo communication before computing local outputs.
 
 ## Performance evidence
 
-See [performance and scalability](https://github.com/walkerchi/TIGA-lang/blob/main/docs/experiments.md)
+See [performance and scalability](https://walkerchi.github.io/TIGA-lang/experiments/)
 for runtime and memory comparisons, single-GPU billion-edge capacity, and distributed overhead.
 
 <img src="docs/assets/compiler-performance-overview.svg"
@@ -147,9 +147,9 @@ for runtime and memory comparisons, single-GPU billion-edge capacity, and distri
      width="1100">
 
 The figure summarizes archived measurements for the specified workloads and
-hardware. The [benchmark report](https://github.com/walkerchi/TIGA-lang/blob/main/docs/benchmark-results.md)
+hardware. The [benchmark report](https://walkerchi.github.io/TIGA-lang/benchmark-results/)
 describes each baseline, timing scope and uncertainty. Raw data and plotting
-commands are in the [reproduction guide](https://github.com/walkerchi/TIGA-lang/blob/main/docs/benchmark-reproducibility.md).
+commands are in the [reproduction guide](https://walkerchi.github.io/TIGA-lang/benchmark-reproducibility/).
 
 ## Compiler and development
 
@@ -162,13 +162,13 @@ The compiler selects physical traversal, memory placement and target
 [lowering](https://en.wikipedia.org/wiki/Compiler#Back_end), while gradients
 are represented by an automatic
 [VJP](https://en.wikipedia.org/wiki/Automatic_differentiation).
-Read the [compiler pipeline](https://github.com/walkerchi/TIGA-lang/blob/main/docs/compiler-pipeline.md) for the boundaries.
-The [IR walkthrough](https://github.com/walkerchi/TIGA-lang/blob/main/docs/ir-walkthrough.md) follows one checked compiler input
+Read the [compiler pipeline](https://walkerchi.github.io/TIGA-lang/compiler-pipeline/) for the boundaries.
+The [IR walkthrough](https://walkerchi.github.io/TIGA-lang/ir-walkthrough/) follows one checked compiler input
 through real Domain, Iter, Kernel and Task output, with reproducible commands.
 The Python package and C++ source namespace are `tiga`. The existing `gf.*` IR
 syntax and `gf-*` tool names remain stable.
 
-The [development guide](https://github.com/walkerchi/TIGA-lang/blob/main/docs/development.md) gives the complete Python,
+The [development guide](https://walkerchi.github.io/TIGA-lang/development/) gives the complete Python,
 MLIR, documentation and GPU test setup, including the test utilities omitted
 from some LLVM SDKs. Contribution rules are in [CONTRIBUTING.md](https://github.com/walkerchi/TIGA-lang/blob/main/CONTRIBUTING.md);
 changes are recorded in [CHANGELOG.md](https://github.com/walkerchi/TIGA-lang/blob/main/CHANGELOG.md).

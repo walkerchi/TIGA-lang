@@ -216,9 +216,15 @@ First-release artifacts cover Linux x86-64, CPython 3.11/3.12 and glibc 2.38
 or newer. A version tag must contain these workflows to use this procedure;
 previously published tags are not rewritten.
 
-Read the Docs uses `.readthedocs.yaml` and `docs/requirements.txt` without
-installing Tiga or LLVM. Import the GitHub repository into RTD after making it
-public. `READTHEDOCS_CANONICAL_URL` selects the documentation base URL.
+Public documentation is hosted on [GitHub Pages](https://walkerchi.github.io/TIGA-lang/).
+Push maintainer changes to `dev`, then open a pull request into `main`.
+The `docs-pages` workflow checks both languages and local links on `dev` and
+pull requests; only `main` deploys. Keep `dev` after merging and fast-forward
+it to the updated `main` before the next change. Do not push directly to `main`.
+
+Documentation uses `docs/requirements.txt` without installing Tiga, Torch or
+LLVM. Read the Docs can also use `.readthedocs.yaml`;
+`READTHEDOCS_CANONICAL_URL` overrides the default GitHub Pages base URL.
 Local documentation can be viewed with `mkdocs serve`.
 
 The wheel's CMake install component bundles the native Python compiler

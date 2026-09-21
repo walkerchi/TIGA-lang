@@ -176,8 +176,15 @@ tag、源码和产物元数据精确匹配。
 首发范围为 Linux x86-64、CPython 3.11/3.12、glibc ≥ 2.38。
 此流程要求版本 tag 包含上述 workflow；已发布的历史 tag 不重写。
 
-Read the Docs 使用 `.readthedocs.yaml` 和 `docs/requirements.txt`，无需安装 Tiga 或 LLVM。
-GitHub 仓库公开后再导入 RTD；`READTHEDOCS_CANONICAL_URL` 提供文档根地址。
+公开文档部署于 [GitHub Pages](https://walkerchi.github.io/TIGA-lang/zh/)。
+维护者改动先推送到 `dev`，再创建合入 `main` 的 PR。
+`docs-pages` workflow 在 `dev` 和 PR 上检查双语文档与本地链接，
+仅从 `main` 部署公开站点。合并后保留 `dev`，下一次修改前将其
+fast-forward 到更新后的 `main`；不直接推送 `main`。
+
+文档通过 `docs/requirements.txt` 安装依赖，无需安装 Tiga、Torch 或 LLVM。
+Read the Docs 仍可使用 `.readthedocs.yaml` 单独接入；
+`READTHEDOCS_CANONICAL_URL` 可覆盖默认的 GitHub Pages 文档根地址。
 本地预览使用 `mkdocs serve`。
 
 wheel 包含原生 Python 编译扩展、`gf-opt`、`gf-translate`、Tiga 运行时，

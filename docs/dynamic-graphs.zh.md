@@ -5,11 +5,13 @@ Tiga 让这条关系在 IR 里以语义形式保留足够久，再来决定边�
 缓存、增量修复、分区还是分页。物化 CSR 只是一种合法的实现方式，而不是
 `Graph.radius` 或 `Graph.knn` 的默认含义。
 
-<figure class="gf-figure">
-  <object type="image/svg+xml" data="/assets/dynamic-relation-strategies.svg" aria-label="动态关系实现策略">
-    <img src="/assets/dynamic-relation-strategies.svg" alt="动态关系实现策略">
-  </object>
-  <figcaption><a href="/assets/dynamic-relation-strategies.svg">打开完整尺寸的 SVG</a>。实现方式是编译器的选择，而不是另一种用户 Graph 类型。</figcaption>
+<figure class="gf-figure" markdown="1">
+
+![动态关系实现策略](assets/dynamic-relation-strategies.svg)
+
+<figcaption markdown="1">
+[打开完整尺寸的 SVG](assets/dynamic-relation-strategies.svg)。实现方式是编译器的选择，而不是另一种用户 Graph 类型。
+</figcaption>
 </figure>
 
 ## 实现方式矩阵 { #the-realization-matrix }
