@@ -6,11 +6,13 @@ in IR long enough to choose whether edges should be generated, cached,
 incrementally repaired, partitioned, or paged. Materializing CSR is one legal
 realization, not the default meaning of `Graph.radius` or `Graph.knn`.
 
-<figure class="gf-figure">
-  <object type="image/svg+xml" data="/assets/dynamic-relation-strategies.svg" aria-label="Dynamic relation realization strategies">
-    <img src="/assets/dynamic-relation-strategies.svg" alt="Dynamic relation realization strategies">
-  </object>
-  <figcaption><a href="/assets/dynamic-relation-strategies.svg">Open the full-size SVG</a>. The realization is a compiler choice; it is not a different user Graph type.</figcaption>
+<figure class="gf-figure" markdown="1">
+
+![Dynamic relation realization strategies](assets/dynamic-relation-strategies.svg)
+
+<figcaption markdown="1">
+[Open the full-size SVG](assets/dynamic-relation-strategies.svg). The realization is a compiler choice; it is not a different user Graph type.
+</figcaption>
 </figure>
 
 ## The realization matrix

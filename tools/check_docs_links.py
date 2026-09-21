@@ -20,20 +20,35 @@ class Page(HTMLParser):
                 self.links.append(attrs[key])
 
 
-def main():
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("site", type=Path)
-    args = parser.parse_args()
-    root = args.site.resolve()
+DEFAULT_SITE_URL = "https://walkerchi.github.io/TIGA-lang/"
+
+
+def check_site(directory, site_url=DEFAULT_SITE_URL):
+    root = directory.resolve()
+    site_url = site_url.rstrip("/") + "/"
+    origin = urlsplit(site_url)
+    prefix = unquote(origin.path)
     pages = {path: Page(path.read_text()) for path in root.rglob("*.html")}
     errors, count = [], 0
     for path, page in pages.items():
-        base = "/" + str(path.relative_to(root))
+        base = urljoin(site_url, path.relative_to(root).as_posix())
         for link in page.links:
             parsed = urlsplit(urljoin(base, link))
-            if parsed.scheme not in ("", "http", "https") or parsed.netloc not in ("", "graphforge-docs.app.walkerchi.com"):
+            if parsed.scheme not in ("http", "https") or parsed.netloc != origin.netloc:
                 continue
-            target = root / unquote(parsed.path).lstrip("/")
+            target_path = unquote(parsed.path)
+            if target_path == prefix.rstrip("/"):
+                target_path = prefix
+            if not target_path.startswith(prefix):
+                # An explicit URL may intentionally reference another project;
+                # relative/root-relative links must stay inside this site.
+                if not urlsplit(link).netloc:
+                    errors.append(f"{path.relative_to(root)}: outside site base {link}")
+                continue
+            target = (root / target_path[len(prefix):]).resolve()
+            if not target.is_relative_to(root):
+                errors.append(f"{path.relative_to(root)}: outside site directory {link}")
+                continue
             if target.is_dir():
                 target /= "index.html"
             count += 1
@@ -41,9 +56,18 @@ def main():
                 errors.append(f"{path.relative_to(root)}: missing {link}")
             elif parsed.fragment and target in pages and unquote(parsed.fragment) not in pages[target].ids:
                 errors.append(f"{path.relative_to(root)}: missing anchor {link}")
+    return len(pages), count, errors
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("site", type=Path)
+    parser.add_argument("--site-url", default=DEFAULT_SITE_URL)
+    args = parser.parse_args()
+    page_count, count, errors = check_site(args.site, args.site_url)
     for error in errors:
         print(error)
-    print(f"{len(pages)} HTML files; {count} local references; {len(errors)} errors")
+    print(f"{page_count} HTML files; {count} local references; {len(errors)} errors")
     return bool(errors)
 
 

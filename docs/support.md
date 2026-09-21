@@ -8,8 +8,8 @@ dtype, layout, gradient, device and provider. Consult the [support matrix](roadm
 
 Official release targets: [GitHub](https://github.com/walkerchi/TIGA-lang) for
 code/issues, PyPI for `tiga-lang`, and a future arXiv technical report. The first
-PyPI release and arXiv identifier are pending. This documentation host is an
-authenticated preview, not yet a public documentation service.
+PyPI release and arXiv identifier are pending. Public documentation is available
+on [GitHub Pages](https://walkerchi.github.io/TIGA-lang/).
 
 Matching wheels need no separate LLVM SDK. Local validation covers Linux x86-64,
 CPython 3.11/3.12 and glibc 2.38 or newer. Other Python versions and platforms
@@ -51,8 +51,8 @@ concurrent mutation are not general supported contracts.
 
 ## Reporting a bug { #bug-report }
 
-Ordinary bugs and documentation requests belong in [GitHub Issues](https://github.com/walkerchi/TIGA-lang/issues/new/choose)
-once the official repository is public. Sole maintainer: **walkerchi**,
+Ordinary bugs and documentation requests belong in [GitHub Issues](https://github.com/walkerchi/TIGA-lang/issues/new/choose).
+Sole maintainer: **walkerchi**,
 Independent Developer. Email support:
 [walker.chi.000@gmail.com](mailto:walker.chi.000@gmail.com), subject prefix
 `[Tiga bug]`. When issues are unavailable, send the report by email. Include:

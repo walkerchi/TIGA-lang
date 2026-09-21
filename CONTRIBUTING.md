@@ -17,8 +17,8 @@ A useful report includes:
 
 Remove secrets and private data from logs and reproducers.
 
-Ordinary bugs belong in the [official GitHub issue tracker](https://github.com/walkerchi/TIGA-lang/issues/new/choose)
-once public. Select the bug, performance or feature/documentation template.
+Ordinary bugs belong in the [official GitHub issue tracker](https://github.com/walkerchi/TIGA-lang/issues/new/choose).
+Select the bug, performance or feature/documentation template.
 Include expected versus actual behavior, numerical tolerances, the source
 revision/wheel filename, and raw measurements for performance reports.
 The bilingual [support guide](docs/support.md) covers installation and input
@@ -26,8 +26,19 @@ pitfalls. Private vulnerabilities follow [SECURITY.md](SECURITY.md), not public
 issues. Contact the sole maintainer, **walkerchi** (Independent Developer), at
 [walker.chi.000@gmail.com](mailto:walker.chi.000@gmail.com) for email support.
 
-The official distribution direction is GitHub + PyPI + an arXiv technical report.
-Current preparation is local; it does not create public issues or publications.
+## Branch and publication workflow
+
+Maintainer changes are pushed to `dev`, then submitted as a pull request into
+`main`. Do not push changes directly to `main`. Keep `dev` after merging and
+fast-forward it to the updated `main` before the next change. External
+contributors can submit pull requests from forks.
+
+Public documentation is available on [GitHub Pages](https://walkerchi.github.io/TIGA-lang/).
+The `docs-pages` workflow checks both languages on `dev` and pull requests;
+only `main` deploys the public site. Documentation builds do not install Tiga,
+Torch or LLVM. Read the Docs configuration remains available for a separate
+integration. PyPI publication uses its own explicit release approval; merging
+a documentation change does not publish a Python package or an arXiv report.
 
 ## Checks and conventions
 

@@ -8,7 +8,7 @@ provider 组合均受支持。参见[支持矩阵](roadmap.md)、[执行诊断](
 
 官方发布目标：[GitHub](https://github.com/walkerchi/TIGA-lang) 代码与 issue、
 PyPI 的 `tiga-lang` 包，以及后续 arXiv tech report。首次 PyPI 发布与 arXiv
-编号尚未完成。当前文档域名为登录保护的预览站点，不是公开文档服务。
+编号尚未完成。公开文档位于 [GitHub Pages](https://walkerchi.github.io/TIGA-lang/zh/)。
 
 匹配的 wheel 无需另装 LLVM SDK。本地验证覆盖 Linux x86-64、CPython 3.11/3.12、
 glibc 2.38 及以上；其他 Python 版本和平台不在首发范围内。
@@ -48,7 +48,7 @@ glibc 2.38 及以上；其他 Python 版本和平台不在首发范围内。
 
 ## 反馈 bug { #bug-report }
 
-普通 bug 与文档建议提交至官方仓库公开后的
+普通 bug 与文档建议提交至官方仓库的
 [GitHub Issues](https://github.com/walkerchi/TIGA-lang/issues/new/choose)。
 唯一维护者：**walkerchi**，Independent Developer。支持邮箱：
 [walker.chi.000@gmail.com](mailto:walker.chi.000@gmail.com)，邮件主题前缀

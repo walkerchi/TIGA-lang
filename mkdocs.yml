@@ -1,6 +1,6 @@
 site_name: Tiga Compiler
 site_description: A differentiable JIT compiler for graph message-passing programs
-site_url: !ENV [READTHEDOCS_CANONICAL_URL, 'https://graphforge-docs.app.walkerchi.com/']
+site_url: !ENV [READTHEDOCS_CANONICAL_URL, 'https://walkerchi.github.io/TIGA-lang/']
 repo_url: https://github.com/walkerchi/TIGA-lang
 repo_name: walkerchi/TIGA-lang
 copyright: Copyright &copy; 2026 Tiga contributors

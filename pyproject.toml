@@ -28,7 +28,7 @@ classifiers = [
 
 [project.urls]
 Homepage = "https://github.com/walkerchi/TIGA-lang"
-Documentation = "https://github.com/walkerchi/TIGA-lang/blob/main/docs/index.md"
+Documentation = "https://walkerchi.github.io/TIGA-lang/"
 Repository = "https://github.com/walkerchi/TIGA-lang.git"
 Issues = "https://github.com/walkerchi/TIGA-lang/issues"
 "Technical report" = "https://github.com/walkerchi/tiga-lang-paper"
