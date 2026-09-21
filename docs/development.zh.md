@@ -187,6 +187,23 @@ Read the Docs 仍可使用 `.readthedocs.yaml` 单独接入；
 `READTHEDOCS_CANONICAL_URL` 可覆盖默认的 GitHub Pages 文档根地址。
 本地预览使用 `mkdocs serve`。
 
+### 搜索引擎收录
+
+页面标题与摘要位于 Markdown front matter；没有显式摘要时，从正文首个有效段落提取简短说明。
+构建通过 `python tools/check_docs_seo.py site` 检查 canonical URL、相互对应的中英文语言链接、
+分享图片与 sitemap 覆盖。基准测试的 include 文件嵌入报告，不作为独立页面发布。
+
+在 Google Search Console 添加正式文档根地址的**网址前缀属性**，保留 `/TIGA-lang/` 路径。
+选择 HTML 标记验证，把提供的 `content` 值设为 GitHub Actions 仓库变量
+`GOOGLE_SITE_VERIFICATION`，在 `main` 重新运行 `docs-pages` 后完成验证。
+该值是公开的站点验证元数据，不是登录凭据。提交 `sitemap.xml`，再通过 URL 检查工具
+为首页和主要指南请求收录。这些操作需要站点所有者的 Google 账号，部署本身不会代为提交。
+
+GitHub 项目 Pages 无法控制域名根目录的 `robots.txt`，放在 `/TIGA-lang/robots.txt`
+下的文件不会控制本站抓取，因此直接提交 sitemap。保持一个首选公开文档站点；
+如同时发布 Read the Docs 镜像，先确定镜像的收录与 canonical 策略，再推广两个地址。
+搜索排名与收录时间不作保证，参见 [Google SEO 指南](https://developers.google.com/search/docs/fundamentals/seo-starter-guide)。
+
 wheel 包含原生 Python 编译扩展、`gf-opt`、`gf-translate`、Tiga 运行时，
 使用共享 SDK 构建时还包含实际 `libMLIR`/`libLLVM` SONAME 文件；静态 SDK
 则将这些库链接进二进制。共享依赖使用相对 RPATH。

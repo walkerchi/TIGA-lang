@@ -1,3 +1,8 @@
+---
+title: 使用 PyTorch Tensor 与 Autograd 编写 Graph Message Passing
+description: 使用普通 torch.Tensor 定义 Tiga 边函数、reducer 与节点更新，了解 MessagePassing 接口、图输入约束与自动求导。
+---
+
 # 消息传递 { #message-passing }
 
 前置内容：[编程模型](programming-model.md)。本页是公共接口契约：

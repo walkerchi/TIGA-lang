@@ -1,3 +1,8 @@
+---
+title: Sparse Graph Performance, GPU Memory and Distributed Benchmarks
+description: Measure Tiga against Torch sparse and PyG on CSR, radius and kNN workloads, with GPU memory results, billion-edge offload and distributed execution measurements.
+---
+
 # Performance, capacity, and distributed execution
 
 Compare execution time and memory use, assess billion-edge single-GPU capacity,

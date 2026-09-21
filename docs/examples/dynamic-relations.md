@@ -1,3 +1,8 @@
+---
+title: Radius Graphs, kNN Graphs and Grid Stencils with PyTorch
+description: Build Tiga radius and k-nearest-neighbor graphs with Torch tensors, choose distance metrics, and use grid stencil neighborhoods and boundary conditions.
+---
+
 # Dynamic and generated relations
 
 Relations can be generated from coordinates or from fixed rules. “Generated”

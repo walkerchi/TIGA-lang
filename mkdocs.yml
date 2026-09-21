@@ -1,5 +1,5 @@
 site_name: Tiga Compiler
-site_description: A differentiable JIT compiler for graph message-passing programs
+site_description: Tiga compiles differentiable graph message passing with PyTorch tensors for sparse aggregation and GPU graph computation.
 site_url: !ENV [READTHEDOCS_CANONICAL_URL, 'https://walkerchi.github.io/TIGA-lang/']
 repo_url: https://github.com/walkerchi/TIGA-lang
 repo_name: walkerchi/TIGA-lang
@@ -9,11 +9,13 @@ site_dir: site
 hooks:
   - docs/hooks/api_navigation.py
   - docs/hooks/mlir_highlight.py
+  - docs/hooks/search_metadata.py
 validation:
   links:
     anchors: warn
 theme:
   name: material
+  custom_dir: overrides
   language: en
   font: false
   logo: assets/tiga-mark.svg
@@ -87,6 +89,7 @@ plugins:
         - locale: zh
           name: 简体中文
           site_name: Tiga 编译器
+          site_description: Tiga 使用 PyTorch Tensor 编译可微 graph message passing，支持稀疏聚合与 GPU 图计算。
           nav_translations:
             Overview: 概览
             User guide: 使用指南
@@ -100,6 +103,7 @@ plugins:
             Build and contribute: 构建与贡献
             Start here: 快速上手
             Programming model: 编程模型
+            PyTorch sparse and graph networks: PyTorch 稀疏运算与图神经网络
             Message passing: 消息传递
             Reducers: Reducer
             How Tiga compares: 对比与定位
@@ -136,11 +140,13 @@ extra_javascript:
   - javascripts/tiga.js
 extra:
   generator: false
+  google_site_verification: !ENV [GOOGLE_SITE_VERIFICATION, '']
 nav:
   - Overview: index.md
   - User guide:
       - Start here: getting-started.md
       - Programming model: programming-model.md
+      - PyTorch sparse and graph networks: pytorch-sparse-message-passing.md
       - Message passing: message-passing.md
       - Reducers: reducers.md
       - Execution and troubleshooting: execution.md
@@ -175,6 +181,7 @@ nav:
       - Current status & roadmap: roadmap.md
       - How Tiga compares: comparison.md
 exclude_docs: |
+  includes/**
   archive/**
   design-notes.md
   IR_DESIGN.md

@@ -86,6 +86,7 @@ sdist.include = [
   "python_bindings/**",
   "benchmarks/**",
   "docs/**",
+  "overrides/**",
   "examples/**",
   "tests/**",
   "mkdocs.yml",
