@@ -41,18 +41,27 @@ def test_reject_metadata_mismatch_even_with_matching_filename(tmp_path):
 def test_release_workflow_requires_all_gates():
     root = Path(__file__).resolve().parents[2]
     source = (root / ".github/workflows/release.yml").read_text()
-    assert "needs: [quality, build-wheel, build-sdist, gpu-validation]" in source
-    assert "tools/verify_release.py" in source
-    assert "-m tools.gpu_gate" in source
+    assert 'uses: ./.github/workflows/compiler-ci.yml' in source
+    assert 'gpu-validation:' not in source
+    assert 'self-hosted' not in source
+    assert 'gh-action-pypi-publish' not in source
     assert "source-dist/*.tar.gz" in source
     assert "expected not in name" not in source
 
 
 def test_pypi_publication_requires_explicit_dispatch_not_a_tag_push():
     root = Path(__file__).resolve().parents[2]
-    source = (root / '.github/workflows/release.yml').read_text()
+    source = (root / '.github/workflows/publish.yml').read_text()
     assert "default: false" in source
-    assert "if: github.event_name == 'workflow_dispatch' && inputs.publish_pypi && startsWith(github.ref, 'refs/tags/v')" in source
+    assert "if: inputs.publish_pypi && startsWith(github.ref, 'refs/tags/v')" in source
+    assert 'workflow_dispatch:' in source
+    assert '\n  push:' not in source
+    assert 'python tools/verify_release_evidence.py dist' in source
+    assert 'python tools/verify_release.py dist' in source
+    assert source.count('run-id: ${{ inputs.build_run_id }}') == 2
+    assert '-m build' not in source
+    assert '-m pip wheel' not in source
+    assert source.index('tools/verify_release_evidence.py') < source.index('gh-action-pypi-publish')
 
 
 def test_native_ci_provisions_plotting_dependencies_and_disk_space():
@@ -61,6 +70,42 @@ def test_native_ci_provisions_plotting_dependencies_and_disk_space():
     assert 'pytest numpy pillow matplotlib packaging' in source
     assert source.index('Reserve disk space for LLVM') < source.index('Fetch and verify pinned LLVM SDK')
     assert 'rm -- "$archive"' in source
+
+
+def test_native_ci_builds_wheel_and_mlir_tests_in_one_tree():
+    root = Path(__file__).resolve().parents[2]
+    source = (root / '.github/workflows/compiler-ci.yml').read_text()
+    assert '-Cbuild-dir=build/ci' in source
+    assert '-Ccmake.define.TIGA_INCLUDE_TESTS=ON' in source
+    assert '-Cbuild.targets=all -Cbuild.targets=check-tiga' in source
+    assert 'cmake -S . -B build/ci' not in source
+    assert 'cmake --build build/ci' not in source
+
+
+def test_release_builds_overlap_quality_but_publication_still_waits():
+    root = Path(__file__).resolve().parents[2]
+    source = (root / '.github/workflows/release.yml').read_text()
+    wheel_job = source.split('\n  build-wheel:', 1)[1].split('\n  build-sdist:', 1)[0]
+    assert 'needs: build-sdist' in wheel_job
+    assert 'needs: [quality, build-sdist]' not in wheel_job
+    assert 'source-dist/*.tar.gz' in wheel_job
+    assert 'echo "CCACHE_BASEDIR=$RUNNER_TEMP" >> "$GITHUB_ENV"' in wheel_job
+    assert 'echo "TMPDIR=$RUNNER_TEMP" >> "$GITHUB_ENV"' in wheel_job
+    assert 'uses: ./.github/workflows/compiler-ci.yml' in source
+
+
+@pytest.mark.parametrize('workflow', ['compiler-ci.yml', 'release.yml'])
+def test_native_workflows_cache_pinned_sdk_and_validate_compiler_content(workflow):
+    root = Path(__file__).resolve().parents[2]
+    source = (root / '.github/workflows' / workflow).read_text()
+    assert 'key: llvm-22.1.8-linux-x64-df0e1ecf' in source
+    assert "if: steps.llvm-cache.outputs.cache-hit != 'true'" in source
+    assert 'CMAKE_C_COMPILER_LAUNCHER: ccache' in source
+    assert 'CMAKE_CXX_COMPILER_LAUNCHER: ccache' in source
+    assert 'CCACHE_COMPILERCHECK: content' in source
+    assert 'CCACHE_SLOPPINESS' not in source
+    assert 'CMAKE_BUILD_PARALLEL_LEVEL: "2"' in source
+    assert 'ccache --show-stats' in source
 
 
 def test_readthedocs_build_does_not_require_native_install():

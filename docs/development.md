@@ -152,17 +152,69 @@ requirements. Compiler tool discovery can use the installed package tools.
 
 `tools/gpu_gate.py` runs the CUDA forward/backward, cache, and diagnostics
 suite. CUDA, Triton and the built compiler tools are required. Skipped,
-deselected and expected-failure checks make the gate fail. GPU verification
-also runs against the repaired release wheel on a trusted self-hosted runner
-labelled `tiga-cuda`. Configure the `release-validation` environment and runner
-before tagging: without them, publication remains blocked. GPU jobs run only
-in the release workflow, not on untrusted pull requests.
+deselected and expected-failure checks make the gate fail.
 
-Publication additionally requires the reusable CPU/MLIR/docs workflow,
-wheels rebuilt from the same sdist, and exact tag/source/archive metadata
-checks. Configure the `pypi` environment and PyPI trusted publisher separately;
-local builds never publish. First-release artifacts cover Linux x86-64,
-CPython 3.11/3.12 and glibc 2.38 or newer.
+### Release validation and publication
+
+The `release.yml` workflow builds wheels from one sdist and runs the
+CPU/MLIR/documentation checks on GitHub-hosted CPU runners. It neither waits
+for a GPU runner nor uploads to PyPI. Compilation uses a cache; the MLIR suite
+and quality-check wheel share one native build, and release wheels build in
+parallel with quality checks.
+
+GPU validation runs locally against the downloaded, repaired CPython 3.12
+wheel, not an editable installation or a separately rebuilt wheel. In a clean
+checkout of the release tag, set `TIGA_RELEASE_RUN_ID` to the successful
+`release.yml` run ID and `TIGA_RELEASE_TAG` to that version tag. With
+[GitHub CLI](https://cli.github.com/manual/) authenticated, run:
+
+```bash
+set -euo pipefail
+: "${TIGA_RELEASE_RUN_ID:?Set the successful release workflow run ID}"
+: "${TIGA_RELEASE_TAG:?Set the version tag}"
+test "$(git rev-parse HEAD)" = "$(git rev-parse "${TIGA_RELEASE_TAG}^{commit}")"
+validation_dir=$(mktemp -d)
+gh api "repos/walkerchi/TIGA-lang/actions/runs/$TIGA_RELEASE_RUN_ID" \
+  > "$validation_dir/build-run.json"
+gh run download "$TIGA_RELEASE_RUN_ID" --repo walkerchi/TIGA-lang \
+  --name wheel-manylinux_2_38_x86_64-py3.12 --dir "$validation_dir/wheel"
+python3.12 -m venv "$validation_dir/venv"
+py="$validation_dir/venv/bin/python"
+"$py" -m pip install 'torch==2.11.0' --index-url https://download.pytorch.org/whl/cu128
+"$py" -m pip install pytest numpy pillow matplotlib packaging 'triton==3.6.0'
+"$py" -m pip install --no-deps "$validation_dir"/wheel/*.whl
+unset PYTHONPATH LD_LIBRARY_PATH TIGA_OPT TIGA_TRANSLATE TIGA_RUNTIME_LIBRARY MLIR_DIR LLVM_DIR
+"$py" -m tools.gpu_gate > "$validation_dir/gpu.log" 2>&1
+sha256sum "$validation_dir"/wheel/*.whl > "$validation_dir/SHA256SUMS"
+gpu_wheel_sha256=$(cut -d ' ' -f 1 "$validation_dir/SHA256SUMS")
+"$py" tools/verify_release_evidence.py "$validation_dir/wheel" \
+  --run-metadata "$validation_dir/build-run.json" --commit "$(git rev-parse HEAD)" \
+  --repository walkerchi/TIGA-lang --tag "$TIGA_RELEASE_TAG" \
+  --gpu-wheel-sha256 "$gpu_wheel_sha256"
+```
+
+Retain the run record, `gpu.log`, and `SHA256SUMS` with the release records.
+The checksum is written only after the GPU gate succeeds. Inspect the log
+before approving publication. The checksum and manual confirmation are a
+maintainer assertion, not an independent automated GPU attestation.
+
+Only after GPU validation, explicitly start `publish.yml` on the same tag:
+
+```bash
+sha256sum --check "$validation_dir/SHA256SUMS"
+gh workflow run publish.yml --repo walkerchi/TIGA-lang --ref "$TIGA_RELEASE_TAG" \
+  -f build_run_id="$TIGA_RELEASE_RUN_ID" \
+  -f gpu_wheel_sha256="$gpu_wheel_sha256" -F publish_pypi=true
+```
+
+Publication downloads the existing build artifacts without rebuilding. It
+requires a successful release workflow for the same repository, tag and commit,
+the matching GPU wheel checksum, and exact tag/source/archive metadata.
+Configure the `pypi` environment and PyPI trusted publisher for `publish.yml`
+separately; local builds and version-tag pushes never publish to PyPI.
+First-release artifacts cover Linux x86-64, CPython 3.11/3.12 and glibc 2.38
+or newer. A version tag must contain these workflows to use this procedure;
+previously published tags are not rewritten.
 
 Read the Docs uses `.readthedocs.yaml` and `docs/requirements.txt` without
 installing Tiga or LLVM. Import the GitHub repository into RTD after making it

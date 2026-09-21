@@ -115,14 +115,66 @@ python -m build
 驱动、Triton 与已构建的编译工具，不是 CPU 入门的安装要求。
 
 `tools/gpu_gate.py` 检查 CUDA 前向、反向、缓存与诊断。
-skip、deselect 和 expected failure 均令 gate 失败。发布 workflow 还会在标记为
-`tiga-cuda` 的可信 self-hosted runner 上验证修复后的 wheel。
-打 tag 前配置 runner 与 `release-validation` environment；缺少配置时阻止发布。
-GPU job 只在发布 workflow 执行，不接收不可信 pull request。
+skip、deselect 和 expected failure 均令 gate 失败。
 
-上传还要求 CPU/MLIR/docs workflow、同一 sdist 重建的 wheel，以及 tag/源码/产物
-元数据精确匹配。`pypi` environment 和 PyPI trusted publisher 需要单独配置；
-本地构建不会上传。首发范围为 Linux x86-64、CPython 3.11/3.12、glibc ≥ 2.38。
+### 发布验证与上传 { #release-validation-and-publication }
+
+`release.yml` 在 GitHub 托管的 CPU runner 上从同一 sdist 构建 wheel，
+并完成 CPU、MLIR 和文档检查；不等待 GPU runner，也不上传 PyPI。
+编译使用缓存，MLIR 测试与质量检查用的 wheel 共用一次原生构建，
+发布 wheel 与质量检查并行执行。
+
+GPU 验证在本地针对下载的、已修复的 CPython 3.12 wheel 执行，
+不使用 editable 安装或另行重建的 wheel。在版本 tag 对应的干净 checkout 中，
+将 `TIGA_RELEASE_RUN_ID` 设为成功的 `release.yml` run ID，
+将 `TIGA_RELEASE_TAG` 设为该版本 tag。
+[GitHub CLI](https://cli.github.com/manual/) 完成认证后执行：
+
+```bash
+set -euo pipefail
+: "${TIGA_RELEASE_RUN_ID:?Set the successful release workflow run ID}"
+: "${TIGA_RELEASE_TAG:?Set the version tag}"
+test "$(git rev-parse HEAD)" = "$(git rev-parse "${TIGA_RELEASE_TAG}^{commit}")"
+validation_dir=$(mktemp -d)
+gh api "repos/walkerchi/TIGA-lang/actions/runs/$TIGA_RELEASE_RUN_ID" \
+  > "$validation_dir/build-run.json"
+gh run download "$TIGA_RELEASE_RUN_ID" --repo walkerchi/TIGA-lang \
+  --name wheel-manylinux_2_38_x86_64-py3.12 --dir "$validation_dir/wheel"
+python3.12 -m venv "$validation_dir/venv"
+py="$validation_dir/venv/bin/python"
+"$py" -m pip install 'torch==2.11.0' --index-url https://download.pytorch.org/whl/cu128
+"$py" -m pip install pytest numpy pillow matplotlib packaging 'triton==3.6.0'
+"$py" -m pip install --no-deps "$validation_dir"/wheel/*.whl
+unset PYTHONPATH LD_LIBRARY_PATH TIGA_OPT TIGA_TRANSLATE TIGA_RUNTIME_LIBRARY MLIR_DIR LLVM_DIR
+"$py" -m tools.gpu_gate > "$validation_dir/gpu.log" 2>&1
+sha256sum "$validation_dir"/wheel/*.whl > "$validation_dir/SHA256SUMS"
+gpu_wheel_sha256=$(cut -d ' ' -f 1 "$validation_dir/SHA256SUMS")
+"$py" tools/verify_release_evidence.py "$validation_dir/wheel" \
+  --run-metadata "$validation_dir/build-run.json" --commit "$(git rev-parse HEAD)" \
+  --repository walkerchi/TIGA-lang --tag "$TIGA_RELEASE_TAG" \
+  --gpu-wheel-sha256 "$gpu_wheel_sha256"
+```
+
+将构建记录、`gpu.log` 和 `SHA256SUMS` 保留为发布记录。
+校验和仅在 GPU gate 成功后写入；确认日志后再批准上传。
+校验和与手动确认代表维护者对本地验证的确认，并非独立的自动 GPU 认证。
+
+GPU 验证通过后，才在同一 tag 上显式触发 `publish.yml`：
+
+```bash
+sha256sum --check "$validation_dir/SHA256SUMS"
+gh workflow run publish.yml --repo walkerchi/TIGA-lang --ref "$TIGA_RELEASE_TAG" \
+  -f build_run_id="$TIGA_RELEASE_RUN_ID" \
+  -f gpu_wheel_sha256="$gpu_wheel_sha256" -F publish_pypi=true
+```
+
+上传复用已有构建产物，不重新编译。必须满足：同一仓库、tag 和提交的
+release workflow 已成功，本地 GPU 验证的 wheel 校验和一致，
+tag、源码和产物元数据精确匹配。
+`pypi` environment 和指向 `publish.yml` 的 PyPI trusted publisher 需要单独配置；
+本地构建和推送版本 tag 均不会上传 PyPI。
+首发范围为 Linux x86-64、CPython 3.11/3.12、glibc ≥ 2.38。
+此流程要求版本 tag 包含上述 workflow；已发布的历史 tag 不重写。
 
 Read the Docs 使用 `.readthedocs.yaml` 和 `docs/requirements.txt`，无需安装 Tiga 或 LLVM。
 GitHub 仓库公开后再导入 RTD；`READTHEDOCS_CANONICAL_URL` 提供文档根地址。

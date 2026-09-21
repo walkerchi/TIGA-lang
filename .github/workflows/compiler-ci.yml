@@ -16,9 +16,16 @@ env:
 
 jobs:
   linux-llvm-mlir:
-    name: LLVM/MLIR 22.1.8 clean build
+    name: LLVM/MLIR 22.1.8 wheel and regression tests
     runs-on: ubuntu-24.04
     timeout-minutes: 90
+    env:
+      CMAKE_BUILD_PARALLEL_LEVEL: "2"
+      CMAKE_C_COMPILER_LAUNCHER: ccache
+      CMAKE_CXX_COMPILER_LAUNCHER: ccache
+      CCACHE_BASEDIR: ${{ github.workspace }}
+      CCACHE_COMPILERCHECK: content
+      CCACHE_MAXSIZE: 500M
     steps:
       - uses: actions/checkout@v4
 
@@ -32,7 +39,15 @@ jobs:
       - name: Install build tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y ninja-build python3-venv xz-utils
+          sudo apt-get install -y ccache ninja-build python3-venv xz-utils
+          echo "CCACHE_DIR=$RUNNER_TEMP/tiga-ccache" >> "$GITHUB_ENV"
+
+      - name: Cache native compilation
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/tiga-ccache
+          key: native-v1-ubuntu24.04-llvm22.1.8-py3.12-${{ github.sha }}
+          restore-keys: native-v1-ubuntu24.04-llvm22.1.8-py3.12-
 
       - name: Cache pinned LLVM SDK
         id: llvm-cache
@@ -55,28 +70,26 @@ jobs:
             -C "${RUNNER_TOOL_CACHE}/tiga-llvm-${LLVM_VERSION}"
           rm -- "$archive"
 
-      - name: Configure clean compiler build
+      - name: Cache LLVM test utilities
+        id: test-tools-cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ runner.tool_cache }}/tiga-llvm-test-tools-22.1.8/bin
+            ${{ runner.tool_cache }}/tiga-llvm-test-tools-22.1.8/lit
+          key: llvm-test-tools-ubuntu24.04-22.1.8-${{ hashFiles('tools/bootstrap_llvm_test_tools.py') }}
+
+      - name: Prepare LLVM test utilities
+        if: steps.test-tools-cache.outputs.cache-hit != 'true'
         shell: bash
         run: |
           set -euxo pipefail
           sdk="${RUNNER_TOOL_CACHE}/tiga-llvm-${LLVM_VERSION}"
-          test_tools="$RUNNER_TEMP/llvm-test-tools"
+          test_tools="${RUNNER_TOOL_CACHE}/tiga-llvm-test-tools-${LLVM_VERSION}"
           python3 tools/bootstrap_llvm_test_tools.py \
             --llvm-root "$sdk" --output "$test_tools"
-          cmake -S . -B build/ci -G Ninja \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DMLIR_DIR="$sdk/lib/cmake/mlir" \
-            -DLLVM_DIR="$sdk/lib/cmake/llvm" \
-            -DLLVM_EXTERNAL_LIT="$test_tools/lit/lit.py" \
-            -DTIGA_LLVM_TEST_TOOLS_DIR="$test_tools/bin" \
-            -DTIGA_STRICT_LLVM_VERSION=ON \
-            -DTIGA_BUNDLE_LLVM_RUNTIME=ON \
-            -DPython3_EXECUTABLE="$(command -v python3)"
 
-      - name: Build and run MLIR regression suite
-        run: cmake --build build/ci --target check-tiga --parallel 2
-
-      - name: Build wheel from the pinned SDK
+      - name: Build wheel and run MLIR regression suite once
         shell: bash
         run: |
           set -euxo pipefail
@@ -84,11 +97,23 @@ jobs:
           "$RUNNER_TEMP/build-venv/bin/pip" install --upgrade \
             pip build twine auditwheel mkdocs-material mkdocs-static-i18n
           sdk="${RUNNER_TOOL_CACHE}/tiga-llvm-${LLVM_VERSION}"
+          test_tools="${RUNNER_TOOL_CACHE}/tiga-llvm-test-tools-${LLVM_VERSION}"
+          # Build the wheel and check-tiga in one native tree, under the same
+          # isolated build environment. Only TigaWheel components are packaged.
           CMAKE_ARGS="-DMLIR_DIR=$sdk/lib/cmake/mlir -DLLVM_DIR=$sdk/lib/cmake/llvm -DTIGA_STRICT_LLVM_VERSION=ON" \
-            "$RUNNER_TEMP/build-venv/bin/python" -m build --wheel
+            "$RUNNER_TEMP/build-venv/bin/python" -m build --wheel \
+              -Cbuild-dir=build/ci \
+              -Ccmake.define.TIGA_INCLUDE_TESTS=ON \
+              -Ccmake.define.LLVM_EXTERNAL_LIT="$test_tools/lit/lit.py" \
+              -Ccmake.define.TIGA_LLVM_TEST_TOOLS_DIR="$test_tools/bin" \
+              -Cbuild.targets=all -Cbuild.targets=check-tiga
           "$RUNNER_TEMP/build-venv/bin/python" -m twine check --strict dist/*.whl
           "$RUNNER_TEMP/build-venv/bin/python" -m auditwheel repair \
             --plat manylinux_2_38_x86_64 --wheel-dir wheelhouse dist/*.whl
+
+      - name: Report compilation cache statistics
+        if: always()
+        run: ccache --show-stats
 
       - name: Build strict documentation
         run: |
