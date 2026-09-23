@@ -23,9 +23,9 @@ the standalone native tensor runtime also runs without PyTorch.
 
 ## Installation
 
-### From PyPI (after the first release)
+### From PyPI
 
-The first PyPI release is still being prepared. Once published, install with:
+Install in a Python 3.11 or 3.12 virtual environment:
 
 ```bash
 # For the Torch example below; skip if Torch is already installed or not needed.

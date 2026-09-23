@@ -6,14 +6,12 @@ Basic Python is assumed; source installation additionally requires a build toolc
 
 ## Install
 
-This alpha is preparing its first release. Use source installation or a
-locally built wheel for now. The distribution name is `tiga-lang`;
+Tiga is alpha software. The distribution name is `tiga-lang`;
 the import name is `tiga`.
 
-### From PyPI (after the first release) { #pypi-install }
+### From PyPI { #pypi-install }
 
-The following commands are for the upcoming release, not a currently published
-artifact. In a virtual environment, install Torch first for the examples below
+In a Python 3.11 or 3.12 virtual environment, install Torch first for the examples below
 (skip the first command if Torch is already installed or native-only execution is intended):
 
 ```bash
@@ -40,10 +38,10 @@ hardware-compatible Torch distribution separately. If no compatible wheel is ava
 [source build](#source-build) with its prerequisites; a source distribution
 is not a precompiled wheel.
 
-To install a locally built wheel before publication, use its actual file path:
+To install a downloaded or locally built wheel, use its actual file path:
 
 ```bash
-python -m pip install "/path/to/tiga_lang-0.1.0-<python>-<abi>-<platform>.whl"
+python -m pip install "/path/to/tiga_lang-0.1.1-<python>-<abi>-<platform>.whl"
 python -m tiga
 ```
 

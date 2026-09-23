@@ -12,7 +12,7 @@ identifiers: []
 repository-code: "https://github.com/walkerchi/TIGA-lang"
 url: "https://github.com/walkerchi/TIGA-lang"
 license: Apache-2.0
-version: "0.1.0"
+version: "0.1.1"
 keywords:
   - compiler
   - graph neural networks

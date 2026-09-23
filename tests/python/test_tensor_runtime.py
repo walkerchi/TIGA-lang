@@ -556,7 +556,7 @@ DONE:
         self.assertIn((1 << 20, 1 << 20, 1 << 40), graph.planning_key())
 
     def test_native_cpu_buffer_stream_and_event(self):
-        self.assertEqual(tg.runtime.version(), "0.1.0a1")
+        self.assertEqual(tg.runtime.version(), tg.__version__.split("+")[0])
         buffer = tg.runtime.Buffer(257, alignment=64)
         self.assertEqual(buffer.nbytes, 257)
         self.assertNotEqual(buffer.address, 0)

@@ -7,8 +7,8 @@ provider 组合均受支持。参见[支持矩阵](roadmap.md)、[执行诊断](
 ## 安装 { #installation }
 
 官方发布目标：[GitHub](https://github.com/walkerchi/TIGA-lang) 代码与 issue、
-PyPI 的 `tiga-lang` 包，以及后续 arXiv tech report。首次 PyPI 发布与 arXiv
-编号尚未完成。公开文档位于 [GitHub Pages](https://walkerchi.github.io/TIGA-lang/zh/)。
+[PyPI](https://pypi.org/project/tiga-lang/) 的 `tiga-lang` 包，以及后续 arXiv tech report。
+arXiv 编号尚未发布。公开文档位于 [GitHub Pages](https://walkerchi.github.io/TIGA-lang/zh/)。
 
 匹配的 wheel 无需另装 LLVM SDK。本地验证覆盖 Linux x86-64、CPython 3.11/3.12、
 glibc 2.38 及以上；其他 Python 版本和平台不在首发范围内。

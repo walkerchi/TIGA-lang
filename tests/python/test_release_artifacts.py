@@ -9,6 +9,13 @@ import pytest
 from tools.verify_release import verify, verify_archive
 
 
+@pytest.fixture
+def project_file(tmp_path):
+    path = tmp_path / 'project.toml'
+    path.write_text('[project]\nname = "tiga-lang"\nversion = "0.1.0"\nrequires-python = ">=3.11,<3.13"\n')
+    return path
+
+
 def archives(tmp_path, version="0.1.0", metadata_version=None):
     content = f"Name: tiga-lang\nVersion: {metadata_version or version}\nRequires-Python: >=3.11,<3.13\n\n".encode()
     for abi in (311, 312):
@@ -22,20 +29,42 @@ def archives(tmp_path, version="0.1.0", metadata_version=None):
 
 
 @pytest.mark.parametrize("tag", ["v0.1", "v1.0", "v0.1.0rc1", "0.1.0"])
-def test_reject_substring_and_nonexact_tags(tmp_path, tag):
+def test_reject_substring_and_nonexact_tags(tmp_path, project_file, tag):
     with pytest.raises(ValueError, match="exactly"):
-        verify(tmp_path, Path(__file__).resolve().parents[2] / "pyproject.toml", tag)
+        verify(tmp_path, project_file, tag)
 
 
-def test_verify_complete_matrix(tmp_path):
-    archives(tmp_path)
-    assert verify(tmp_path, Path(__file__).resolve().parents[2] / "pyproject.toml", "v0.1.0") == 3
+def test_verify_complete_matrix(tmp_path, project_file):
+    directory = tmp_path / 'dist'
+    directory.mkdir()
+    archives(directory)
+    assert verify(directory, project_file, "v0.1.0") == 3
 
 
-def test_reject_metadata_mismatch_even_with_matching_filename(tmp_path):
-    archives(tmp_path, metadata_version="9.0.0")
+def test_reject_metadata_mismatch_even_with_matching_filename(tmp_path, project_file):
+    directory = tmp_path / 'dist'
+    directory.mkdir()
+    archives(directory, metadata_version="9.0.0")
     with pytest.raises(ValueError, match="Version"):
-        verify(tmp_path, Path(__file__).resolve().parents[2] / "pyproject.toml", "v0.1.0")
+        verify(directory, project_file, "v0.1.0")
+
+
+def test_release_versions_are_consistent():
+    import tomllib
+    root = Path(__file__).resolve().parents[2]
+    version = tomllib.loads((root / 'pyproject.toml').read_text())['project']['version']
+    assert f'version: "{version}"' in (root / 'CITATION.cff').read_text()
+    assert f'"{version}+source"' in (root / 'python/tiga/_version.py').read_text()
+    assert f'gfrt_runtime_version(void) {{ return "{version}"; }}' in (root / 'lib/Runtime/Runtime.cpp').read_text()
+
+
+def test_wheel_job_checks_out_same_tag_smoke_test():
+    root = Path(__file__).resolve().parents[2]
+    source = (root / '.github/workflows/release.yml').read_text()
+    job = source.split('\n  build-wheel:', 1)[1].split('\n  build-sdist:', 1)[0]
+    assert job.index('uses: actions/checkout@v4') < job.index('name: Smoke test')
+    assert '"$GITHUB_WORKSPACE/tests/smoke/wheel_without_torch.py"' in job
+    assert 'source-dist/*.tar.gz' in job
 
 
 def test_release_workflow_requires_all_gates():
