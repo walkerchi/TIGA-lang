@@ -73,7 +73,7 @@ def test_sparse_message_passing_example_on_cpu():
 
 
 def test_seo_checker_detects_broken_metadata_and_sitemap(tmp_path):
-    from tools.check_docs_seo import check_site
+    from tools.check_docs_seo import check_site, VERIFICATION_FILES
     base = 'https://example.com/project/'
     (tmp_path / 'zh').mkdir()
     (tmp_path / 'assets').mkdir()
@@ -89,9 +89,22 @@ def test_seo_checker_detects_broken_metadata_and_sitemap(tmp_path):
             f'<link rel="alternate" hreflang="zh" href="{base}zh/">'
             '<script type="application/ld+json">{"@type":"SoftwareSourceCode"}</script>')
     (tmp_path / '404.html').write_text('<meta name="robots" content="noindex">')
+    for name, expected in VERIFICATION_FILES.items():
+        assert (ROOT / 'docs' / name).read_text().strip() == expected
+        (tmp_path / name).write_text(expected + '\n')
+        (tmp_path / 'zh' / name).write_text(expected + '\n')
     (tmp_path / 'sitemap.xml').write_text(
         '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'
         f'<url><loc>{base}</loc></url><url><loc>{base}zh/</loc></url></urlset>')
+    assert check_site(tmp_path) == (2, [])
+    for name, expected in VERIFICATION_FILES.items():
+        proof = tmp_path / name
+        proof.unlink()
+        assert any('missing or altered site verification' in error
+                   for error in check_site(tmp_path)[1])
+        proof.write_text('<html>' + expected + '</html>')
+        assert any('site verification' in error for error in check_site(tmp_path)[1])
+        proof.write_text(expected + '\n')
     assert check_site(tmp_path) == (2, [])
     page = tmp_path / 'zh/index.html'
     page.write_text(page.read_text().replace(f'href="{base}zh/"', 'href="/zh/"'))
