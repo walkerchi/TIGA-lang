@@ -7,6 +7,14 @@ from urllib.parse import urljoin, urlsplit, unquote
 import xml.etree.ElementTree as ET
 
 
+# Persistent Search Console ownership proof, not a rendered documentation page.
+# Keep the file published even after verification succeeds.
+VERIFICATION_FILES = {
+    'google57fbec322702f87c.html':
+        'google-site-verification: google57fbec322702f87c.html',
+}
+
+
 class Metadata(HTMLParser):
     def __init__(self, text):
         super().__init__()
@@ -45,12 +53,24 @@ class Metadata(HTMLParser):
 
 def check_site(root):
     root = Path(root)
-    # Archived standalone chart exports are evidence assets, not MkDocs pages.
-    pages = {p.relative_to(root).as_posix(): Metadata(p.read_text())
-             for p in root.rglob('*.html')
-             if not p.relative_to(root).as_posix().startswith('assets/')}
-    base = pages['index.html'].canonicals[0]
     errors = []
+    for name, expected in VERIFICATION_FILES.items():
+        proof = root / name
+        if not proof.is_file() or proof.read_text().strip() != expected:
+            errors.append(f'{name}: missing or altered site verification file')
+    # Archived standalone chart exports are evidence assets, not MkDocs pages.
+    pages = {}
+    for path in root.rglob('*.html'):
+        relative = path.relative_to(root).as_posix()
+        if relative.startswith('assets/'):
+            continue
+        if path.name in VERIFICATION_FILES:
+            # The language plugin can also copy static files into locale roots.
+            if path.read_text().strip() != VERIFICATION_FILES[path.name]:
+                errors.append(f'{relative}: altered site verification file')
+            continue
+        pages[relative] = Metadata(path.read_text())
+    base = pages['index.html'].canonicals[0]
     canonical_pages = {}
     for path, page in pages.items():
         if path == '404.html':
